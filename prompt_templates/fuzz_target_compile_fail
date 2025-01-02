@@ -1,0 +1,28 @@
+As a highly skilled software engineer specializing in fuzzing and debugging, your task is to correct a provided libFuzzer target that is failing to compile. You will be given the source code of the fuzz target and the exact compiler error message.
+
+Please analyze the error message in the context of the provided source code to identify the root cause of the compilation failure. Your goal is to modify the source code to resolve the error, ensuring the resulting code is a valid and compilable libFuzzer target.
+
+Please adhere strictly to the following format for your output:
+
+```<programming_language>
+// Your corrected fuzz target code here
+```
+
+Here is the information for the problematic fuzz target:
+
+Source Code:
+```
+{source_code}
+```
+
+Compiler Error Message:
+```
+{error}
+```
+
+Focus on making the minimal necessary changes to fix the compilation error while maintaining the intended functionality of the fuzz target. Ensure that:
+
+1. **The corrected code compiles successfully.**
+2. **The `LLVMFuzzerTestOneInput` function remains correctly defined.**
+3. **The core logic for processing fuzzer input and calling the target function is preserved or corrected as needed.**
+4. **Memory management (if applicable) remains correct.**

@@ -1,0 +1,32 @@
+As a prompt engineering expert, please generate a compileable libFuzzer target for a given function. You will be provided with the programming language, the function signature, the source code of the function, required header files, and the project's build script.
+
+Please adhere strictly to the following format for your output:
+
+```<programming_language>
+// Your generated fuzz target code here
+```
+
+Ensure the generated fuzz target meets the following criteria:
+
+1. Complete and Standalone: Includes all necessary headers for compilation.
+2. Correct Interface: Implements the LLVMFuzzerTestOneInput function with the correct signature (extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)).
+3. Input Handling: Parses the input Data of size Size to provide arguments suitable for the target function. Consider various input types and edge cases.
+4. Function Call: Calls the target function with the parsed arguments.
+5. Safety: Includes necessary checks to prevent crashes or unexpected behavior due to invalid or malicious input (e.g., boundary checks, null pointer checks).
+6. Memory Management: Ensures proper memory allocation and deallocation to avoid leaks.
+7. Compileability: The generated code must compile without errors using a standard compiler and libFuzzer.
+8. Build Integration: Utilize the provided build script information to ensure proper compilation settings and dependencies.
+
+Here is the information for the target function:
+
+Language: {language}
+Function Signature: {function_signature}
+Source Code:
+```
+{source_code}
+```
+Required Headers: {headers}
+Build Script Content:
+```
+{build_script}
+```
