@@ -13,12 +13,11 @@ class CompilationResult:
     error: str = ""
 
 
-def test_compilation(project_name: str, helper_script: str = config.OSSFUZZ_HELPER_SCRIPT_PATH) -> CompilationResult:
+def test_compilation(project_name: str) -> CompilationResult:
     try:
-        helper_script = Path(helper_script)
+        helper_script = Path(config.OSS_FUZZ_PATH) / "infra" / "helper.py"
         result = subprocess.run(
-            ["python3", str(helper_script), "build_fuzzers",
-             "--clean", project_name],
+            ["python3", str(helper_script), "build_fuzzers", project_name],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -1,5 +1,10 @@
-OPENAI_MODEL = "gpt-4o-mini"
+# MODEL_NAME = "gpt-4o-mini"
+# API_KEY = "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"
+MODEL_NAME = "gemini-2.0-flash-exp"
+API_KEY = "AIzaSyCb183CLBXH1Al3PTKew45NN6fBRspUupc"
+MAX_TOKENS = 4096
+MAX_FUNCTIONS = 5
 TEMPERATURE = 0.5
 API_BASE_URL = "http://localhost:8080/api"
-OSSFUZZ_HELPER_SCRIPT_PATH = "./work/oss-fuzz/infra/helper.py"
+OSS_FUZZ_PATH = "./work/oss-fuzz"
 FUZZ_TARGET_COMPILER_MAX_ATTEMPTS = 3

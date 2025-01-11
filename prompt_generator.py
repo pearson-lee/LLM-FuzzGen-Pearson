@@ -13,8 +13,7 @@ class PromptGenerator:
         with open(TEMPLATE_PATHS["generator"], "r") as f:
             generator_template = f.read()
         self.generator_template = PromptTemplate(
-            input_variables=["language", "function_signature",
-                             "source_code", "headers", "build_script"],
+            input_variables=["language", "function_signature","source_code", "headers", "build_script"],
             template=generator_template
         )
 

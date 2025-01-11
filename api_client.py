@@ -2,6 +2,9 @@ import requests
 from typing import Dict, Optional, List
 import json
 import logging
+import config
+import yaml 
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,19 @@ class APIClient:
         return "\n".join(headers) if headers else ""
 
     def get_project_language(self, project_name: str) -> str:
-        response = self.query_api("get-project-language-from-souce-files", {
-            "project": project_name
-        })
-        return response.get("language", "c") if response else ""
+        project_yaml_path = Path(config.OSS_FUZZ_PATH) / "projects" / project_name / "project.yaml"
+        if not project_yaml_path.exists():
+            logger.error(f"Project YAML not found: {project_yaml_path}")
+            raise ValueError(f"Could not find project.yaml for {project_name}")
+            
+        try:
+            with open(project_yaml_path) as f:
+                project_config = yaml.safe_load(f)
+                language = project_config.get("language")
+                if not language:
+                    logger.error(f"No language specified in {project_yaml_path}")
+                    raise ValueError(f"Language not specified in project.yaml for {project_name}")
+                return language
+        except (yaml.YAMLError, IOError) as e:
+            logger.error(f"Failed to read project yaml: {e}")
+            raise ValueError(f"Failed to parse project.yaml for {project_name}: {e}")
