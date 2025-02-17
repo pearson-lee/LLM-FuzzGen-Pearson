@@ -1,142 +1,96 @@
 #!/usr/bin/env python3
-
-import os
-import sys
+import asyncio
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime
-from pathlib import Path
+import sys
+import time
 
-from api_client import APIClient
-from prompt_generator import PromptGenerator
-from fuzz_target_generator import FuzzTargetGenerator
-from target_saver import TargetSaver
-import config
+import config.config as config
+import prompts.prompt_generator as prompt_generator
+from external.introspector import Introspector
+from external.oss_fuzz import OSSFuzz
+from external.sut import SUT
+from llm_interface.llm_client import LLMClient
+from logger import setup_logging
 
-# Configure logging
+logger = logging.getLogger(__name__)
 
-
-def setup_logging() -> None:
-    """Configure logging with both file and console handlers."""
-    log_dir = Path(__file__).parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-
-    log_file = log_dir / \
-        f"fuzz_target_generator_{datetime.now().strftime('%m%d_%H%M%S')}.log"
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, mode='w'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    logging.info("=== Configuration ===")
-    logging.info(f"Project Names: {sys.argv[1:]}")
-    logging.info(f"Model: {config.MODEL_NAME}")
-    logging.info(f"Max Functions: {config.MAX_FUNCTIONS}")
-    logging.info(f"Temperature: {config.TEMPERATURE}")
-    logging.info(f"Max Tokens: {config.MAX_TOKENS}")
-    logging.info(
-        f"Max Compiler Attempts: {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}")
-    logging.info("==================\n")
+sut = SUT()
+oss_fuzz = OSSFuzz()
+introspector = Introspector()
+llm_client = LLMClient()
 
 
-def generate_fuzz_targets(project_name: str) -> Dict[str, str]:
-    """
-    Generate fuzz targets for the given project.
-
-    Returns:
-        Dictionary mapping function signatures to their generation results
-    """
-    api_client = APIClient(config.API_BASE_URL)
-    prompt_generator = PromptGenerator()
-    target_saver = TargetSaver()
-    generator = FuzzTargetGenerator(api_client, prompt_generator, target_saver)
-
-    target_functions = api_client.get_target_functions(project_name)[
-        :config.MAX_FUNCTIONS]
-    if not target_functions:
-        raise ValueError("No target functions found")
-
-    attempts: Dict[str, str] = {}
-    for function_sig in target_functions:
-        logging.info(f"Generating fuzz target for {function_sig}")
-
-        target_file, attempt_count = generator.generate_and_save_target(
-            project_name, function_sig)
-        attempts[function_sig] = f'success, {attempt_count}' if target_file else f'failure, {attempt_count}'
-
-        if target_file:
-            logging.info(
-                f"Successfully generated and compiled fuzz target! {function_sig}")
-        else:
-            logging.warning("Compilation failed, trying next function...")
-
-    return attempts
-
-
-def log_final_summary(project_results: Dict[str, Dict[str, str]]) -> None:
-    """Log summary statistics for all processed projects."""
-    logging.info("=== FINAL SUMMARY ===")
-    total_functions = 0
-    total_attempts = 0
-    successful_targets = 0
-
-    for project, attempts in project_results.items():
-        project_functions = len(attempts)
-
-        # Parse attempt strings like "success, 3" or "failure, 2"
-        project_attempts = sum(
-            int(result.split(", ")[1]) for result in attempts.values())
-        project_successes = sum(
-            1 for result in attempts.values() if result.startswith("success"))
-
-        total_functions += project_functions
-        total_attempts += project_attempts
-        successful_targets += project_successes
-
-        logging.info(f"=== {project}: ===")
-        logging.info(f"  Functions processed: {project_functions}")
-        logging.info(f"  Total attempts: {project_attempts}")
-        logging.info(f"  Successful targets: {project_successes}")
-
-    logging.info("=== Overall Statistics:  ===")
-    logging.info(f"Total functions processed: {total_functions}")
-    logging.info(f"Total generation attempts: {total_attempts}")
-    logging.info(f"Total successful targets: {successful_targets}")
-    logging.info(
-        f"Overall success rate: {(successful_targets / total_functions * 100):.2f}%")
-    logging.info("==================\n")
-
-
-def main() -> None:
-    """Main entry point of the program."""
+def _parse_args() -> list:
     if len(sys.argv) < 2:
         print("Usage: python main.py <project_name1> <project_name2> ...")
         sys.exit(1)
+    return sys.argv[1:]
 
-    setup_logging()
-    project_names = sys.argv[1:]
-    project_results = {}
 
-    for project_name in project_names:
-        try:
-            attempts = generate_fuzz_targets(project_name)
-            project_results[project_name] = attempts
+async def _build_fuzz_target(project_name: str, prompt: str) -> str | None:
+    """Build a fuzz target using prompt iteration (up to config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS times)."""
+    fuzz_target = llm_client.generate(prompt)
+    for attempt in range(config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS):
+        logger.info(f"Building fuzz target for {project_name} (attempt {attempt + 1})")
+        fuzz_target_file = oss_fuzz.save_target(project_name, fuzz_target)
+        build_res = await oss_fuzz.build_fuzzers(project_name)
 
-            logging.info(
-                f"Fuzz target generation attempts for {project_name}:")
-            for function_sig, result in attempts.items():
-                logging.info(f"{function_sig}: {result} attempts")
+        if build_res.success:
+            logger.info(f"Successfully built fuzz target for {project_name} after {attempt + 1} attempts")
+            return fuzz_target
 
-        except Exception as e:
-            logging.error(f"Error processing {project_name}: {e}")
-            continue
+        fuzz_target_file.unlink()  # Remove the failed fuzz target
+        logger.error(f"Failed to build fuzz target for {project_name} on attempt {attempt + 1}")
 
-    log_final_summary(project_results)
+        # Don't generate new prompt on last attempt
+        if attempt < config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS - 1:
+            build_prompt = prompt_generator.build_prompt(
+                fuzz_target_code=fuzz_target, error_messages=build_res.error
+            )
+            fuzz_target = llm_client.generate(build_prompt)
+    return None
+
+
+async def process_project(project_name: str) -> bool:
+    """Process a single project and generate fuzz targets."""
+    logging.info(f"Starting to process project: {project_name}")
+    proj_info = sut.get_project_info(project_name)
+    fuzz_target_examples = introspector.fuzz_target_source_code(project_name)
+
+    initial_prompt = prompt_generator.initial_prompt(sut_info=proj_info, fuzz_targets=fuzz_target_examples)
+    fuzz_target = await _build_fuzz_target(project_name, initial_prompt)
+    if fuzz_target is None:
+        logger.error(
+            f"Failed to build fuzz target for {project_name} after {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} attempts"
+        )
+        return False
+
+    await oss_fuzz.generate_report(project_name, seconds=30)
+    introspector.update_start_webapp()
+    logging.info(f"Successfully finished processing project: {project_name}")
+    return True
+
+
+async def main() -> None:
+    start_time = time.perf_counter()
+    project_names = _parse_args()
+    setup_logging(project_names)
+    await oss_fuzz.generator_reports(project_names)
+
+    if not introspector.update_start_webapp():
+        return
+
+    async with asyncio.TaskGroup() as tg:
+        for project_name in project_names:
+            tg.create_task(process_project(project_name), name=f"process-{project_name}")
+
+    logger.info("All projects processed")
+    end_time = time.perf_counter()
+    logger.info(f"Total execution time: {end_time - start_time:.2f} seconds")
+
+    input("Press Enter to shutdown the server")
+    introspector.shutdown_webapp()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -1,50 +1,43 @@
 #!/bin/bash
 
-# Help function
-show_help() {
-    echo "Usage: ./setup.sh [--clean]"
-    echo "  --clean    Remove existing work directory before setup"
-    exit 0
+BASE_DIR="$(pwd)"
+EXTERNAL_DIR="$BASE_DIR/external"
+
+fail() {
+    echo "Error: $1" >&2
+    exit 1
 }
 
-# Parse arguments
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    show_help
-fi
+[ -d "$EXTERNAL_DIR" ] || fail "external folder not found. Please create it."
+cd "$EXTERNAL_DIR" || fail "Failed to enter external directory"
 
-if [ "$1" = "--clean" ]; then
-    echo "Cleaning existing work directory..."
-    rm -rf work
-fi
+# Function to set up a repository: clone, enter directory, and checkout a commit
+setup_repo() {
+    local repo_url="$1"
+    local folder="$2"
+    local commit="$3"
 
-if [ -d "work" ]; then
-    echo "\"work\" directory is already set up."
-    echo "Please use --clean option to remove and recreate the directory."
-    exit 0
-fi
+    echo "[+] Cloning $folder..."
+    git clone --depth 1 "$repo_url" "$folder" || fail "Failed to clone $folder"
+    
+    cd "$folder" || fail "Failed to enter $folder"
+    git fetch --depth 1 origin "$commit" || fail "Failed to fetch specified commit in $folder"
+    git checkout "$commit" || fail "Failed to checkout specified commit in $folder"
 
-# Create and track work directory
-mkdir -p work || { echo "Error: Failed to create work directory" >&2; exit 1; }
-cd work || { echo "Error: Failed to change to work directory" >&2; exit 1; }
-WORK=$(pwd)
+    git apply "$EXTERNAL_DIR/patches/$folder.patch" || fail "Failed to apply patch for $folder"
+}
 
 echo "[+] Setting up Fuzz Introspector..."
-if ! git clone https://github.com/ossf/fuzz-introspector; then
-    echo "Error: Failed to clone fuzz-introspector" >&2
-    exit 1
-fi
+setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "3b3e201783d9854b5b6dd4c3199c0189413b7223"
 
-cd fuzz-introspector/tools/web-fuzzing-introspection || { echo "Error: Failed to change directory" >&2; exit 1; }
-if ! python3 -m pip install -r ./requirements.txt; then
-    echo "Error: Failed to install Python requirements" >&2
-    exit 1
-fi
-cd "$WORK" || { echo "Error: Failed to return to work directory" >&2; exit 1; }
+# Install Python requirements for Fuzz Introspector
+pushd tools/web-fuzzing-introspection > /dev/null || fail "Failed to change directory to tools/web-fuzzing-introspection"
+python3 -m pip install -r requirements.txt || fail "Failed to install Python requirements"
+popd > /dev/null
 
-echo "[+] Making a local OSS-Fuzz folder..."
-if ! git clone https://github.com/google/oss-fuzz; then
-    echo "Error: Failed to clone oss-fuzz" >&2
-    exit 1
-fi
+cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
+
+echo "[+] Setting up OSS-Fuzz..."
+setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "d5c068896b9f28483dbd7d2f15920b8c5e1b202d"
 
 echo "[+] Setup completed successfully"

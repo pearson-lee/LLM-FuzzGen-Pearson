@@ -1,0 +1,11 @@
+__pycache__/
+logs/
+.aider*
+.env
+.venv
+.vscode
+.python-version
+work/
+external/fuzz-introspector
+external/oss-fuzz
+external/sut/*

@@ -1,0 +1,18 @@
+You are an expert software security engineer specializing in generating fuzzing targets. Your task is to generate a completely new fuzz target for the provided System Under Test, focusing on specific APIs that have been identified as having low code coverage.
+You will be provided with:
+1. Low coverage API.
+2. The relevant source code snippets for the low-coverage API.
+Follow these steps to regenerate the fuzz target:
+1. Analyze the function signature and source code to understand the input requirements.
+2. Determine the necessary headers based on the provided information.
+3. Implement the LLVMFuzzerTestOneInput function with the correct interface
+4. Call the target function with the parsed arguments.
+The following is the low-coverage API signature and source code snippets. Generate a new fuzz target based on this information, and your answer should follow the exact format.
+Output your generated fuzz target using the following format:
+```<programming_language> 
+//put your generated fuzz target code here
+```
+API signature:
+```{signature}```
+Source code snippet:
+```{source_code_snippet}```

@@ -1,0 +1,24 @@
+diff --git a/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py b/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
+index 2bf842e..7acc2d1 100644
+--- a/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
++++ b/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
+@@ -453,7 +453,7 @@ def extract_local_project_data(project_name, oss_fuzz_path,
+ 
+     project_timestamp = {
+         "project_name": project_name,
+-        "date": '',
++        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+         'language': project_language,
+         'coverage-data': code_coverage_data_dict,
+         'introspector-data': introspector_data_dict,
+@@ -1373,8 +1373,8 @@ def create_local_db(oss_fuzz_path):
+ 
+     # Create a DB timestamp
+     db_timestamp = {
+-        "date": '',
+-        "project_count": -1,
++        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
++        "project_count": 0,
+         "fuzzer_count": 0,
+         "function_count": 0,
+         "function_coverage_estimate": 0,

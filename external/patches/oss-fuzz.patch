@@ -1,0 +1,126 @@
+diff --git a/infra/helper.py b/infra/helper.py
+index 1d03de9..2745186 100755
+--- a/infra/helper.py
++++ b/infra/helper.py
+@@ -1434,7 +1434,9 @@ def run_fuzzer(args):
+     run_args.extend([
+         '-v',
+         '{corpus_dir}:/tmp/{fuzzer}_corpus'.format(corpus_dir=corpus_dir,
+-                                                   fuzzer=args.fuzzer_name)
++                                                   fuzzer=args.fuzzer_name),
++        '-e',
++        'CORPUS_DIR=/tmp/{fuzzer}_corpus'.format(fuzzer=args.fuzzer_name)
+     ])
+ 
+   run_args.extend([
+diff --git a/projects/json-c/Dockerfile b/projects/json-c/Dockerfile
+index 3bb1222..c8cb431 100644
+--- a/projects/json-c/Dockerfile
++++ b/projects/json-c/Dockerfile
+@@ -16,6 +16,10 @@
+ 
+ FROM gcr.io/oss-fuzz-base/base-builder
+ RUN apt-get update && apt-get install -y make cmake
+-RUN git clone --depth 1 https://github.com/json-c/json-c.git json-c
++RUN git clone --depth 1 https://github.com/json-c/json-c.git json-c && \
++    cd json-c && \
++    git fetch --depth 1 origin 7bca694b4721cb1dd6fbee234f2d7d4139c854c8 && \
++    git checkout 7bca694b4721cb1dd6fbee234f2d7d4139c854c8
+ WORKDIR json-c
+-COPY build.sh *.cc *.dict $SRC/
++COPY build.sh $SRC/
++COPY *.cc *.dict $SRC/json-c/fuzz/
+diff --git a/projects/json-c/build.sh b/projects/json-c/build.sh
+index 25e259c..22c9983 100755
+--- a/projects/json-c/build.sh
++++ b/projects/json-c/build.sh
+@@ -27,4 +27,4 @@ for f in $SRC/json-c/fuzz/*_fuzzer.cc; do
+     $CXX $CXXFLAGS -std=c++11 -I$SRC/json-c -I$SRC/json-c/json-c-build\
+          $SRC/json-c/fuzz/${fuzzer}_fuzzer.cc -o $OUT/${fuzzer}_fuzzer \
+          $LIB_FUZZING_ENGINE $SRC/json-c/json-c-build/libjson-c.a
+-done
++done
+\ No newline at end of file
+diff --git a/projects/json-c/project.yaml b/projects/json-c/project.yaml
+index e491d8d..6344cda 100644
+--- a/projects/json-c/project.yaml
++++ b/projects/json-c/project.yaml
+@@ -14,3 +14,4 @@ architectures:
+   - x86_64
+   - i386
+ main_repo: 'https://github.com/json-c/json-c.git'
++commit_hash: '7bca694b4721cb1dd6fbee234f2d7d4139c854c8'
+diff --git a/projects/jsonnet/Dockerfile b/projects/jsonnet/Dockerfile
+index e3d6521..a68367b 100644
+--- a/projects/jsonnet/Dockerfile
++++ b/projects/jsonnet/Dockerfile
+@@ -16,7 +16,10 @@
+ 
+ FROM gcr.io/oss-fuzz-base/base-builder
+ RUN apt-get update && apt-get install -y build-essential cmake
+-RUN git clone --depth 1 https://github.com/google/jsonnet.git jsonnet
++RUN git clone --depth 1 https://github.com/google/jsonnet.git jsonnet && \
++    cd jsonnet && \
++    git fetch --depth 1 origin 5a4e8e34cc1fe841bdebb983646b9b9ae8fa8ca4 && \
++    git checkout 5a4e8e34cc1fe841bdebb983646b9b9ae8fa8ca4
+ WORKDIR $SRC/
+ 
+ COPY build.sh $SRC/
+diff --git a/projects/jsonnet/build.sh b/projects/jsonnet/build.sh
+index 6400323..26169c1 100644
+--- a/projects/jsonnet/build.sh
++++ b/projects/jsonnet/build.sh
+@@ -24,12 +24,11 @@ popd
+ 
+ INSTALL_DIR="$SRC/jsonnet"
+ 
+-for fuzzer in convert_jsonnet_fuzzer_regular \
+- convert_jsonnet_fuzzer_stream \
+- convert_jsonnet_fuzzer_multi; do
++for fuzzer_src in *.cc; do
++  fuzzer=$(basename $fuzzer_src .cc)
+   $CXX $CXXFLAGS -I${INSTALL_DIR}/include $LIB_FUZZING_ENGINE \
+     $fuzzer.cc -o $OUT/$fuzzer \
+     ${INSTALL_DIR}/build/libjsonnet.a \
+     ${INSTALL_DIR}/build/libmd5.a \
+     ${INSTALL_DIR}/build/libryml.a
+-done
++done
+\ No newline at end of file
+diff --git a/projects/jsonnet/project.yaml b/projects/jsonnet/project.yaml
+index 32581f2..87b05ea 100644
+--- a/projects/jsonnet/project.yaml
++++ b/projects/jsonnet/project.yaml
+@@ -20,4 +20,5 @@ architectures:
+   - x86_64
+   - i386
+ main_repo: 'https://github.com/google/jsonnet.git'
++commit_hash: '5a4e8e34cc1fe841bdebb983646b9b9ae8fa8ca4'
+ file_github_issue: True
+diff --git a/projects/tinyxml2/Dockerfile b/projects/tinyxml2/Dockerfile
+index ef6edf7..1b7aa66 100644
+--- a/projects/tinyxml2/Dockerfile
++++ b/projects/tinyxml2/Dockerfile
+@@ -19,4 +19,4 @@ RUN apt-get update && apt-get install -y make autoconf automake libtool pkg-conf
+ RUN git clone --depth 1 https://github.com/leethomason/tinyxml2
+ WORKDIR tinyxml2
+ 
+-COPY build.sh *.cpp *.dict *.options $SRC/
++COPY build.sh *.cpp *.cc *.dict *.options $SRC/
+diff --git a/projects/tinyxml2/build.sh b/projects/tinyxml2/build.sh
+index 80a344b..b67bb8d 100644
+--- a/projects/tinyxml2/build.sh
++++ b/projects/tinyxml2/build.sh
+@@ -21,10 +21,10 @@ sed -i 's/CXXFLAGS =/#CXXFLAGS/g' Makefile
+ make -j$(nproc) clean
+ make -j$(nproc) all
+ 
+-fuzz_harness=$(ls -d "$SRC"/*.cpp)
++fuzz_harness=$(ls -d "$SRC"/*.{cpp,cc} 2>/dev/null || true)
+ for h in $fuzz_harness; do
+   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
+-    -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
++    -o "$OUT/$(basename "${h%.*}")" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
+ done
+ 
+ cp $SRC/*.dict $SRC/*.options $OUT/
