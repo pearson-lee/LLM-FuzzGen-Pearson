@@ -48,6 +48,8 @@ setup_repo() {
     git apply "$EXTERNAL_DIR/patches/$folder.patch" || fail "Failed to apply patch for $folder"
 }
 
+cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
+
 echo "[+] Setting up Fuzz Introspector..."
 setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "3b3e201783d9854b5b6dd4c3199c0189413b7223"
 
