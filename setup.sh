@@ -8,8 +8,29 @@ fail() {
     exit 1
 }
 
-[ -d "$EXTERNAL_DIR" ] || fail "external folder not found. Please create it."
-cd "$EXTERNAL_DIR" || fail "Failed to enter external directory"
+# Install main project requirements
+echo "[+] Installing main project requirements..."
+python -m pip install -r requirements.txt || fail "Failed to install main project requirements"
+
+prompt_delete_dir() {
+    local folder="$1"
+    read -p "The folder '$folder' already exists. Do you want to delete it and continue? (y/n): " choice
+    case "$choice" in 
+        y|Y ) rm -rf "$folder" || fail "Failed to delete $folder";;
+        n|N ) echo "Exiting..."; exit 0;;
+        * ) echo "Invalid choice"; prompt_delete_dir "$folder";;
+    esac
+}
+
+# Check if fuzz-introspector or oss-fuzz folders exist
+if [ -d "$EXTERNAL_DIR/fuzz-introspector" ] || [ -d "$EXTERNAL_DIR/oss-fuzz" ]; then
+    if [ -d "$EXTERNAL_DIR/fuzz-introspector" ]; then
+        prompt_delete_dir "$EXTERNAL_DIR/fuzz-introspector"
+    fi
+    if [ -d "$EXTERNAL_DIR/oss-fuzz" ]; then
+        prompt_delete_dir "$EXTERNAL_DIR/oss-fuzz"
+    fi
+fi
 
 # Function to set up a repository: clone, enter directory, and checkout a commit
 setup_repo() {
@@ -32,7 +53,7 @@ setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "3b3e
 
 # Install Python requirements for Fuzz Introspector
 pushd tools/web-fuzzing-introspection > /dev/null || fail "Failed to change directory to tools/web-fuzzing-introspection"
-python3 -m pip install -r requirements.txt || fail "Failed to install Python requirements"
+python -m pip install -r requirements.txt || fail "Failed to install Python requirements"
 popd > /dev/null
 
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"

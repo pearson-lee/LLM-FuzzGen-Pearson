@@ -21,7 +21,7 @@ class LLMClient:
             logger.error(f"LLM initialization failed: {e}")
             raise
 
-    def _parse_code_block(text: str) -> str:
+    def _parse_code_block(self, text: str) -> str:
         """Extract code block from text or return stripped text."""
         match = re.search(r"```(?:c|cpp|c\+\+)\n(.*?)```", text, re.DOTALL)
         return match.group(1).strip() if match else text.strip()

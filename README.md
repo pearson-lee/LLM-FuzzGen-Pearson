@@ -13,16 +13,16 @@ git clone https://github.com/ch097711/LLM-FuzzGen.git
 cd LLM-FuzzGen
 ```
 
-2. Run the installation script:
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-3. Set up Python environment:
+2. Set up Python environment:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
+```
+
+3. Run the installation script:
+```bash
+chmod +x setup.sh
+./setup.sh
 ```
 
 4. Modify config.yaml
