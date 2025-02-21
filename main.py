@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import asyncio
 import logging
 import sys
 import time
@@ -20,77 +19,97 @@ introspector = Introspector()
 llm_client = LLMClient()
 
 
-def _parse_args() -> list:
+def _parse_args() -> list[str]:
     if len(sys.argv) < 2:
-        print("Usage: python main.py <project_name1> <project_name2> ...")
+        logger.error("Usage: python main.py <project_name1> <project_name2> ...")
         sys.exit(1)
     return sys.argv[1:]
 
 
-async def _build_fuzz_target(project_name: str, prompt: str) -> str | None:
+def _build_fuzz_target(project_name: str, prompt: str) -> str | None:
     """Build a fuzz target using prompt iteration (up to config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS times)."""
     fuzz_target = llm_client.generate(prompt)
     for attempt in range(config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS):
         logger.info(f"Building fuzz target for {project_name} (attempt {attempt + 1})")
-        fuzz_target_file = oss_fuzz.save_target(project_name, fuzz_target)
-        build_res = await oss_fuzz.build_fuzzers(project_name)
+        try:
+            fuzz_target_file = oss_fuzz.save_target(project_name, fuzz_target)
+            build_res = oss_fuzz.build_fuzzers(project_name)
 
-        if build_res.success:
-            logger.info(f"Successfully built fuzz target for {project_name} after {attempt + 1} attempts")
-            return fuzz_target
+            if build_res.success:
+                logger.info(f"Successfully built fuzz target for {project_name} after {attempt + 1} attempts")
+                return fuzz_target
 
-        fuzz_target_file.unlink()  # Remove the failed fuzz target
-        logger.error(f"Failed to build fuzz target for {project_name} on attempt {attempt + 1}")
+            if fuzz_target_file.exists():
+                fuzz_target_file.unlink()  # Remove the failed fuzz target
+            logger.error(f"Failed to build fuzz target for {project_name} on attempt {attempt + 1}")
 
-        # Don't generate new prompt on last attempt
-        if attempt < config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS - 1:
-            build_prompt = prompt_generator.build_prompt(
-                fuzz_target_code=fuzz_target, error_messages=build_res.error
-            )
-            fuzz_target = llm_client.generate(build_prompt)
+            if attempt < config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS - 1:
+                build_prompt = prompt_generator.build_prompt(
+                    fuzz_target_code=fuzz_target, error_messages=build_res.error
+                )
+                fuzz_target = llm_client.generate(build_prompt)
+        except Exception as e:
+            logger.error(f"Error during build attempt {attempt + 1}: {e}")
+            continue
     return None
 
 
-async def process_project(project_name: str) -> bool:
-    """Process a single project and generate fuzz targets."""
-    logging.info(f"Starting to process project: {project_name}")
-    proj_info = sut.get_project_info(project_name)
-    fuzz_target_examples = introspector.fuzz_target_source_code(project_name)
-
-    initial_prompt = prompt_generator.initial_prompt(sut_info=proj_info, fuzz_targets=fuzz_target_examples)
-    fuzz_target = await _build_fuzz_target(project_name, initial_prompt)
-    if fuzz_target is None:
-        logger.error(
-            f"Failed to build fuzz target for {project_name} after {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} attempts"
-        )
+def _generate_report_and_start_webapp(project_names: list[str]) -> bool:
+    if not oss_fuzz.generate_reports(project_names, 60):
+        logger.error("Failed to generate initial reports")
         return False
 
-    await oss_fuzz.generate_report(project_name, seconds=30)
-    introspector.update_start_webapp()
-    logging.info(f"Successfully finished processing project: {project_name}")
+    if not introspector.update_start_webapp():
+        logger.error("Failed to start web application")
+        return False
     return True
 
 
-async def main() -> None:
-    start_time = time.perf_counter()
-    project_names = _parse_args()
-    setup_logging(project_names)
-    await oss_fuzz.generator_reports(project_names)
+def process_project(project_name: str) -> bool:
+    """Process a single project and generate fuzz targets."""
+    try:
+        logging.info(f"Starting to process project: {project_name}")
+        proj_info = sut.get_project_info(project_name)
+        fuzz_target_examples = introspector.fuzz_target_source_code(project_name)
 
-    if not introspector.update_start_webapp():
-        return
+        prompt = prompt_generator.initial_prompt(sut_info=proj_info, fuzz_targets=fuzz_target_examples)
+        fuzz_target = _build_fuzz_target(project_name, prompt)
+        if fuzz_target is None:
+            return False
 
-    async with asyncio.TaskGroup() as tg:
-        for project_name in project_names:
-            tg.create_task(process_project(project_name), name=f"process-{project_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to process project {project_name}: {e}")
+        return False
 
-    logger.info("All projects processed")
-    end_time = time.perf_counter()
-    logger.info(f"Total execution time: {end_time - start_time:.2f} seconds")
 
-    input("Press Enter to shutdown the server")
-    introspector.shutdown_webapp()
+def main() -> None:
+    try:
+        t0 = time.perf_counter()
+        project_names = _parse_args()
+        setup_logging(project_names)
+
+        if not _generate_report_and_start_webapp(project_names):
+            sys.exit(1)
+
+        results = [process_project(name) for name in project_names]
+
+        if not _generate_report_and_start_webapp(project_names):
+            sys.exit(1)
+
+        logger.info("All projects processed")
+        logger.info(f"Successful projects: {sum(results)}/{len(results)}")
+        logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
+
+        input("Press Enter to shutdown the server")
+
+    except KeyboardInterrupt:
+        logger.info("Process interrupted by user")
+    except Exception as e:
+        logger.error(f"Process failed with error: {e}")
+    finally:
+        introspector.shutdown_webapp()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
