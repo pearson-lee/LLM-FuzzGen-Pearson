@@ -23,7 +23,7 @@ class SUT:
         cmd_str = " ".join(cmd)
         logger.debug(f"Running git command: {cmd_str}")
         try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             logger.debug(f"Git command completed successfully: {cmd_str}")
         except subprocess.CalledProcessError as e:
             error_msg = f"Git command failed: {e.stderr or e.stdout}"
@@ -32,6 +32,11 @@ class SUT:
 
     def _clone_repository(self, git_url: str, proj_dir: Path) -> None:
         """Clones the repository to the specified directory."""
+        # Check if repository already exists
+        if proj_dir.exists():
+            logger.info(f"Repository already exists at {proj_dir}, skipping clone")
+            return
+
         logger.info(f"Cloning repository from {git_url} to {proj_dir}")
         clone_cmd = ["git", "clone", "--depth", "1", git_url, str(proj_dir)]
         self._run_git_command(clone_cmd)
@@ -54,8 +59,9 @@ class SUT:
     def _generate_project_info(self, proj_dir: Path, info_file: Path) -> None:
         """Generates project info using code2prompt tool."""
         logger.info(f"Generating project info: {proj_dir} -> {info_file}")
-        try:
-            exclude_patterns = [
+
+        exclude_arg = "--exclude=" + ",".join(
+            [
                 "Makefile",
                 "LICENSE",
                 "CONTRIBUTING",
@@ -91,19 +97,17 @@ class SUT:
                 "third_party/*",
                 "dox",
             ]
-            exclude_arg = "--exclude=" + ",".join(exclude_patterns)
-            cmd = [
-                "code2prompt",
-                f"{proj_dir}/",
-                f"--output={info_file}",
-                exclude_arg,
-            ]
+        )
+
+        try:
+            code2prompt_path = Path(__file__).resolve().parent / "code2prompt"
+            cmd = [str(code2prompt_path), f"{proj_dir}/", f"--output={info_file}", exclude_arg]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             logger.info("Project info generated successfully")
         except subprocess.CalledProcessError as e:
-            error_msg = f"code2prompt failed: {e.stderr or e.stdout}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
+            msg = f"code2prompt failed: {e.stderr or e.stdout}"
+            logger.error(msg)
+            raise RuntimeError(msg)
 
     def get_project_info(self, project_name: str) -> str:
         """

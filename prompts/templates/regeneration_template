@@ -2,10 +2,11 @@ You are an expert software security engineer specializing in generating fuzzing 
 You will be provided with:
 1. Low coverage API.
 2. The relevant source code snippets for the low-coverage API.
+3. SUT's existing fuzz targets.
 Follow these steps to regenerate the fuzz target:
 1. Analyze the function signature and source code to understand the input requirements.
 2. Determine the necessary headers based on the provided information.
-3. Implement the LLVMFuzzerTestOneInput function with the correct interface
+3. Implement the LLVMFuzzerTestOneInput function with the correct interface.
 4. Call the target function with the parsed arguments.
 The following is the low-coverage API signature and source code snippets. Generate a new fuzz target based on this information, and your answer should follow the exact format.
 Output your generated fuzz target using the following format:
@@ -16,3 +17,7 @@ API signature:
 ```{signature}```
 Source code snippet:
 ```{source_code_snippet}```
+Existing fuzz targets:
+{fuzz_targets}
+SUT source code:
+```{sut_info}```

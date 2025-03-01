@@ -3,7 +3,9 @@
 A Large Language Model-based Fuzzing Target Generator.
 
 ## System Requirements
-- Python 3.11 
+- ubuntu 22.04
+- python 3.11.11 
+- docker
 
 ## Installation
 
@@ -15,7 +17,7 @@ cd LLM-FuzzGen
 
 2. Set up Python environment:
 ```bash
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 

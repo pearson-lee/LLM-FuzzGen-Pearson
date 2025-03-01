@@ -25,6 +25,7 @@ class Introspector:
         self.fi_dir = self.base_dir / "fuzz-introspector"
 
     def _query_api(self, endpoint: str, params: dict, enable_retry: bool = True) -> dict:
+        logger.info(f"Querying API: {endpoint} with params: {params}")
         max_attempts = self.MAX_RETRIES + 1 if enable_retry else 1
 
         for attempt in range(max_attempts):
@@ -38,10 +39,12 @@ class Introspector:
                 if attempt == max_attempts - 1:
                     if endpoint == "shutdown":
                         return {}
-                    logger.error(f"API request failed: {e}")
+                    logger.error(f"API request failed: {e} for endpoint: {endpoint}")
                     return {}
 
-                logger.warning(f"API request failed (attempt {attempt + 1}/{max_attempts}): {e}")
+                logger.warning(
+                    f"API request failed ({attempt + 1}/{max_attempts}): {e} for endpoint: {endpoint}"
+                )
                 time.sleep(self.RETRY_WAIT_TIME)
 
     def _webapp_db_update(self) -> bool:
@@ -52,7 +55,7 @@ class Introspector:
         )
         try:
             subprocess.run(
-                ["python3", str(db_script_path), "--local-oss-fuzz", str(self.oss_fuzz_dir)],
+                ["python", str(db_script_path), "--local-oss-fuzz", str(self.oss_fuzz_dir)],
                 cwd=db_script_path.parent,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -101,7 +104,7 @@ class Introspector:
             env = {**os.environ, "FUZZ_INTROSPECTOR_LOCAL_OSS_FUZZ": str(self.oss_fuzz_dir)}
 
             subprocess.Popen(
-                ["python3", "./main.py"],
+                ["python", "./main.py"],
                 cwd=str(webapp_path),
                 env=env,
                 stdout=subprocess.PIPE,

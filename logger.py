@@ -21,7 +21,7 @@ def setup_logging(project_names: list, log_dir: Path = Path(__file__).parent / "
     logging.info("=== Configuration ===")
     logging.info(f"Project Names: {project_names}")
     logging.info(f"Model: {config.MODEL_NAME}")
-    logging.info(f"Max Functions: {config.MAX_FUNCTIONS}")
+    logging.info(f"Iteration loop: {config.ITERATION_LOOP}")
     logging.info(f"Temperature: {config.TEMPERATURE}")
     logging.info(f"Max Tokens: {config.MAX_TOKENS}")
     logging.info(f"Max Compiler Attempts: {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}")

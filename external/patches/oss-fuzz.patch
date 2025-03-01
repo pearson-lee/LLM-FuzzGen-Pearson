@@ -1,8 +1,62 @@
 diff --git a/infra/helper.py b/infra/helper.py
-index 1d03de9..2745186 100755
+index 1d03de9..9a58050 100755
 --- a/infra/helper.py
 +++ b/infra/helper.py
-@@ -1434,7 +1434,9 @@ def run_fuzzer(args):
+@@ -1304,6 +1304,7 @@ def coverage(args):  # pylint: disable=too-many-branches
+ 
+ 
+ def _introspector_prepare_corpus(args):
++  from concurrent.futures import ProcessPoolExecutor
+   """Helper function for introspector runs to generate corpora."""
+   parser = get_parser()
+   # Generate corpus, either by downloading or running fuzzers.
+@@ -1317,24 +1318,28 @@ def _introspector_prepare_corpus(args):
+       return False
+   else:
+     fuzzer_targets = _get_fuzz_targets(args.project)
+-    for fuzzer_name in fuzzer_targets:
+-      # Make a corpus directory.
+-      fuzzer_corpus_dir = args.project.corpus + f'/{fuzzer_name}'
+-      if not os.path.isdir(fuzzer_corpus_dir):
+-        os.makedirs(fuzzer_corpus_dir)
+-      run_fuzzer_command = [
+-          'run_fuzzer', '--sanitizer', 'address', '--corpus-dir',
+-          fuzzer_corpus_dir, args.project.name, fuzzer_name
+-      ]
++    
++    results = []
++    with ProcessPoolExecutor() as executor:
++      for fuzzer_name in fuzzer_targets:
++        # Make a corpus directory.
++        fuzzer_corpus_dir = args.project.corpus + f'/{fuzzer_name}'
++        if not os.path.isdir(fuzzer_corpus_dir):
++          os.makedirs(fuzzer_corpus_dir)
++        run_fuzzer_command = [
++            'run_fuzzer', '--sanitizer', 'address', '--corpus-dir',
++            fuzzer_corpus_dir, args.project.name, fuzzer_name
++        ]
+ 
+-      parsed_args = parse_args(parser, run_fuzzer_command)
+-      parsed_args.fuzzer_args = [
+-          f'-max_total_time={args.seconds}', '-detect_leaks=0'
+-      ]
+-      # Continue even if run command fails, because we do not have 100%
+-      # accuracy in fuzz target detection, i.e. we might try to run something
+-      # that is not a target.
+-      run_fuzzer(parsed_args)
++        parsed_args = parse_args(parser, run_fuzzer_command)
++        parsed_args.fuzzer_args = [
++            f'-max_total_time={args.seconds}', '-detect_leaks=0'
++        ]
++        # Continue even if run command fails, because we do not have 100%
++        # accuracy in fuzz target detection, i.e. we might try to run something
++        # that is not a target.
++        results.append(executor.submit(run_fuzzer, parsed_args))
++      done = [result.result() for result in results]
+   return True
+ 
+ 
+@@ -1434,7 +1439,9 @@ def run_fuzzer(args):
      run_args.extend([
          '-v',
          '{corpus_dir}:/tmp/{fuzzer}_corpus'.format(corpus_dir=corpus_dir,
@@ -30,17 +84,6 @@ index 3bb1222..c8cb431 100644
 -COPY build.sh *.cc *.dict $SRC/
 +COPY build.sh $SRC/
 +COPY *.cc *.dict $SRC/json-c/fuzz/
-diff --git a/projects/json-c/build.sh b/projects/json-c/build.sh
-index 25e259c..22c9983 100755
---- a/projects/json-c/build.sh
-+++ b/projects/json-c/build.sh
-@@ -27,4 +27,4 @@ for f in $SRC/json-c/fuzz/*_fuzzer.cc; do
-     $CXX $CXXFLAGS -std=c++11 -I$SRC/json-c -I$SRC/json-c/json-c-build\
-          $SRC/json-c/fuzz/${fuzzer}_fuzzer.cc -o $OUT/${fuzzer}_fuzzer \
-          $LIB_FUZZING_ENGINE $SRC/json-c/json-c-build/libjson-c.a
--done
-+done
-\ No newline at end of file
 diff --git a/projects/json-c/project.yaml b/projects/json-c/project.yaml
 index e491d8d..6344cda 100644
 --- a/projects/json-c/project.yaml
@@ -67,10 +110,10 @@ index e3d6521..a68367b 100644
  
  COPY build.sh $SRC/
 diff --git a/projects/jsonnet/build.sh b/projects/jsonnet/build.sh
-index 6400323..26169c1 100644
+index 6400323..0c704e9 100644
 --- a/projects/jsonnet/build.sh
 +++ b/projects/jsonnet/build.sh
-@@ -24,12 +24,11 @@ popd
+@@ -24,9 +24,8 @@ popd
  
  INSTALL_DIR="$SRC/jsonnet"
  
@@ -82,11 +125,6 @@ index 6400323..26169c1 100644
    $CXX $CXXFLAGS -I${INSTALL_DIR}/include $LIB_FUZZING_ENGINE \
      $fuzzer.cc -o $OUT/$fuzzer \
      ${INSTALL_DIR}/build/libjsonnet.a \
-     ${INSTALL_DIR}/build/libmd5.a \
-     ${INSTALL_DIR}/build/libryml.a
--done
-+done
-\ No newline at end of file
 diff --git a/projects/jsonnet/project.yaml b/projects/jsonnet/project.yaml
 index 32581f2..87b05ea 100644
 --- a/projects/jsonnet/project.yaml

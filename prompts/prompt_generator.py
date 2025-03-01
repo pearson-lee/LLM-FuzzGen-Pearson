@@ -59,12 +59,13 @@ def build_prompt(*, fuzz_target_code: str, error_messages: str) -> str:
     )
 
 
-def coverage_prompt(*, fuzz_target_code: str, coverage_information: str) -> str:
+def coverage_prompt(*, fuzz_target_code: str, coverage_information: str, sut_info: str) -> str:
     return _load_and_format_template(
         "coverage_template",
-        ["fuzz_target_code", "coverage_information"],
+        ["fuzz_target_code", "coverage_information", "sut_info"],
         fuzz_target_code=fuzz_target_code,
         coverage_information=coverage_information,
+        sut_info=sut_info,
     )
 
 
@@ -77,10 +78,12 @@ def input_prompt(*, fuzz_target: str, symbolic_execution_results: str) -> str:
     )
 
 
-def regeneration_prompt(*, signature: str, source_code_snippet: str) -> str:
+def regeneration_prompt(*, signature: str, source_code_snippet: str, sut_info: str, fuzz_targets: str) -> str:
     return _load_and_format_template(
         "regeneration_template",
-        ["signature", "source_code_snippet"],
+        ["signature", "source_code_snippet", "sut_info", "fuzz_targets"],
         signature=signature,
         source_code_snippet=source_code_snippet,
+        sut_info=sut_info,
+        fuzz_targets=fuzz_targets,
     )

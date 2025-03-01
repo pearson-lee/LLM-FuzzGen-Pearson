@@ -29,40 +29,34 @@ class OSSFuzz:
         with open(proj_yaml_path) as f:
             return yaml.safe_load(f)
 
-    def _remove_build_dir(self, proj_name: str) -> bool:
-        """Remove the build directory for the given project."""
-        try:
-            build_dir = self.build_out_dir / proj_name
-            if build_dir.exists():
-                subprocess.run(["rm", "-rf", str(build_dir)], check=True)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to remove build directory for {proj_name}: {e}")
-            return False
-
     def _run_helper_command(self, args: list[str]) -> tuple[bool, str, str]:
         """Run helper.py command and return result."""
         try:
             process = subprocess.run(
-                ["python3", str(self.helper_script)] + args, capture_output=True, text=True, check=False
+                ["python", str(self.helper_script)] + args, capture_output=True, check=False
             )
-            return (process.returncode == 0, process.stdout, process.stderr)
+            return (
+                process.returncode == 0,
+                process.stdout.decode(errors="ignore"),
+                process.stderr.decode(errors="ignore"),
+            )
         except Exception as e:
             return (False, "", str(e))
 
-    def build_fuzzers(self, proj_name: str) -> CompilationResult:
+    def build_fuzzers(self, proj_name: str, clean: bool = False) -> CompilationResult:
         """Builds fuzzers for the given project."""
-        success, stdout, stderr = self._run_helper_command(["build_fuzzers", proj_name])
+        args = ["build_fuzzers", proj_name] + (["--clean"] if clean else [])
+
+        success, stdout, stderr = self._run_helper_command(args)
         if success:
             return CompilationResult(success=True)
+
         logger.error(f"Compilation failed: {stdout}{stderr}")
         return CompilationResult(success=False, error=f"{stdout}{stderr}")
 
     def generate_report(self, proj_name: str, seconds: int = 10) -> bool:
         """Generates an introspector report for the given project."""
         logger.info(f"Creating introspector reports for {proj_name}")
-        if not self._remove_build_dir(proj_name):
-            return False
 
         success, stdout, stderr = self._run_helper_command(
             ["introspector", "--seconds", str(seconds), proj_name]
@@ -102,4 +96,16 @@ class OSSFuzz:
         target_file = target_dir / f"fuzz_{timestamp}_fuzzer{extension}"
 
         target_file.write_text(code)
+        logger.info(f"Saved fuzz target to {target_file}")
         return target_file
+
+    def textcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
+        """Returns the textcov report for the given fuzzer"""
+        report_dir = self.build_out_dir / proj_name / "textcov_reports"
+        report_file = report_dir / f"{fuzzer_name}.covreport"
+
+        if not report_file.exists():
+            logger.error(f"Report file {report_file} does not exist.")
+            return ""
+
+        return report_file.read_text()
