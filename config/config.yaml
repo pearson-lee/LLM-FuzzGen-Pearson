@@ -1,9 +1,10 @@
 # MODEL_NAME: "gemini-2.0-pro-exp-02-05"
 # MODEL_NAME: "gemini-2.0-flash"
-MODEL_NAME: "gemini-2.0-flash-thinking-exp"
+MODEL_NAME: "gemini-2.0-flash-thinking-exp-01-21"
 API_KEY: "AIzaSyCb183CLBXH1Al3PTKew45NN6fBRspUupc"
 MAX_TOKENS: 8192
 ITERATION_LOOP: 5
 TEMPERATURE: 0.5
 INTROSPECTOR_API_BASE_URL: "http://localhost:8080/api"
 FUZZ_TARGET_COMPILER_MAX_ATTEMPTS: 5
+MIN_COVERAGE_IMPROVEMENT: 1.00  # Minimum coverage improvement to consider progress
