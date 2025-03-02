@@ -28,11 +28,15 @@ class LLMClient:
 
     def generate(self, prompt: str) -> str | None:
         """Generate response using the configured LLM."""
-        logger.info(f"Generating response for prompt (first 100 chars): {prompt[:100]}...")
-        try:
-            response = self._llm.invoke(prompt).content
-            logger.info(f"Generated response: \n{response}\n")
-            return self._parse_code_block(response)
-        except Exception as e:
-            logger.error(f"Generation failed: {e}")
-            return None
+        logger.info(f"Generating prompt: {prompt[:100]}...")
+
+        for _ in range(3):
+            try:
+                if response := self._llm.invoke(prompt).content:
+                    logger.info(f"Generated response: \n{response}\n")
+                    return self._parse_code_block(response)
+                logger.warning("Empty LLM response")
+            except Exception as e:
+                logger.error(f"Generation failed: {e}")
+
+        return None
