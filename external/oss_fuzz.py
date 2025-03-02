@@ -43,9 +43,9 @@ class OSSFuzz:
         except Exception as e:
             return (False, "", str(e))
 
-    def build_fuzzers(self, proj_name: str, clean: bool = False) -> CompilationResult:
+    def build_fuzzers(self, proj_name: str) -> CompilationResult:
         """Builds fuzzers for the given project."""
-        args = ["build_fuzzers", proj_name] + (["--clean"] if clean else [])
+        args = ["build_fuzzers", proj_name]
 
         success, stdout, stderr = self._run_helper_command(args)
         if success:
@@ -54,13 +54,13 @@ class OSSFuzz:
         logger.error(f"Compilation failed: {stdout}{stderr}")
         return CompilationResult(success=False, error=f"{stdout}{stderr}")
 
-    def generate_report(self, proj_name: str, seconds: int = 10) -> bool:
+    def generate_report(self, proj_name: str, seconds: int = 10, clean: bool = False) -> bool:
         """Generates an introspector report for the given project."""
         logger.info(f"Creating introspector reports for {proj_name}")
 
-        success, stdout, stderr = self._run_helper_command(
-            ["introspector", "--seconds", str(seconds), proj_name]
-        )
+        cmd = ["introspector", "--seconds", str(seconds)] + (["--clean"] if clean else []) + [proj_name]
+        success, stdout, stderr = self._run_helper_command(cmd)
+
         if not success:
             logger.error(f"Failed to generate report for {proj_name}: \n {stdout}{stderr}")
             return False
@@ -68,9 +68,9 @@ class OSSFuzz:
         logger.info(f"Introspector reports created for {proj_name}")
         return True
 
-    def generate_reports(self, projects: list[str], seconds: int = 10) -> bool:
+    def generate_reports(self, projects: list[str], seconds: int = 10, clean: bool = False) -> bool:
         """Generates introspector reports for the given list of projects."""
-        return all(self.generate_report(proj, seconds) for proj in projects)
+        return all(self.generate_report(proj, seconds, clean) for proj in projects)
 
     def main_git_repo(self, proj_name: str) -> str:
         """Returns the main repository URL for the given project"""

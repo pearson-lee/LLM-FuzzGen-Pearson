@@ -36,7 +36,7 @@ def _build_fuzz_target(project_name: str, prompt: str) -> Path | None:
         logger.info(f"Building fuzz target for {project_name} (attempt {attempt + 1})")
         try:
             fuzz_target_file = oss_fuzz.save_target(project_name, fuzz_target)
-            build_res = oss_fuzz.build_fuzzers(project_name, clean=True)
+            build_res = oss_fuzz.build_fuzzers(project_name)
 
             if build_res.success:
                 logger.info(f"Successfully built fuzz target for {project_name} after {attempt + 1} attempts")
@@ -62,8 +62,10 @@ def _build_fuzz_target(project_name: str, prompt: str) -> Path | None:
     return None
 
 
-def _generate_report_and_start_webapp(project_names: list[str], seconds: int = 10) -> bool:
-    if not oss_fuzz.generate_reports(project_names, seconds):
+def _generate_report_and_start_webapp(
+    project_names: list[str], seconds: int = 10, clean: bool = False
+) -> bool:
+    if not oss_fuzz.generate_reports(project_names, seconds, clean):
         logger.error("Failed to generate reports")
         return False
 
@@ -162,12 +164,12 @@ def main() -> None:
         project_names = _parse_args()
         setup_logging(project_names)
 
-        if not _generate_report_and_start_webapp(project_names):
+        if not _generate_report_and_start_webapp(project_names, clean=True):
             sys.exit(1)
 
         results = [process_project(name) for name in project_names]
 
-        if not _generate_report_and_start_webapp(project_names):
+        if not _generate_report_and_start_webapp(project_names, clean=True):
             sys.exit(1)
 
         logger.info("All projects processed")

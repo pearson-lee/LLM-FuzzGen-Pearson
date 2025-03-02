@@ -1,8 +1,19 @@
 diff --git a/infra/helper.py b/infra/helper.py
-index 1d03de9..9a58050 100755
+index 1d03de9..973413b 100755
 --- a/infra/helper.py
 +++ b/infra/helper.py
-@@ -1304,6 +1304,7 @@ def coverage(args):  # pylint: disable=too-many-branches
+@@ -451,6 +451,10 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
+   introspector_parser.add_argument('--seconds',
+                                    help='number of seconds to run fuzzers',
+                                    default=10)
++  introspector_parser.add_argument('--clean',
++                                   help='clean build directory before running',
++                                   default=False,
++                                   action='store_true')
+   introspector_parser.add_argument('source_path',
+                                    help='path of local source',
+                                    nargs='?')
+@@ -1304,6 +1308,7 @@ def coverage(args):  # pylint: disable=too-many-branches
  
  
  def _introspector_prepare_corpus(args):
@@ -10,7 +21,7 @@ index 1d03de9..9a58050 100755
    """Helper function for introspector runs to generate corpora."""
    parser = get_parser()
    # Generate corpus, either by downloading or running fuzzers.
-@@ -1317,24 +1318,28 @@ def _introspector_prepare_corpus(args):
+@@ -1317,24 +1322,28 @@ def _introspector_prepare_corpus(args):
        return False
    else:
      fuzzer_targets = _get_fuzz_targets(args.project)
@@ -56,7 +67,18 @@ index 1d03de9..9a58050 100755
    return True
  
  
-@@ -1434,7 +1439,9 @@ def run_fuzzer(args):
+@@ -1350,6 +1359,10 @@ def introspector(args):
+   build_fuzzers_command = [
+       'build_fuzzers', '--sanitizer=address', args.project.name
+   ] + args_to_append
++  
++  if args.clean:
++    build_fuzzers_command.append('--clean')
++    
+   if not build_fuzzers(parse_args(parser, build_fuzzers_command)):
+     logger.error('Failed to build project with ASAN')
+     return False
+@@ -1434,7 +1447,9 @@ def run_fuzzer(args):
      run_args.extend([
          '-v',
          '{corpus_dir}:/tmp/{fuzzer}_corpus'.format(corpus_dir=corpus_dir,
