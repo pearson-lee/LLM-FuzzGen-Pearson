@@ -89,7 +89,9 @@ class Introspector:
             coverage_data = (
                 response.get("project", {}).get("runtime_coverage_data", {}).get("line_coverage", {})
             )
-            return round(float(coverage_data.get("percent", 0)), 2)
+            coverage = round(float(coverage_data.get("percent", 0)), 2)
+            logger.info(f"Line coverage data for {project_name}: {coverage}")
+            return coverage
         except (KeyError, ValueError, TypeError):
             logger.warning(f"Failed to get line coverage for {project_name}")
             return 0.0
