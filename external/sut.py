@@ -60,48 +60,32 @@ class SUT:
         """Generates project info using code2prompt tool."""
         logger.info(f"Generating project info: {proj_dir} -> {info_file}")
 
+        include_arg = "--include=" + ",".join(
+            [
+                "*.c",
+                "*.h",
+                "*.cc",
+                "*.cpp",
+                "*.c++",
+            ]
+        )
         exclude_arg = "--exclude=" + ",".join(
             [
-                "Makefile",
-                "LICENSE",
-                "CONTRIBUTING",
-                "test_suite/*",
-                "test_cmd/*",
-                "*.jsonnet",
-                "benchmarks/*",
-                "*.txt",
-                "*.md",
-                "*.yml",
-                "*.yaml",
-                "*.json",
-                "*.gitignore",
-                "*.gitattributes",
-                ".git/*",
-                ".github/*",
-                "*.html",
-                "*.xml",
-                "*.css",
-                "*.js",
-                "*.otf",
-                "*.eot",
-                "*.woff",
-                "*.golden",
-                "*.png",
-                "*.jpg",
-                "*.jpeg",
-                "*.gif",
-                "*.svg",
-                "docs/*",
-                "doc/*",
-                "*.sh",
-                "third_party/*",
-                "dox",
+                "**/bench/*",
+                "**/test/*",
+                "**/tests/*",
+                "**/doc/*",
+                "**/docs/*",
+                "**/examples/*",
+                "**/example/*",
+                "**/third_party/*",
+                "**/unsupported/*",
             ]
         )
 
         try:
             code2prompt_path = Path(__file__).resolve().parent / "code2prompt"
-            cmd = [str(code2prompt_path), f"{proj_dir}/", f"--output={info_file}", exclude_arg]
+            cmd = [str(code2prompt_path), f"{proj_dir}/", f"--output={info_file}", include_arg, exclude_arg]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             logger.info("Project info generated successfully")
         except subprocess.CalledProcessError as e:
