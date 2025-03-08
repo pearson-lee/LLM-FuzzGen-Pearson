@@ -1,17 +1,85 @@
+diff --git a/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py b/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py
+index 427d288..78dcdf1 100644
+--- a/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py
++++ b/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py
+@@ -549,3 +549,16 @@ def try_to_get_project_repository(project_name):
+         project_yaml = yaml.safe_load(r.text)
+         return project_yaml['main_repo']
+     return "N/A"
++
++
++def get_local_fuzzer_code_coverage_summary(project_name, oss_fuzz_folder, fuzzer):
++    """Gets the code coverage summary for a specific fuzzer from a local OSS-Fuzz build."""
++    summary_json = os.path.join(oss_fuzz_folder, 'build', 'out', project_name,
++                                'report_target', fuzzer, 'linux', 'summary.json')
++    
++    with open(summary_json, 'r') as f:
++        try:
++            json_dict = json.load(f)
++            return json_dict
++        except json.JSONDecodeError:
++            return None
 diff --git a/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py b/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
-index 2bf842e..7acc2d1 100644
+index 4bd41cc..d2a5f9b 100644
 --- a/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
 +++ b/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
-@@ -453,7 +453,7 @@ def extract_local_project_data(project_name, oss_fuzz_path,
+@@ -462,17 +462,30 @@ def extract_local_project_data(project_name, oss_fuzz_path,
+     code_coverage_data_dict = prepare_code_coverage_dict(
+         code_coverage_summary, project_name, '', project_language)
  
++    per_fuzzer_cov = {} # Add per-fuzzer coverage data
+     if cov_fuzz_stats is not None:
+         all_fuzzers = cov_fuzz_stats.split("\n")
+         if all_fuzzers[-1] == '':
+             all_fuzzers = all_fuzzers[0:-1]
+         amount_of_fuzzers = len(all_fuzzers)
+ 
++        for ff in all_fuzzers:
++            try:
++                fuzzer_cov = oss_fuzz.get_local_fuzzer_code_coverage_summary(
++                    project_name, oss_fuzz_path, ff
++                )
++                fuzzer_cov_data = extract_code_coverage_data(fuzzer_cov)
++                per_fuzzer_cov[ff] = fuzzer_cov_data
++            except Exception as e:
++                logger.warning(f"Could not get fuzzer coverage for {ff}: {e}")
++                pass
++
      project_timestamp = {
          "project_name": project_name,
 -        "date": '',
 +        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
          'language': project_language,
          'coverage-data': code_coverage_data_dict,
++        "per-fuzzer-coverage-data": per_fuzzer_cov,  # Add per-fuzzer coverage data here
          'introspector-data': introspector_data_dict,
-@@ -1373,8 +1373,8 @@ def create_local_db(oss_fuzz_path):
+         'fuzzer-count': amount_of_fuzzers,
+         'project_repository': project_repository,
+@@ -965,12 +978,9 @@ def calculate_recent_results(projects_with_new_results, timestamps,
+         fuzzers_current: Set[str] = set()
+         per_fuzzer_coverages = defaultdict(list)
+ 
+-        for do in (get_date_at_offset_as_str(ii)
+-                   for ii in range(-num_days, 0, 1)):
++        for date_data in project_data:
+             try:
+-                date_data = project_data[do]
+-                per_fuzzer_coverage_data = date_data[
+-                    'per-fuzzer-coverage-data']
++                per_fuzzer_coverage_data = project_data[date_data]['per-fuzzer-coverage-data']
+ 
+                 fuzzers_past |= fuzzers_current
+                 fuzzers_current = set(per_fuzzer_coverage_data.keys())
+@@ -982,7 +992,7 @@ def calculate_recent_results(projects_with_new_results, timestamps,
+                     except:
+                         perc = 0
+ 
+-                    per_fuzzer_coverages[ff].append((perc, do))
++                    per_fuzzer_coverages[ff].append((perc, date_data))
+             except:
+                 continue
+ 
+@@ -1513,8 +1523,8 @@ def create_local_db(oss_fuzz_path):
  
      # Create a DB timestamp
      db_timestamp = {
@@ -22,3 +90,33 @@ index 2bf842e..7acc2d1 100644
          "fuzzer_count": 0,
          "function_count": 0,
          "function_coverage_estimate": 0,
+diff --git a/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html b/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
+index 6874be5..284e4ec 100644
+--- a/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
++++ b/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
+@@ -57,7 +57,7 @@
+                         succeeding:
+                       {% endif %}
+                       <a href="{{project_build_status.introspector_build_log}}">Build log</a></td>
+-                  </tr>                                    
++                  </tr>                                  
+                   <tr>
+                     <td>Fuzzer count</td>
+                     {% if latest_statistics != None %}
+@@ -83,7 +83,7 @@
+                     <td>
+                       {% if project.coverage_data is not none %}
+                         {{ project.coverage_data.line_coverage.covered }}
+-                      {% elif latest_statistics != None and latest_statistics.coverage_data != None %}
++                      {% elif latest_statistics != None and latest_statistics.coverage_data != None %} 
+                         {{ latest_statistics.coverage_data.line_coverage.covered }}
+                       {% else %}
+                         N/A
+@@ -144,6 +144,7 @@
+                     {% for fuzzer, fuzzer_data in project.recent_results.items()
+                       |sort(attribute='0')
+                       |sort(reverse=true, attribute='1.got_lost,1.has_degraded')
++                      if not fuzzer_data['got_lost']
+                     %}
+                       <tr
+                         {% if fuzzer_data['got_lost'] or fuzzer_data['has_degraded'] %}

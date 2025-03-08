@@ -51,7 +51,7 @@ setup_repo() {
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 
 echo "[+] Setting up Fuzz Introspector..."
-setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "3b3e201783d9854b5b6dd4c3199c0189413b7223"
+setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "f16dbf645a593a2a830cbb131d21669d10c07f6f"
 
 # Install Python requirements for Fuzz Introspector
 pushd tools/web-fuzzing-introspection > /dev/null || fail "Failed to change directory to tools/web-fuzzing-introspection"
@@ -61,6 +61,6 @@ popd > /dev/null
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 
 echo "[+] Setting up OSS-Fuzz..."
-setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "d5c068896b9f28483dbd7d2f15920b8c5e1b202d"
+setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "26f36ff7ce9cd61856621ba197f8e8db24b15ad9"
 
 echo "[+] Setup completed successfully"
