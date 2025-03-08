@@ -19,7 +19,12 @@ def _load_and_format_template(template_name: str, input_variables: list, **kwarg
 
 
 def fuzz_target_prompt(
-    *, language: str, function_signature: str, source_code: str, headers: str, build_script: str
+    *,
+    language: str = "",
+    function_signature: str = "",
+    source_code: str = "",
+    headers: str = "",
+    build_script: str = ""
 ) -> str:
     return _load_and_format_template(
         "generator_template",
@@ -32,7 +37,7 @@ def fuzz_target_prompt(
     )
 
 
-def compile_fail_prompt(*, source_code: str, error: str) -> str:
+def compile_fail_prompt(*, source_code: str = "", error: str = "") -> str:
     return _load_and_format_template(
         "compile_fail_template",
         ["source_code", "error"],
@@ -41,7 +46,7 @@ def compile_fail_prompt(*, source_code: str, error: str) -> str:
     )
 
 
-def initial_prompt(*, sut_info: str, fuzz_targets: str) -> str:
+def initial_prompt(*, sut_info: str = "", fuzz_targets: str = "") -> str:
     return _load_and_format_template(
         "initial_template",
         ["sut_info", "fuzz_targets"],
@@ -50,7 +55,7 @@ def initial_prompt(*, sut_info: str, fuzz_targets: str) -> str:
     )
 
 
-def build_prompt(*, fuzz_target_code: str, error_messages: str) -> str:
+def build_prompt(*, fuzz_target_code: str = "", error_messages: str = "") -> str:
     return _load_and_format_template(
         "build_template",
         ["fuzz_target_code", "error_messages"],
@@ -59,7 +64,7 @@ def build_prompt(*, fuzz_target_code: str, error_messages: str) -> str:
     )
 
 
-def coverage_prompt(*, fuzz_target_code: str, coverage_information: str, sut_info: str) -> str:
+def coverage_prompt(*, fuzz_target_code: str = "", coverage_information: str = "", sut_info: str = "") -> str:
     return _load_and_format_template(
         "coverage_template",
         ["fuzz_target_code", "coverage_information", "sut_info"],
@@ -69,7 +74,7 @@ def coverage_prompt(*, fuzz_target_code: str, coverage_information: str, sut_inf
     )
 
 
-def input_prompt(*, fuzz_target: str, symbolic_execution_results: str) -> str:
+def input_prompt(*, fuzz_target: str = "", symbolic_execution_results: str = "") -> str:
     return _load_and_format_template(
         "input_template",
         ["fuzz_target", "symbolic_execution_results"],
@@ -78,7 +83,9 @@ def input_prompt(*, fuzz_target: str, symbolic_execution_results: str) -> str:
     )
 
 
-def regeneration_prompt(*, signature: str, source_code_snippet: str, sut_info: str, fuzz_targets: str) -> str:
+def regeneration_prompt(
+    *, signature: str = "", source_code_snippet: str = "", sut_info: str = "", fuzz_targets: str = ""
+) -> str:
     return _load_and_format_template(
         "regeneration_template",
         ["signature", "source_code_snippet", "sut_info", "fuzz_targets"],
