@@ -51,8 +51,19 @@ class OSSFuzz:
         if success:
             return CompilationResult(success=True)
 
-        logger.error(f"Compilation failed: {stdout}{stderr}")
-        return CompilationResult(success=False, error=f"{stdout}{stderr}")
+        import re
+
+        error_message = stdout + stderr
+        pattern = r".*\/.*error:.*"
+        match = re.search(pattern, error_message)
+        if match:
+            match_position = match.start()
+            lines = error_message[match_position:].split("\n")
+            filtered_error = "\n".join(lines[:21])
+            error_message = filtered_error
+
+        logger.error(f"Compilation failed: {error_message}")
+        return CompilationResult(success=False, error=error_message)
 
     def generate_report(self, proj_name: str, seconds: int = 10, clean: bool = False) -> bool:
         """Generates an introspector report for the given project."""
