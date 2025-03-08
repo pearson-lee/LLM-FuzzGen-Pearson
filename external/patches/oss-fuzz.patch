@@ -1,5 +1,5 @@
 diff --git a/infra/helper.py b/infra/helper.py
-index 1d03de9..973413b 100755
+index 1d03de9..02c3fc0 100755
 --- a/infra/helper.py
 +++ b/infra/helper.py
 @@ -451,6 +451,10 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
@@ -34,7 +34,15 @@ index 1d03de9..973413b 100755
 -          'run_fuzzer', '--sanitizer', 'address', '--corpus-dir',
 -          fuzzer_corpus_dir, args.project.name, fuzzer_name
 -      ]
-+    
+ 
+-      parsed_args = parse_args(parser, run_fuzzer_command)
+-      parsed_args.fuzzer_args = [
+-          f'-max_total_time={args.seconds}', '-detect_leaks=0'
+-      ]
+-      # Continue even if run command fails, because we do not have 100%
+-      # accuracy in fuzz target detection, i.e. we might try to run something
+-      # that is not a target.
+-      run_fuzzer(parsed_args)
 +    results = []
 +    with ProcessPoolExecutor() as executor:
 +      for fuzzer_name in fuzzer_targets:
@@ -46,15 +54,7 @@ index 1d03de9..973413b 100755
 +            'run_fuzzer', '--sanitizer', 'address', '--corpus-dir',
 +            fuzzer_corpus_dir, args.project.name, fuzzer_name
 +        ]
- 
--      parsed_args = parse_args(parser, run_fuzzer_command)
--      parsed_args.fuzzer_args = [
--          f'-max_total_time={args.seconds}', '-detect_leaks=0'
--      ]
--      # Continue even if run command fails, because we do not have 100%
--      # accuracy in fuzz target detection, i.e. we might try to run something
--      # that is not a target.
--      run_fuzzer(parsed_args)
++
 +        parsed_args = parse_args(parser, run_fuzzer_command)
 +        parsed_args.fuzzer_args = [
 +            f'-max_total_time={args.seconds}', '-detect_leaks=0'
@@ -71,10 +71,10 @@ index 1d03de9..973413b 100755
    build_fuzzers_command = [
        'build_fuzzers', '--sanitizer=address', args.project.name
    ] + args_to_append
-+  
++
 +  if args.clean:
 +    build_fuzzers_command.append('--clean')
-+    
++
    if not build_fuzzers(parse_args(parser, build_fuzzers_command)):
      logger.error('Failed to build project with ASAN')
      return False
@@ -177,27 +177,24 @@ index ef6edf7..1806e0e 100644
 -COPY build.sh *.cpp *.dict *.options $SRC/
 +COPY build.sh *.cpp *.cc *.dict *.options $SRC/
 diff --git a/projects/tinyxml2/build.sh b/projects/tinyxml2/build.sh
-index 80a344b..3046d38 100644
+index 80a344b..700b6b0 100644
 --- a/projects/tinyxml2/build.sh
 +++ b/projects/tinyxml2/build.sh
-@@ -21,10 +21,11 @@ sed -i 's/CXXFLAGS =/#CXXFLAGS/g' Makefile
+@@ -21,10 +21,8 @@ sed -i 's/CXXFLAGS =/#CXXFLAGS/g' Makefile
  make -j$(nproc) clean
  make -j$(nproc) all
  
 -fuzz_harness=$(ls -d "$SRC"/*.cpp)
--for h in $fuzz_harness; do
--  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
++fuzz_harness=$(ls -d "$SRC"/*.{cpp,cc} 2>/dev/null || true)
+ for h in $fuzz_harness; do
+   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
 -    -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
 -done
 -
-+# fuzz_harness=$(ls -d "$SRC"/*.{cpp,cc} 2>/dev/null || true)
-+# for h in $fuzz_harness; do
-+#   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
-+#     -o "$OUT/$(basename "${h%.*}")" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
-+# done
-+$CXX $CXXFLAGS -std=c++11 -Iinclude/ $SRC/fuzz_150202_fuzzer.cc -o $OUT/fuzz_150202_fuzzer \
-+  $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
- cp $SRC/*.dict $SRC/*.options $OUT/
+-cp $SRC/*.dict $SRC/*.options $OUT/
++    -o "$OUT/$(basename "${h%.*}")" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
++done
+\ No newline at end of file
 diff --git a/projects/tinyxml2/project.yaml b/projects/tinyxml2/project.yaml
 index b271048..d8883c8 100644
 --- a/projects/tinyxml2/project.yaml

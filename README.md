@@ -32,4 +32,6 @@ chmod +x setup.sh
 5. Run main.py
 ```bash
 python ./main.py tinyxml2
+# or
+python ./main.py tinyxml2 pugixml json-c
 ```
