@@ -57,8 +57,6 @@ class Introspector:
             subprocess.run(
                 ["python", str(db_script_path), "--local-oss-fuzz", str(self.oss_fuzz_dir)],
                 cwd=db_script_path.parent,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
                 check=True,
             )
             return True
@@ -109,8 +107,8 @@ class Introspector:
                 ["python", "./main.py"],
                 cwd=str(webapp_path),
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
 
             time.sleep(1)  # Give the webapp a moment to start
@@ -131,13 +129,13 @@ class Introspector:
     def shutdown_webapp(self):
         self._query_api("shutdown", {}, enable_retry=False)
 
-    def fuzz_target_source_code(self, project_name: str) -> str:
+    def fuzz_target_source_code(self, project_name: str, limit: int = 3) -> str:
         """Get fuzz target source code for the project."""
-        logger.info(f"Getting fuzz target source code for project: {project_name}")
+        logger.info(f"Getting fuzz target source code for project: {project_name} (limit: {limit})")
         pairs = self._query_api("harness-source-and-executable", {"project": project_name}).get("pairs", [])
 
         codes = []
-        for i, pair in enumerate(pairs, 1):
+        for i, pair in enumerate(pairs[:limit], 1):
             params = {"project": project_name, "filepath": pair["source"], "begin_line": 0, "end_line": 999}
             if code := self._query_api("project-source-code", params).get("source_code"):
                 codes.append(f"```fuzz_target_{i}\n{code}\n```")
