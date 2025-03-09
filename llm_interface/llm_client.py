@@ -39,4 +39,5 @@ class LLMClient:
             except Exception as e:
                 logger.error(f"Generation failed: {e}")
 
-        return None
+        logger.error("LLM generation failed after multiple attempts")
+        raise RuntimeError("LLM generation failed after multiple attempts")
