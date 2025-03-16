@@ -1,7 +1,8 @@
 import logging
 import re
+import time
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, HarmBlockThreshold, HarmCategory
 
 import config.config as config
 
@@ -16,6 +17,9 @@ class LLMClient:
                 model=config.MODEL_NAME,
                 max_tokens=config.MAX_TOKENS,
                 api_key=config.API_KEY,
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.OFF,
+                },
             )
         except Exception as e:
             logger.error(f"LLM initialization failed: {e}")
@@ -30,14 +34,18 @@ class LLMClient:
         """Generate response using the configured LLM."""
         logger.info(f"Generating prompt: {prompt[:100]}...")
 
-        for _ in range(3):
+        for attempt in range(5):
             try:
                 if response := self._llm.invoke(prompt).content:
                     logger.info(f"Generated response: \n{response}\n")
                     return self._parse_code_block(response)
                 logger.warning("Empty LLM response")
             except Exception as e:
-                logger.error(f"Generation failed: {e}")
+                logger.error(f"Generation failed (attempt {attempt+1}/5): {e}")
+                if attempt < 4:
+                    wait_time = 2**attempt
+                    logger.info(f"Waiting {wait_time} seconds before retrying...")
+                    time.sleep(wait_time)
 
         logger.error("LLM generation failed after multiple attempts")
         raise RuntimeError("LLM generation failed after multiple attempts")
