@@ -1,3 +1,33 @@
+diff --git a/infra/base-images/base-builder/Dockerfile b/infra/base-images/base-builder/Dockerfile
+index 64d1109..82ee77b 100644
+--- a/infra/base-images/base-builder/Dockerfile
++++ b/infra/base-images/base-builder/Dockerfile
+@@ -46,7 +46,11 @@ RUN PYTHON_DEPS="\
+     rm -r /tmp/Python-$PYTHON_VERSION.tar.xz /tmp/Python-$PYTHON_VERSION && \
+     rm -rf /usr/local/lib/python${PYTHON_VERSION%.*}/test && \
+     python3 -m ensurepip && \
+-    python3 -m pip install --upgrade pip && \
++    python3 -m pip install --upgrade pip setuptools && \
++    python3 -m pip install cxxfilt pyyaml beautifulsoup4 lxml soupsieve rust-demangler && \
++    python3 -m pip install --prefer-binary matplotlib && \
++    cd /fuzz-introspector/src && \
++    python3 -m pip install -e . && \
+     apt-get remove -y $PYTHON_DEPS # https://github.com/google/oss-fuzz/issues/3888
+ 
+ 
+diff --git a/infra/base-images/base-runner/coverage b/infra/base-images/base-runner/coverage
+index 585b4d4..8bc7b63 100755
+--- a/infra/base-images/base-runner/coverage
++++ b/infra/base-images/base-runner/coverage
+@@ -128,6 +128,8 @@ function run_fuzz_target {
+ 
+   # For introspector.
+   llvm-cov show -instr-profile=$profdata_file -object=$target -line-coverage-gt=0 $shared_libraries $BRANCH_COV_ARGS $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.covreport
++
++  llvm-cov report -show-functions -show-instantiation-summary -Xdemangler rcfilt -instr-profile=$profdata_file -object=$target -sources $OUT$SRC $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.funcovreport
+ }
+ 
+ function run_go_fuzz_target {
 diff --git a/infra/helper.py b/infra/helper.py
 index 1d03de9..02c3fc0 100755
 --- a/infra/helper.py
@@ -89,6 +119,54 @@ index 1d03de9..02c3fc0 100755
      ])
  
    run_args.extend([
+diff --git a/projects/cjson/Dockerfile b/projects/cjson/Dockerfile
+index 30597b8..73e977f 100644
+--- a/projects/cjson/Dockerfile
++++ b/projects/cjson/Dockerfile
+@@ -20,7 +20,10 @@ FROM gcr.io/oss-fuzz-base/base-builder
+ 
+ RUN apt-get update && apt-get install -y cmake
+ 
+-RUN git clone --depth 1 https://github.com/DaveGamble/cJSON.git cjson
+-
++RUN git clone --depth 1 https://github.com/DaveGamble/cJSON.git cjson && \
++    cd cjson && \
++    git fetch --depth 1 origin 12c4bf1986c288950a3d06da757109a6aa1ece38 && \
++    git checkout 12c4bf1986c288950a3d06da757109a6aa1ece38
+ WORKDIR cjson
+ COPY build.sh $SRC/
++COPY fuzz_*_fuzzer.cc $SRC/cjson/fuzzing/
+diff --git a/projects/cjson/build.sh b/projects/cjson/build.sh
+index 7d6cea0..28b6a31 100644
+--- a/projects/cjson/build.sh
++++ b/projects/cjson/build.sh
+@@ -15,4 +15,14 @@
+ #
+ ################################################################################
+ # Run the OSS-Fuzz script in the project
+-$SRC/cjson/fuzzing/ossfuzz.sh
+\ No newline at end of file
++$SRC/cjson/fuzzing/ossfuzz.sh
++
++# Compile any additional fuzz targets in the project directory
++for fuzzer in $(find $SRC/cjson/fuzzing -name "fuzz_*_fuzzer.cc" 2>/dev/null || true); do
++  fuzzer_basename=$(basename -s .cc $fuzzer)
++  echo "Building additional fuzzer: $fuzzer_basename"
++  
++  $CXX $CXXFLAGS -std=c++11 $fuzzer -I$SRC/cjson -I$SRC/cjson/build \
++      -o $OUT/$fuzzer_basename \
++      $LIB_FUZZING_ENGINE $SRC/cjson/build/libcjson.a
++done
+\ No newline at end of file
+diff --git a/projects/cjson/project.yaml b/projects/cjson/project.yaml
+index 351f872..57f2684 100644
+--- a/projects/cjson/project.yaml
++++ b/projects/cjson/project.yaml
+@@ -9,3 +9,4 @@ sanitizers:
+   - undefined
+   - memory
+ main_repo: 'https://github.com/DaveGamble/cJSON.git'
++commit_hash: '12c4bf1986c288950a3d06da757109a6aa1ece38'
 diff --git a/projects/json-c/Dockerfile b/projects/json-c/Dockerfile
 index 3bb1222..afb943f 100644
 --- a/projects/json-c/Dockerfile
