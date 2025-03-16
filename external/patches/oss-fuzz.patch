@@ -193,6 +193,53 @@ index e491d8d..6344cda 100644
    - i386
  main_repo: 'https://github.com/json-c/json-c.git'
 +commit_hash: '7bca694b4721cb1dd6fbee234f2d7d4139c854c8'
+diff --git a/projects/libplist/Dockerfile b/projects/libplist/Dockerfile
+index 375fff6..2fd3f0c 100644
+--- a/projects/libplist/Dockerfile
++++ b/projects/libplist/Dockerfile
+@@ -17,7 +17,12 @@
+ FROM gcr.io/oss-fuzz-base/base-builder
+ RUN apt-get update && apt-get install -y make autoconf automake libtool pkg-config
+ 
+-RUN git clone --depth 1 https://github.com/libimobiledevice/libplist
++RUN git clone --depth 1 https://github.com/libimobiledevice/libplist && \
++    cd libplist && \
++    git fetch --depth 1 origin 5ea6de69afcf11f2d2e59258cb055a5b1fdb5f82 && \
++    git checkout 5ea6de69afcf11f2d2e59258cb055a5b1fdb5f82
++
+ WORKDIR libplist
+ 
+ COPY build.sh $SRC/
++COPY fuzz_*_fuzzer.cc fuzz_*_fuzzer.cpp $SRC/libplist/fuzz/
+diff --git a/projects/libplist/build.sh b/projects/libplist/build.sh
+index 75e1ed6..53d467e 100755
+--- a/projects/libplist/build.sh
++++ b/projects/libplist/build.sh
+@@ -26,6 +26,15 @@ for fuzzer in bplist_fuzzer xplist_fuzzer jplist_fuzzer oplist_fuzzer; do
+       $LIB_FUZZING_ENGINE src/.libs/libplist-2.0.a
+ done
+ 
++# Compile custom fuzzers (fuzz_*_fuzzer.cc or fuzz_*_fuzzer.cpp files)
++find $SRC/libplist/fuzz/ -name "fuzz_*_fuzzer.cc" -o -name "fuzz_*_fuzzer.cpp" | while read -r fuzz_src; do
++  fuzzer=$(basename "$fuzz_src" | sed -e 's/\.[^.]*$//')
++  echo "Compiling custom fuzzer: $fuzzer"
++  $CXX $CXXFLAGS -std=c++11 -Iinclude/ \
++      "$fuzz_src" -o $OUT/$fuzzer \
++      $LIB_FUZZING_ENGINE src/.libs/libplist-2.0.a
++done
++
+ zip -j $OUT/bplist_fuzzer_seed_corpus.zip test/data/*.bplist
+ zip -j $OUT/xplist_fuzzer_seed_corpus.zip test/data/*.plist
+ zip -j $OUT/jplist_fuzzer_seed_corpus.zip test/data/*.json
+diff --git a/projects/libplist/project.yaml b/projects/libplist/project.yaml
+index 6d5b156..14b9efd 100644
+--- a/projects/libplist/project.yaml
++++ b/projects/libplist/project.yaml
+@@ -12,3 +12,4 @@ sanitizers:
+   - memory
+   - undefined
+ main_repo: 'https://github.com/libimobiledevice/libplist'
++commit_hash: '5ea6de69afcf11f2d2e59258cb055a5b1fdb5f82'
 diff --git a/projects/pugixml/Dockerfile b/projects/pugixml/Dockerfile
 index d408cd6..4697906 100755
 --- a/projects/pugixml/Dockerfile
