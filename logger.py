@@ -11,7 +11,7 @@ def setup_logging(project_names: list, log_dir: Path = Path(__file__).parent / "
     """Configure logging with both file and console handlers."""
     log_dir.mkdir(exist_ok=True)
 
-    log_file = log_dir / f"fuzz_target_generator_{datetime.now().strftime('%m%d_%H%M%S')}.log"
+    log_file = log_dir / f"{datetime.now().strftime('%m%d_%H%M%S')}_{'_'.join(project_names)}.log"
     handlers = [logging.FileHandler(log_file, mode="w"), logging.StreamHandler(sys.stdout)]
     logging.basicConfig(
         level=logging.INFO,
