@@ -8,6 +8,27 @@ fail() {
     exit 1
 }
 
+# Check system requirements
+echo "[+] Checking system requirements..."
+
+# Check OS
+if ! lsb_release -a 2>&1 | grep -q "Ubuntu 22.04"; then
+    fail "System is not Ubuntu 22.04. Please use the recommended OS."
+fi
+
+# Check Python version
+PYTHON_VERSION=$(python3 --version 2>&1)
+if [[ "$PYTHON_VERSION" != "Python 3.11"* ]]; then
+    fail "Python version is not 3.11.x. Found: $PYTHON_VERSION. Please install the recommended Python version."
+fi
+
+# Check Docker installation
+if ! command -v docker &> /dev/null; then
+    fail "Docker is not installed. Please install Docker."
+fi
+
+echo "[+] System requirements met."
+
 # Install main project requirements
 echo "[+] Installing main project requirements..."
 python -m pip install -r requirements.txt || fail "Failed to install main project requirements"
@@ -48,23 +69,20 @@ setup_repo() {
     git apply "$EXTERNAL_DIR/patches/$folder.patch" || fail "Failed to apply patch for $folder"
 }
 
-cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 
 echo "[+] Setting up Fuzz Introspector..."
+cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "f16dbf645a593a2a830cbb131d21669d10c07f6f"
 
 # Install Python requirements for Fuzz Introspector
-pushd tools/web-fuzzing-introspection > /dev/null || fail "Failed to change directory to tools/web-fuzzing-introspection"
-python -m pip install -r requirements.txt || fail "Failed to install Python requirements"
-popd > /dev/null
-
-cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
+python -m pip install -r "$EXTERNAL_DIR/fuzz-introspector/tools/web-fuzzing-introspection/requirements.txt" || fail "Failed to install Python requirements"
 
 echo "[+] Setting up OSS-Fuzz..."
+cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "26f36ff7ce9cd61856621ba197f8e8db24b15ad9"
 
 echo "[+] Building OSS-Fuzz base images..."
-cd oss-fuzz || fail "Failed to change directory to oss-fuzz"
+cd "$EXTERNAL_DIR/oss-fuzz" || fail "Failed to change directory to oss-fuzz"
 docker build -t gcr.io/oss-fuzz-base/base-builder infra/base-images/base-builder || fail "Failed to build base-builder image"
 docker build -t gcr.io/oss-fuzz-base/base-runner infra/base-images/base-runner || fail "Failed to build base-runner image"
 
