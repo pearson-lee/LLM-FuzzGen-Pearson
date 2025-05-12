@@ -14,7 +14,7 @@ def setup_logging(project_name: str, log_dir: Path = Path(__file__).parent / "lo
     handlers = [logging.FileHandler(log_file, mode="w"), logging.StreamHandler(sys.stdout)]
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s.%(funcName)s:%(lineno)d - %(levelname)s - %(message)s",
+        format="%(asctime)s - %(name)s.%(funcName)s:%(lineno)d - %(levelname)s - %(message)s\033[0m",
         datefmt="%H:%M:%S",
         handlers=handlers,
     )

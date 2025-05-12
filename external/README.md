@@ -1,10 +1,12 @@
 ## Creating Patches
+### For new changes to fuzz-introspector
 ```bash
-# For new changes to fuzz-introspector
 cd fuzz-introspector
 git diff > ../patches/fuzz-introspector.patch
+```
 
-# For new changes to oss-fuzz
+### For new changes to oss-fuzz
+```bash
 cd oss-fuzz
 git diff > ../patches/oss-fuzz.patch
 ```

@@ -63,4 +63,9 @@ cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 echo "[+] Setting up OSS-Fuzz..."
 setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "26f36ff7ce9cd61856621ba197f8e8db24b15ad9"
 
+echo "[+] Building OSS-Fuzz base images..."
+cd oss-fuzz || fail "Failed to change directory to oss-fuzz"
+docker build -t gcr.io/oss-fuzz-base/base-builder infra/base-images/base-builder || fail "Failed to build base-builder image"
+docker build -t gcr.io/oss-fuzz-base/base-runner infra/base-images/base-runner || fail "Failed to build base-runner image"
+
 echo "[+] Setup completed successfully"

@@ -25,7 +25,6 @@ def load_config(yaml_file="config.yaml"):
 config = load_config()
 
 MODEL_NAME = config["MODEL_NAME"]
-API_KEY = config["API_KEY"]
 MAX_TOKENS = config["MAX_TOKENS"]
 TEMPERATURE = config["TEMPERATURE"]
 INTROSPECTOR_API_BASE_URL = config["INTROSPECTOR_API_BASE_URL"]

@@ -1,7 +1,3 @@
-from langchain_core.messages import AIMessage, ToolMessage
-from langchain_google_vertexai import ChatVertexAI
-from langchain_openai import ChatOpenAI
-from langchain_xai import ChatXAI
 from langgraph.checkpoint.memory import MemorySaver
 import config.config as config
 import logging
@@ -57,33 +53,6 @@ class LLMClient:
                 max_retries=10,
                 timeout=300.0,
             )
-
-            # llm_base = ChatVertexAI(
-            #     temperature=config.TEMPERATURE,
-            #     model="gemini-2.5-flash-preview-04-17",
-            #     max_tokens=65535,
-            #     max_retries=10,
-            # )
-
-            # llm_base = ChatXAI(
-            #     model="grok-3-mini-fast-latest",
-            #     temperature=0,
-            #     max_tokens=65535,
-            #     timeout=300.0,
-            #     max_retries=6,
-            #     api_key="xai-CVxPmwKVi0ti8TNlcA8SNyyHxkHsrr6r0F9fIwnF5ib4hF0e0y6Ns8CgXIW22RgcwI2KarA9vKs4oOaR",
-            #     reasoning_effort="high",
-            # )
-
-            # llm_base = ChatOpenAI(
-            #     # temperature=config.TEMPERATURE,
-            #     model="o4-mini-2025-04-16",
-            #     max_tokens=65535,
-            #     max_retries=10,
-            #     timeout=300.0,
-            #     reasoning_effort="medium",
-            #     api_key="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",
-            # )
 
             self._llm_without_tools = llm_base
             self._llm = llm_base.bind_tools(tools=tools, tool_choice="auto")
