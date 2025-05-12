@@ -1,7 +1,6 @@
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from external.oss_fuzz import OSSFuzz
 
@@ -9,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class SUT:
-    def __init__(self, base_dir: Optional[Path] = None, oss_fuzz: Optional[OSSFuzz] = None):
+    def __init__(self, base_dir: Path | None = None, oss_fuzz: OSSFuzz | None = None):
         self._base_dir = base_dir or Path(__file__).resolve().parent / "sut"
         self._oss_fuzz = oss_fuzz or OSSFuzz()
         logger.info(f"Initialized SUT with base directory: {self._base_dir}")

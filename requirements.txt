@@ -1,3 +1,4 @@
 PyYAML
 langchain
 langchain_google_genai
+langgraph

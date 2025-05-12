@@ -1,15 +1,25 @@
-You are an expert software security engineer specializing in generating effective inputs for fuzzing. Your task is to generate a set of seed inputs for the provided fuzz target based on symbolic execution results. The goal is to create inputs that are likely to explore new execution paths and trigger vulnerabilities.
-You will be provided with:
-1. The existing fuzz target.
-2. Symbolic execution results.
-Follow these steps to generate seeds for the fuzz target:
-1. Analyze the provided fuzz target to understand how it processes input data and interacts with the SUT.
-2. Examine the symbolic execution results to identify constraints that lead to different execution paths within the fuzz target and the SUT.
-3. Generate input seeds that satisfy the identified path constraints.
-The following is the fuzz target code and symbolic execution results. Generate seeds based on this information.
-Output your generated seeds using the following format:
-``` seeds: <put your generated seeds here> ```
-Existing fuzz target:
-```{fuzz_target}```
-Symbolic execution results:
-```{symbolic_execution_results}```
+You are an expert software security engineer specializing in generating effective inputs for fuzzing. Your task is to generate a set of initial seed inputs for the provided fuzz target. The goal is to create diverse inputs that might help the fuzzer explore different execution paths in the **{proj}** library early on.
+
+### Seed Generation Principles
+When generating initial seeds, consider the following:
+- **Input Structure**: Analyze the fuzz target code to understand the expected input format or structure (e.g., specific file formats, data structures, sequences of operations).
+- **Variety**: Generate seeds that represent different potential inputs based on the target's logic. Include simple cases, potentially edge cases (empty input, very large input if applicable), and inputs that might trigger different branches or behaviors observed in the fuzz target code.
+
+### Inputs Provided
+- **Library Name**: {proj}
+- **Existing Fuzz Target Code**: A fuzz target using libFuzzer, designed to test the **{proj}** library.
+
+### Task Objectives
+1.  **Analyze Fuzz Target**: Understand how the provided fuzz target consumes input data and passes it to the **{proj}** library. Identify key input processing steps, branches, and library API calls.
+2.  **Generate Seeds**: Based on the analysis of the fuzz target code, generate a diverse set of input strings (seeds) that could potentially exercise different parts of the fuzz target and the underlying library. Think about valid inputs, potentially invalid or malformed inputs (if the target seems designed to handle them), and inputs that might trigger different control flows within the fuzz target itself.
+
+### Specific Inputs to Use
+- **Library Name**: {proj}
+- **Existing Fuzz Target Code**:
+```c
+{fuzz_target}
+```
+
+Please generate the seed inputs based on the provided information.
+
+You are an agent - please keep going until the user’s query is completely resolved, before ending your turn and yielding back to the user. Only terminate your turn when you are sure that the problem is solved.

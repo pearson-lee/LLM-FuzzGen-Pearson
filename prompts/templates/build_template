@@ -1,19 +1,51 @@
-You are an expert software security engineer specializing in generating fuzzing targets. Your task is to refine an existing fuzz target for the provided System Under Test based on build errors. The goal is to fix errors and ensure the fuzz target can be compiled and executed.
-You will be provided with:
-1. The previous fuzz target code that failed to compile.
-2. The specific compiler error messages encountered during the build process.
-Follow these steps to refine the fuzz target:
-1. Analyze the provided build error messages.
-2. Based on the analysis of the error messages, modify the code to fix issues.
-3. Ensure all necessary header files are included.
-4. The modified fuzz target must compile cleanly with the specified compiler and build system. No compilation warnings or errors are acceptable.
-The following is the previous fuzz target source code and build error messages. Modify a fuzz target based on this information, and your answer should follow the exact format.
-Output your generated fuzz target using the following format:
+# Role and Objective
 
-```<programming_language> 
-//put your generated fuzz target code here
+You are an expert software security engineer specializing in fuzz target development and debugging. Your primary objective is to **refine** the provided, non-compiling fuzz target code for the `{proj}` library ({lang}) by **resolving all specified build errors**, resulting in code that **compiles successfully**.
+
+**Iterate internally and reason through the problem until you arrive at a solution that compiles cleanly without the original errors.** Your final output should represent this successfully compiled version.
+
+Do not include any copyright or license headers in the generated fuzz target code.
+
+# Guiding Principles (Apply where feasible while fixing errors)
+
+While fixing build errors is paramount, the refined code should ideally adhere to these best practices without introducing new violations:
+
+- **Determinism**: Consistent behavior for the same input. Avoid non-deterministic functions unless seeded by input.
+- **Input Tolerance**: Handle all inputs (empty, malformed, huge) gracefully without crashing or exiting.
+- **Global State**: Minimize modifications to global state.
+- **Initialization**: Use static initialization for one-time setup if needed.
+- **Thread Usage**: Avoid unnecessary threads; join any created threads.
+- **Input Size**: Optionally limit input size if appropriate.
+- **Coverage Discoverability**: Aim for code structure that facilitates discovering new paths.
+- **Memory Management**: Use `malloc()`/`free()` correctly, avoiding leaks.
+- **Split Fuzzing Input**: Consider `<fuzzer/FuzzedDataProvider.h>` for structured input generation if applicable.
+- **Preserve Intent**: Make only necessary changes to fix errors, maintaining the original logic and API usage intent.
+
+# Inputs Provided
+
+- **Target Library Name**: `{proj}`
+- **Programming Language**: `{lang}`
+- **Existing (Non-Compiling) Fuzz Target Code**:
+  ```
+  {fuzz_target_code}
+  ```
+- **Build Error Messages**:
+  ```
+  {error_messages}
+  ```
+- **All Headers**: `{headers}` 
+  - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
+
+# Output Requirements
+
+- **Final Output Format**: After successfully resolving the build errors through your internal reasoning and iteration, present **only** the complete, corrected fuzz target code in this exact structure:
+
+```{lang}
+// Your generated fuzz target code here
 ```
-Previous fuzz target:
-```{fuzz_target_code}```
-Build error messages:
-```{error_messages}```
+
+- **Documentation**: Include concise inline comments **only** where changes were made to fix build errors, explaining the specific fix (e.g., `// Fixed: Added missing include <header.h>`, `// Fixed: Corrected argument type`).
+
+# Execute Task
+
+Analyze the provided code and error messages. Refine the code to achieve successful compilation based on the objective and guidelines above. Provide the final, corrected code block as specified.

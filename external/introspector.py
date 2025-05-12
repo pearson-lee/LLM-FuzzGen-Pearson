@@ -3,7 +3,10 @@ import logging
 import os
 import subprocess
 import time
+import fcntl
 from pathlib import Path
+from typing import TypedDict, List
+from contextlib import contextmanager
 
 import requests
 
@@ -12,10 +15,35 @@ import config.config as config
 logger = logging.getLogger(__name__)
 
 
+class FunctionInfo(TypedDict):
+    """Type hints for function information returned by get_all_functions."""
+
+    function_name: str
+    function_signature: str
+    possible_header_files: List[str]
+    runtime_coverage_percent: float
+
+
+class CrossReference(TypedDict):
+    """Type hints for cross-reference information returned by get_function_cross_references."""
+
+    src_func: str
+    possible_header_files: List[str]
+    src_func_signature: str
+
+
+class TargetFunctionInfo(TypedDict):
+    """Type for target functions returned by target_functions."""
+
+    function_signature: str
+    possible_header_files: List[str]
+
+
 class Introspector:
+    LOCKFILE_PATH = Path("/tmp/llm_fuzzgen.lock")
     API_REQUEST_TIMEOUT = 3
-    MAX_RETRIES = 3
-    RETRY_WAIT_TIME = 1
+    MAX_RETRIES = 5
+    RETRY_WAIT_TIME = 5
 
     def __init__(self, base_url: str = None):
         self.base_url = base_url or config.INTROSPECTOR_API_BASE_URL
@@ -23,6 +51,7 @@ class Introspector:
         self.base_dir = Path(__file__).parent
         self.oss_fuzz_dir = self.base_dir / "oss-fuzz"
         self.fi_dir = self.base_dir / "fuzz-introspector"
+        self.webapp_path = self.fi_dir / "tools" / "web-fuzzing-introspection" / "app"
 
     def _query_api(self, endpoint: str, params: dict, enable_retry: bool = True) -> dict:
         logger.info(f"Querying API: {endpoint} with params: {params}")
@@ -50,7 +79,12 @@ class Introspector:
     def _webapp_db_update(self) -> bool:
         db_script_path = (
             self.fi_dir
-            / "tools/web-fuzzing-introspection/app/static/assets/db"
+            / "tools"
+            / "web-fuzzing-introspection"
+            / "app"
+            / "static"
+            / "assets"
+            / "db"
             / "web_db_creator_from_summary.py"
         )
         try:
@@ -64,13 +98,100 @@ class Introspector:
             logger.error(f"Failed to update webapp database: {e}")
             return False
 
-    def target_functions(self, project_name: str) -> list[str]:
+    @contextmanager
+    def file_lock(self):
+        """A context manager for file locking using fcntl.flock."""
+        lock_file_handle = None
+        try:
+            lock_file_handle = open(self.LOCKFILE_PATH, "a")
+            fcntl.flock(lock_file_handle, fcntl.LOCK_EX)
+            logger.info(f"Acquired lock: {self.LOCKFILE_PATH}")
+            yield lock_file_handle
+        finally:
+            if lock_file_handle:
+                fcntl.flock(lock_file_handle, fcntl.LOCK_UN)
+                lock_file_handle.close()
+                logger.info(f"Released lock: {self.LOCKFILE_PATH}")
+
+    def update_start_webapp(self) -> bool:
+        try:
+            with self.file_lock():
+                if not self._webapp_db_update():
+                    return False
+
+                self.shutdown_webapp()
+                env = {**os.environ, "FUZZ_INTROSPECTOR_LOCAL_OSS_FUZZ": str(self.oss_fuzz_dir)}
+
+                subprocess.Popen(
+                    ["python", "./main.py"],
+                    cwd=str(self.webapp_path),
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
+                time.sleep(3)
+                if self.webapp_tester():
+                    logger.info("Web application started successfully.")
+                    return True
+
+                logger.error("Failed to start web application after maximum attempts")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to initialize webapp: {e}")
+            return False
+
+    def webapp_tester(self) -> bool:
+        response = self._query_api("tester", {})
+        return response.get("result") == "success"
+
+    def shutdown_webapp(self):
+        self._query_api("shutdown", {}, enable_retry=False)
+
+    def target_functions(self, project_name: str) -> List[TargetFunctionInfo]:
+        """
+        Get target functions (low coverage) for the project.
+
+        Args:
+            project_name: str - Name of the project to query.
+
+        Returns:
+            List[TargetFunctionInfo]: A list of target function info dictionaries, each containing:
+                - function_signature (str): The signature of the function.
+                - possible_header_files (List[str]): Header files that may be required.
+        """
         response = self._query_api("far-reach-but-low-coverage", {"project": project_name})
-        return [func["function_signature"] for func in response.get("functions", [])]
+        targets: List[TargetFunctionInfo] = []
+        for func in response.get("functions", []):
+            sig = func.get("function_signature", "")
+            headers = func.get("debug_summary", {}).get("possible-header-files", [])
+            targets.append(
+                {
+                    "function_signature": sig,
+                    "possible_header_files": headers,
+                }
+            )
+        return targets
+
+    def get_function_signature_and_headers(self, project_name: str, func_name: str) -> tuple[str, list[str]]:
+        """Get function signature and possible header files by function name.
+
+        Args:
+            project_name: str - The name of the project
+            func_name: str - The name of the function to look up
+
+        Returns:
+            tuple: (function_signature: str, possible_header_files: list[str])
+        """
+        response = self._query_api("function-signature", {"project": project_name, "function": func_name})
+        signature = response.get("signature", "")
+        headers = response.get("raw_data", {}).get("possible-header-files", [])
+        return signature, headers
 
     def function_source_code(self, project_name: str, function_signature: str) -> str:
         response = self._query_api(
-            "function-source-code", {"project": project_name, "function_signature": function_signature}
+            "function-source-code",
+            {"project": project_name, "function_signature": function_signature},
         )
         return response.get("source", "")
 
@@ -94,50 +215,117 @@ class Introspector:
             logger.warning(f"Failed to get line coverage for {project_name}")
             return 0.0
 
-    def update_start_webapp(self) -> bool:
-        if not self._webapp_db_update():
-            return False
+    def fuzz_target_source_code(self, project_name: str, end_line: int = 999) -> list[dict[str, str]]:
+        """Get fuzz target names and source code for the project.
 
-        self.shutdown_webapp()
-        try:
-            webapp_path = self.fi_dir / "tools/web-fuzzing-introspection/app"
-            env = {**os.environ, "FUZZ_INTROSPECTOR_LOCAL_OSS_FUZZ": str(self.oss_fuzz_dir)}
+        Args:
+            project_name (str): The name of the project.
 
-            subprocess.Popen(
-                ["python", "./main.py"],
-                cwd=str(webapp_path),
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-            time.sleep(1)  # Give the webapp a moment to start
-            if self.webapp_tester():
-                logger.info("Web application started successfully")
-                return True
-
-            logger.error("Failed to start web application")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to initialize webapp: {e}")
-            return False
-
-    def webapp_tester(self) -> bool:
-        response = self._query_api("tester", {})
-        return response.get("result") == "success"
-
-    def shutdown_webapp(self):
-        self._query_api("shutdown", {}, enable_retry=False)
-
-    def fuzz_target_source_code(self, project_name: str, limit: int = 3) -> str:
-        """Get fuzz target source code for the project."""
-        logger.info(f"Getting fuzz target source code for project: {project_name} (limit: {limit})")
+        Returns:
+            list[dict[str, str]]: A list of dictionaries, each containing:
+                - 'name' (str): The name of the fuzz target.
+                - 'code' (str): The source code of the fuzz target.
+        """
+        logger.info(f"Getting fuzz target source code for project: {project_name}")
         pairs = self._query_api("harness-source-and-executable", {"project": project_name}).get("pairs", [])
 
-        codes = []
-        for i, pair in enumerate(pairs[:limit], 1):
-            params = {"project": project_name, "filepath": pair["source"], "begin_line": 0, "end_line": 999}
-            if code := self._query_api("project-source-code", params).get("source_code"):
-                codes.append(f"```fuzz_target_{i}\n{code}\n```")
+        results = []
+        for pair in pairs:
+            executable = pair.get("executable")
+            source_path = pair.get("source")
 
-        return "\n".join(codes)
+            if not executable or not source_path:
+                logger.warning(f"Skipping pair due to missing executable or source path: {pair}")
+                continue
+
+            fuzzer_name = os.path.splitext(executable)[0]
+
+            params = {
+                "project": project_name,
+                "filepath": source_path,
+                "begin_line": 0,
+                "end_line": end_line,
+            }
+            if code := self._query_api("project-source-code", params).get("source_code"):
+                results.append({"name": fuzzer_name, "code": code})
+            else:
+                logger.warning(
+                    f"Could not retrieve source code for fuzzer: {fuzzer_name} in project: {project_name}"
+                )
+
+        if not results:
+            logger.warning(f"No fuzz target source code found for project: {project_name}")
+            return []
+
+        return results
+
+    def get_function_cross_references(
+        self, project_name: str, function_signature: str
+    ) -> List[CrossReference]:
+        """Get detailed cross-reference information for the given function.
+
+        Args:
+            project_name: str - The name of the project
+            function_signature: str - The signature of the function to look up
+
+        Returns:
+            List[CrossReference]: List of cross-reference information dictionaries, each containing:
+                - src_func (str): The source function name that calls the target function
+                - possible_header_files (List[str]): List of possible header files for the source function
+                - src_func_signature (str): The signature of the source function
+        """
+        response = self._query_api(
+            "all-cross-references",
+            {"project": project_name, "function_signature": function_signature},
+        )
+        callsites = response.get("callsites", [])
+
+        # Get all functions to map function names to their possible header files
+        all_functions = self.get_all_functions(project_name)
+        func_to_headers = {func["function_name"]: func["possible_header_files"] for func in all_functions}
+        func_to_signature = {func["function_name"]: func["function_signature"] for func in all_functions}
+
+        return [
+            {
+                "src_func": callsite.get("src_func", ""),
+                "possible_header_files": func_to_headers.get(callsite.get("src_func", ""), []),
+                "src_func_signature": func_to_signature.get(callsite.get("src_func", ""), ""),
+            }
+            for callsite in callsites
+        ]
+
+    def get_all_header_files(self, project_name: str) -> list[str]:
+        """Get all header files for the project.
+
+        Args:
+            project_name: str - The name of the project
+
+        Returns:
+            list[str]: List of header file paths
+        """
+        response = self._query_api("all-header-files", {"project": project_name})
+        return response.get("all-header-files", [])
+
+    def get_all_functions(self, project_name: str) -> List[FunctionInfo]:
+        """Get all functions for the project.
+
+        Args:
+            project_name: str - The name of the project
+
+        Returns:
+            List[FunctionInfo]: List of dictionaries containing:
+                - function_name (str): The name of the function
+                - function_signature (str): The demangled function signature
+                - possible_header_files (List[str]): List of possible header files
+                - runtime_coverage_percent (float): Runtime coverage percentage
+        """
+        response = self._query_api("all-functions", {"project": project_name})
+        return [
+            {
+                "function_name": func.get("function_name", ""),
+                "function_signature": func.get("function_signature", ""),
+                "possible_header_files": func.get("debug_summary").get("possible-header-files", []),
+                "runtime_coverage_percent": func.get("runtime_coverage_percent", 0.0),
+            }
+            for func in response.get("functions", [])
+        ]

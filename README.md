@@ -27,11 +27,16 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-4. Modify config.yaml
+4. Set up `GOOGLE_API_KEY` environment variable
+```bash
+export GOOGLE_API_KEY="YOUR_API_KEY"
+```
 
-5. Run main.py
+Replace `"YOUR_API_KEY"` with your actual API key.
+
+5. Modify config.yaml
+
+6. Run main.py
 ```bash
 python ./main.py tinyxml2
-# or
-python ./main.py tinyxml2 pugixml json-c
 ```

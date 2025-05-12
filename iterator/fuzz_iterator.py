@@ -13,14 +13,20 @@ class FuzzIterator:
         self.coverages: list[float] = []
 
     def record_cov(self):
-        get_cov = self.introspector.line_coverage(self.project)
-        self.coverages.append(get_cov)
+        cov = self.introspector.line_coverage(self.project)
+        if cov is None or cov == 0:
+            logger.warning("Coverage is None, skipping record.")
+            return
 
-        logging.info(f"Project: {self.project}, Current coverage: {get_cov}")
+        self.coverages.append(cov)
+        logger.info(f"Project: {self.project}, Current coverage: {cov}")
         return
 
     def latest_cov(self):
         return self.coverages[-1]
+
+    def first_cov(self):
+        return self.coverages[0]
 
     def should_regenerate(self) -> bool:
         """
@@ -28,12 +34,14 @@ class FuzzIterator:
         Returns True if coverage has stagnated (should regenerate),
         False if coverage is still improving (should mutate).
         """
-        if len(self.coverages) < 2:  # Need at least 2 coverage values to compare
+        # Need at least 4 coverage records to evaluate three consecutive improvements
+        if len(self.coverages) < 4:
             return False
 
-        current_cov = self.coverages[-1]
-        previous_cov = self.coverages[-2]
-        if current_cov - previous_cov > MIN_COVERAGE_IMPROVEMENT:
-            return False  # Coverage is still improving, continue mutation
-
-        return True  # Coverage has stagnated, should regenerate
+        # Compute the last three coverage deltas
+        deltas = [self.coverages[i] - self.coverages[i - 1] for i in range(-3, 0)]
+        # If all three improvements are below the threshold, stagnation => regenerate
+        if all(delta < MIN_COVERAGE_IMPROVEMENT for delta in deltas):
+            return True
+        # Otherwise, continue mutating
+        return False

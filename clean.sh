@@ -15,9 +15,11 @@ fi
 for project in "$@"; do
     echo "Cleaning up artifacts for project: $project"
     
-    # 1. Delete fuzz_*_fuzzer.* files in the oss-fuzz projects directory
-    echo "  Removing fuzzer files from oss-fuzz projects..."
-    find "${OSS_FUZZ_PATH}/projects/$project" -name "fuzz_*_fuzzer.*" -type f -exec rm -v {} \;
+    # 1. Delete llm_fuzzgen* files in the oss-fuzz projects directory
+    echo "  Removing fuzzer files and seed corpora from oss-fuzz projects..."
+    find "${OSS_FUZZ_PATH}/projects/$project" -type f \
+        \( -name "llm_fuzzgen*" \) \
+        -exec rm -v {} \;
     
     # 2. Delete project-specific output directory
     echo "  Removing build output directory..."

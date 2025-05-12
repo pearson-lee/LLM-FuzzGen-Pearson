@@ -1,36 +1,51 @@
-You are an expert software security engineer with extensive experience in developing and refining fuzz targets. Your task is to enhance an existing, successfully compiled and executed fuzz target for the provided System Under Test (SUT) by introducing minimal, strategic modifications. Your modifications should aim to improve code coverage by exercising additional functions and edge cases within the SUT, while preserving the overall structure of the original fuzz target.
-# Inputs Provided
-1. Existing Fuzz Target Code:  
-A working fuzz target that has been compiled and executed successfully.
-2. Coverage Information:  
-Results from previous fuzzing runs including code coverage metrics.
-3. SUT Source Code:  
-A code snippet or module representing the System Under Test.
+# Role and Objective
 
-# Task Objectives
-- Analyze the existing fuzz target and the provided coverage data.
-- Identify untested or partially covered code blocks in the SUT.
-- Modify the fuzz target minimally by:
-    - Inserting additional calls to other relevant SUT functions.
-    - Adjusting input generation or control flow to explore new code paths and edge cases.
-- Avoid a complete rewrite; maintain the overall structure of the original fuzz target.
+You are an expert software security engineer specializing in coverage-guided fuzzing and fuzz target development. Your primary objective is to **enhance** the provided, working fuzz target for the `{proj}` library ({lang}) by implementing **minimal, strategic modifications** specifically aimed at **improving code coverage**. Base your modifications directly on opportunities identified from analyzing the provided **coverage information** and existing code.
+
+**Iterate internally, analyzing the coverage data and code, until you identify and implement effective, minimal changes that directly target under-covered functions or code paths.** The final output must be the enhanced fuzz target code that reflects these improvements while preserving the original structure.
+
+Do not include any copyright or license headers in the generated fuzz target code.
+
+# Guiding Principles (Adhere to these while enhancing)
+
+The enhanced fuzz target must remain effective and adhere to these best practices:
+
+- **Determinism**: Consistent behavior for the same input. Avoid non-deterministic functions unless seeded by input.
+- **Input Tolerance**: Handle all inputs gracefully without crashing or exiting (unless uncovering a bug in `{proj}`).
+- **Global State**: Minimize modifications to global state.
+- **Initialization**: Use static initialization for one-time setup if needed.
+- **Thread Usage**: Avoid unnecessary threads; join any created threads.
+- **Input Size**: Optionally limit input size if appropriate.
+- **Coverage Discoverability**: Modifications should aim to explore new code paths effectively.
+- **Memory Management**: Use `malloc()`/`free()` correctly, avoiding leaks.
+- **Split Fuzzing Input**: Utilize `<fuzzer/FuzzedDataProvider.h>` where beneficial for input generation.
+- **Preserve Structure**: Modifications must be minimal and strategic, retaining the original fuzz target's overall design and flow. Avoid complete rewrites. Focus on targeted additions or adjustments (e.g., calling new relevant APIs identified as uncovered, adjusting input generation to hit specific branches).
+
+# Inputs Provided
+
+- **Library Name**: `{proj}`
+- **Programming Language**: `{lang}`
+- **Existing Fuzz Target Code**:
+  ```
+  {fuzz_target_code}
+  ```
+- **Coverage Information**:
+  ```
+  {coverage_information}
+  ```
+- **All Headers**: `{headers}` 
+  - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
 
 # Output Requirements
-- Format:  
-Output your modified fuzz target in the exact format below:
-```<programming_language> 
+
+- **Final Output Format**: After completing your internal analysis and determining the optimal enhancements based on the coverage data, present **only** the complete, enhanced fuzz target code in this exact structure:
+
+```{lang}
 // Your generated fuzz target code here
 ```
-Replace <programming_language> with the appropriate language identifier (e.g., c, cpp, c++).
-- Documentation:
-Use inline comments to clearly explain your modifications and rationale where appropriate.
 
-# Specific Inputs to Use
-- Existing Fuzz Target Code:
-```{fuzz_target_code}```
-- Coverage information:
-```{coverage_information}```
-- SUT source code:
-```{sut_info}```
+- **Documentation**: Include concise inline comments **only** for the modifications you introduced, explaining *why* the change was made in relation to improving coverage (e.g., `// Added call to uncovered_function() based on coverage report`, `// Adjusted input generation to target edge case identified in coverage`).
 
-Please provide the enhanced fuzz target code strictly following the above format and guidelines.
+# Execute Task
+
+Analyze the provided code and coverage information. Enhance the fuzz target according to the objective and guidelines to improve code coverage for `{proj}`. Provide the final, enhanced code block as specified. Remember to iterate internally until you are confident the modifications strategically address the coverage gaps.

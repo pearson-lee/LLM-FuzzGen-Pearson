@@ -6,7 +6,17 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
 
 def _load_and_format_template(template_name: str, input_variables: list, **kwargs) -> str:
-    """Helper function to load template and format prompt"""
+    """
+    Helper function to load a prompt template from a file and format it.
+
+    Args:
+        template_name: The name of the template file (without extension).
+        input_variables: A list of variable names expected by the template.
+        **kwargs: Keyword arguments to fill in the template variables.
+
+    Returns:
+        The formatted prompt string.
+    """
     template_path = TEMPLATES_DIR / template_name
     with open(template_path, "r") as f:
         template_content = f.read()
@@ -26,9 +36,10 @@ def fuzz_target_prompt(
     headers: str = "",
     build_script: str = ""
 ) -> str:
+    """Generates a prompt for creating a fuzz target."""
     return _load_and_format_template(
-        "generator_template",
-        ["language", "function_signature", "source_code", "headers", "build_script"],
+        template_name="generator_template",
+        input_variables=["language", "function_signature", "source_code", "headers", "build_script"],
         language=language,
         function_signature=function_signature,
         source_code=source_code,
@@ -38,59 +49,92 @@ def fuzz_target_prompt(
 
 
 def compile_fail_prompt(*, source_code: str = "", error: str = "") -> str:
+    """Generates a prompt for handling compilation failures."""
     return _load_and_format_template(
-        "compile_fail_template",
-        ["source_code", "error"],
+        template_name="compile_fail_template",
+        input_variables=["source_code", "error"],
         source_code=source_code,
         error=error,
     )
 
 
 def initial_prompt(*, sut_info: str = "", fuzz_targets: str = "") -> str:
+    """Generates the initial prompt for the fuzzing process."""
     return _load_and_format_template(
-        "initial_template",
-        ["sut_info", "fuzz_targets"],
+        template_name="initial_template",
+        input_variables=["sut_info", "fuzz_targets"],
         sut_info=sut_info,
         fuzz_targets=fuzz_targets,
     )
 
 
-def build_prompt(*, fuzz_target_code: str = "", error_messages: str = "") -> str:
-    return _load_and_format_template(
-        "build_template",
-        ["fuzz_target_code", "error_messages"],
-        fuzz_target_code=fuzz_target_code,
-        error_messages=error_messages,
-    )
-
-
-def coverage_prompt(*, fuzz_target_code: str = "", coverage_information: str = "", sut_info: str = "") -> str:
-    return _load_and_format_template(
-        "coverage_template",
-        ["fuzz_target_code", "coverage_information", "sut_info"],
-        fuzz_target_code=fuzz_target_code,
-        coverage_information=coverage_information,
-        sut_info=sut_info,
-    )
-
-
-def input_prompt(*, fuzz_target: str = "", symbolic_execution_results: str = "") -> str:
-    return _load_and_format_template(
-        "input_template",
-        ["fuzz_target", "symbolic_execution_results"],
-        fuzz_target=fuzz_target,
-        symbolic_execution_results=symbolic_execution_results,
-    )
-
-
-def regeneration_prompt(
-    *, signature: str = "", source_code_snippet: str = "", sut_info: str = "", fuzz_targets: str = ""
+def build_prompt(
+    *,
+    fuzz_target_code: str = "",
+    error_messages: str = "",
+    lang: str = "c++",
+    proj: str = "",
+    headers: str = ""
 ) -> str:
+    """Generates a prompt for building the fuzz target."""
     return _load_and_format_template(
-        "regeneration_template",
-        ["signature", "source_code_snippet", "sut_info", "fuzz_targets"],
+        template_name="build_template",
+        input_variables=["fuzz_target_code", "error_messages", "lang", "proj", "headers"],
+        fuzz_target_code=fuzz_target_code,
+        headers=headers,
+        error_messages=error_messages,
+        lang=lang,
+        proj=proj,
+    )
+
+
+def coverage_prompt(
+    *,
+    fuzz_target_code: str = "",
+    coverage_information: str = "",
+    lang: str = "c++",
+    proj: str = "",
+    headers: str = ""
+) -> str:
+    """Generates a prompt for improving coverage."""
+    return _load_and_format_template(
+        template_name="coverage_template",
+        input_variables=["fuzz_target_code", "coverage_information", "lang", "proj", "headers"],
+        fuzz_target_code=fuzz_target_code,
+        headers=headers,
+        coverage_information=coverage_information,
+        lang=lang,
+        proj=proj,
+    )
+
+
+def input_prompt(*, fuzz_target: str = "", proj: str = "") -> str:
+    """Generates a prompt for creating fuzzing inputs."""
+    return _load_and_format_template(
+        template_name="input_template",
+        input_variables=["fuzz_target", "proj"],
+        fuzz_target=fuzz_target,
+        proj=proj,
+    )
+
+
+def regeneration_prompt(*, signature: str = "", headers: str = "", lang: str = "c++", proj: str = "") -> str:
+    """Generates a prompt for regenerating a fuzz target."""
+    return _load_and_format_template(
+        template_name="regeneration_template",
+        input_variables=["signature", "headers", "lang", "proj"],
         signature=signature,
-        source_code_snippet=source_code_snippet,
-        sut_info=sut_info,
-        fuzz_targets=fuzz_targets,
+        headers=headers,
+        lang=lang,
+        proj=proj,
+    )
+
+
+def dict_prompt(*, proj: str = "", git_url: str = "") -> str:
+    """Generates a prompt for creating a dictionary."""
+    return _load_and_format_template(
+        template_name="dict_template",
+        input_variables=["proj", "git_url"],
+        proj=proj,
+        git_url=git_url,
     )
