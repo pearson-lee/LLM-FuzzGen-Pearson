@@ -44,14 +44,9 @@ prompt_delete_dir() {
 }
 
 # Check if fuzz-introspector or oss-fuzz folders exist
-if [ -d "$EXTERNAL_DIR/fuzz-introspector" ] || [ -d "$EXTERNAL_DIR/oss-fuzz" ]; then
-    if [ -d "$EXTERNAL_DIR/fuzz-introspector" ]; then
-        prompt_delete_dir "$EXTERNAL_DIR/fuzz-introspector"
-    fi
-    if [ -d "$EXTERNAL_DIR/oss-fuzz" ]; then
-        prompt_delete_dir "$EXTERNAL_DIR/oss-fuzz"
-    fi
-fi
+for folder in fuzz-introspector oss-fuzz; do
+    [ -d "$EXTERNAL_DIR/$folder" ] && prompt_delete_dir "$EXTERNAL_DIR/$folder"
+done
 
 # Function to set up a repository: clone, enter directory, and checkout a commit
 setup_repo() {
@@ -72,17 +67,19 @@ setup_repo() {
 
 echo "[+] Setting up Fuzz Introspector..."
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
-setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "f16dbf645a593a2a830cbb131d21669d10c07f6f"
+setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "8944d0b001754f60a602c95a816880f885f1e38d"
 
 # Install Python requirements for Fuzz Introspector
 python -m pip install -r "$EXTERNAL_DIR/fuzz-introspector/tools/web-fuzzing-introspection/requirements.txt" || fail "Failed to install Python requirements"
 
 echo "[+] Setting up OSS-Fuzz..."
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
-setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "26f36ff7ce9cd61856621ba197f8e8db24b15ad9"
+setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "9f58c388aa52b9641260211a546ceb42b23f9fcf"
 
 echo "[+] Building OSS-Fuzz base images..."
 cd "$EXTERNAL_DIR/oss-fuzz" || fail "Failed to change directory to oss-fuzz"
+docker build --pull -t gcr.io/oss-fuzz-base/base-image infra/base-images/base-image || fail "Failed to build base-image"
+docker build -t gcr.io/oss-fuzz-base/base-clang infra/base-images/base-clang || fail "Failed to build base-clang image"
 docker build -t gcr.io/oss-fuzz-base/base-builder infra/base-images/base-builder || fail "Failed to build base-builder image"
 docker build -t gcr.io/oss-fuzz-base/base-runner infra/base-images/base-runner || fail "Failed to build base-runner image"
 

@@ -91,27 +91,9 @@ index 4bd41cc..d2a5f9b 100644
          "function_count": 0,
          "function_coverage_estimate": 0,
 diff --git a/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html b/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
-index 6874be5..284e4ec 100644
+index 6874be5..664b586 100644
 --- a/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
 +++ b/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
-@@ -57,7 +57,7 @@
-                         succeeding:
-                       {% endif %}
-                       <a href="{{project_build_status.introspector_build_log}}">Build log</a></td>
--                  </tr>                                    
-+                  </tr>                                  
-                   <tr>
-                     <td>Fuzzer count</td>
-                     {% if latest_statistics != None %}
-@@ -83,7 +83,7 @@
-                     <td>
-                       {% if project.coverage_data is not none %}
-                         {{ project.coverage_data.line_coverage.covered }}
--                      {% elif latest_statistics != None and latest_statistics.coverage_data != None %}
-+                      {% elif latest_statistics != None and latest_statistics.coverage_data != None %} 
-                         {{ latest_statistics.coverage_data.line_coverage.covered }}
-                       {% else %}
-                         N/A
 @@ -144,6 +144,7 @@
                      {% for fuzzer, fuzzer_data in project.recent_results.items()
                        |sort(attribute='0')

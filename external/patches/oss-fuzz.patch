@@ -1,5 +1,5 @@
 diff --git a/infra/base-images/base-builder/Dockerfile b/infra/base-images/base-builder/Dockerfile
-index 64d11095b..f1bc2cd68 100644
+index 742cfd6..cc124ea 100644
 --- a/infra/base-images/base-builder/Dockerfile
 +++ b/infra/base-images/base-builder/Dockerfile
 @@ -31,6 +31,8 @@ RUN PYTHON_DEPS="\
@@ -25,7 +25,7 @@ index 64d11095b..f1bc2cd68 100644
  
  
 diff --git a/infra/base-images/base-runner/coverage b/infra/base-images/base-runner/coverage
-index 585b4d457..a8e3944e3 100755
+index 585b4d4..a8e3944 100755
 --- a/infra/base-images/base-runner/coverage
 +++ b/infra/base-images/base-runner/coverage
 @@ -128,6 +128,8 @@ function run_fuzz_target {
@@ -38,10 +38,10 @@ index 585b4d457..a8e3944e3 100755
  
  function run_go_fuzz_target {
 diff --git a/infra/helper.py b/infra/helper.py
-index 1d03de9e8..976fe3283 100755
+index edf0734..c2f06e8 100755
 --- a/infra/helper.py
 +++ b/infra/helper.py
-@@ -451,6 +451,10 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
+@@ -457,6 +457,10 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
    introspector_parser.add_argument('--seconds',
                                     help='number of seconds to run fuzzers',
                                     default=10)
@@ -52,7 +52,7 @@ index 1d03de9e8..976fe3283 100755
    introspector_parser.add_argument('source_path',
                                     help='path of local source',
                                     nargs='?')
-@@ -1304,6 +1308,7 @@ def coverage(args):  # pylint: disable=too-many-branches
+@@ -1310,6 +1314,7 @@ def coverage(args):  # pylint: disable=too-many-branches
  
  
  def _introspector_prepare_corpus(args):
@@ -60,7 +60,7 @@ index 1d03de9e8..976fe3283 100755
    """Helper function for introspector runs to generate corpora."""
    parser = get_parser()
    # Generate corpus, either by downloading or running fuzzers.
-@@ -1317,24 +1322,28 @@ def _introspector_prepare_corpus(args):
+@@ -1323,24 +1328,28 @@ def _introspector_prepare_corpus(args):
        return False
    else:
      fuzzer_targets = _get_fuzz_targets(args.project)
@@ -106,7 +106,7 @@ index 1d03de9e8..976fe3283 100755
    return True
  
  
-@@ -1350,6 +1359,10 @@ def introspector(args):
+@@ -1356,6 +1365,10 @@ def introspector(args):
    build_fuzzers_command = [
        'build_fuzzers', '--sanitizer=address', args.project.name
    ] + args_to_append
@@ -117,7 +117,7 @@ index 1d03de9e8..976fe3283 100755
    if not build_fuzzers(parse_args(parser, build_fuzzers_command)):
      logger.error('Failed to build project with ASAN')
      return False
-@@ -1434,7 +1447,9 @@ def run_fuzzer(args):
+@@ -1440,7 +1453,9 @@ def run_fuzzer(args):
      run_args.extend([
          '-v',
          '{corpus_dir}:/tmp/{fuzzer}_corpus'.format(corpus_dir=corpus_dir,
@@ -129,7 +129,7 @@ index 1d03de9e8..976fe3283 100755
  
    run_args.extend([
 diff --git a/projects/cjson/Dockerfile b/projects/cjson/Dockerfile
-index 30597b86b..ce5b8ae69 100644
+index 30597b8..ce5b8ae 100644
 --- a/projects/cjson/Dockerfile
 +++ b/projects/cjson/Dockerfile
 @@ -20,7 +20,10 @@ FROM gcr.io/oss-fuzz-base/base-builder
@@ -146,7 +146,7 @@ index 30597b86b..ce5b8ae69 100644
  COPY build.sh $SRC/
 +COPY llm_fuzzgen* $SRC/
 diff --git a/projects/cjson/build.sh b/projects/cjson/build.sh
-index 7d6cea020..a966f010b 100644
+index 7d6cea0..a966f01 100644
 --- a/projects/cjson/build.sh
 +++ b/projects/cjson/build.sh
 @@ -15,4 +15,27 @@
@@ -181,7 +181,7 @@ index 7d6cea020..a966f010b 100644
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 \ No newline at end of file
 diff --git a/projects/cjson/project.yaml b/projects/cjson/project.yaml
-index 351f8725e..60d072398 100644
+index 351f872..60d0723 100644
 --- a/projects/cjson/project.yaml
 +++ b/projects/cjson/project.yaml
 @@ -9,3 +9,4 @@ sanitizers:
@@ -190,7 +190,7 @@ index 351f8725e..60d072398 100644
  main_repo: 'https://github.com/DaveGamble/cJSON.git'
 +commit_hash: '76be8fcf15677ca7f6db7c770f5ae6bf8b41d78f'
 diff --git a/projects/lcms/Dockerfile b/projects/lcms/Dockerfile
-index 16d07b80c..fd8cc9c42 100644
+index 16d07b8..fd8cc9c 100644
 --- a/projects/lcms/Dockerfile
 +++ b/projects/lcms/Dockerfile
 @@ -35,3 +35,4 @@ RUN mkdir $SRC/seeds && \
@@ -200,7 +200,7 @@ index 16d07b80c..fd8cc9c42 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/lcms/build.sh b/projects/lcms/build.sh
-index 1f9e949a8..1be2fd4ed 100755
+index 1f9e949..1be2fd4 100755
 --- a/projects/lcms/build.sh
 +++ b/projects/lcms/build.sh
 @@ -14,6 +14,9 @@
@@ -241,7 +241,7 @@ index 1f9e949a8..1be2fd4ed 100755
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 \ No newline at end of file
 diff --git a/projects/libplist/Dockerfile b/projects/libplist/Dockerfile
-index 375fff6dc..c0e62f76c 100644
+index 375fff6..c0e62f7 100644
 --- a/projects/libplist/Dockerfile
 +++ b/projects/libplist/Dockerfile
 @@ -17,7 +17,12 @@
@@ -260,7 +260,7 @@ index 375fff6dc..c0e62f76c 100644
 +COPY build.sh *.zip $SRC/
 +COPY fuzz_*_fuzzer.cc fuzz_*_fuzzer.cpp $SRC/libplist/fuzz/
 diff --git a/projects/libplist/build.sh b/projects/libplist/build.sh
-index 75e1ed6b8..89d152ebf 100755
+index 75e1ed6..89d152e 100755
 --- a/projects/libplist/build.sh
 +++ b/projects/libplist/build.sh
 @@ -20,15 +20,31 @@
@@ -296,7 +296,7 @@ index 75e1ed6b8..89d152ebf 100755
  cp fuzz/*.dict fuzz/*.options $OUT/
 +cp $SRC/*.dict $SRC/*.options $SRC/*corpus.zip $OUT/ || true
 diff --git a/projects/libplist/project.yaml b/projects/libplist/project.yaml
-index 6d5b156db..14b9efd5a 100644
+index 6d5b156..14b9efd 100644
 --- a/projects/libplist/project.yaml
 +++ b/projects/libplist/project.yaml
 @@ -12,3 +12,4 @@ sanitizers:
@@ -305,7 +305,7 @@ index 6d5b156db..14b9efd5a 100644
  main_repo: 'https://github.com/libimobiledevice/libplist'
 +commit_hash: '5ea6de69afcf11f2d2e59258cb055a5b1fdb5f82'
 diff --git a/projects/libpng/Dockerfile b/projects/libpng/Dockerfile
-index 6f281cd55..84864d995 100644
+index 6f281cd..84864d9 100644
 --- a/projects/libpng/Dockerfile
 +++ b/projects/libpng/Dockerfile
 @@ -20,5 +20,6 @@ RUN apt-get update && \
@@ -317,7 +317,7 @@ index 6f281cd55..84864d995 100644
 +COPY llm_fuzzgen* $SRC/
  WORKDIR libpng
 diff --git a/projects/libtiff/Dockerfile b/projects/libtiff/Dockerfile
-index b6c5fd840..547d18143 100644
+index b6c5fd8..547d181 100644
 --- a/projects/libtiff/Dockerfile
 +++ b/projects/libtiff/Dockerfile
 @@ -24,3 +24,4 @@ ADD https://lcamtuf.coredump.cx/afl/demo/afl_testcases.tgz afl_testcases.tgz
@@ -327,7 +327,7 @@ index b6c5fd840..547d18143 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/libtiff/build.sh b/projects/libtiff/build.sh
-index 088951579..8aff4d531 100755
+index 0889515..8aff4d5 100755
 --- a/projects/libtiff/build.sh
 +++ b/projects/libtiff/build.sh
 @@ -14,5 +14,26 @@
@@ -360,7 +360,7 @@ index 088951579..8aff4d531 100755
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 \ No newline at end of file
 diff --git a/projects/tinyxml2/Dockerfile b/projects/tinyxml2/Dockerfile
-index ef6edf74b..971cdbdad 100644
+index ef6edf7..971cdbd 100644
 --- a/projects/tinyxml2/Dockerfile
 +++ b/projects/tinyxml2/Dockerfile
 @@ -16,7 +16,11 @@
@@ -377,7 +377,7 @@ index ef6edf74b..971cdbdad 100644
  COPY build.sh *.cpp *.dict *.options $SRC/
 +COPY llm_fuzzgen* $SRC/
 diff --git a/projects/tinyxml2/build.sh b/projects/tinyxml2/build.sh
-index 80a344bf8..632e0661e 100644
+index 80a344b..632e066 100644
 --- a/projects/tinyxml2/build.sh
 +++ b/projects/tinyxml2/build.sh
 @@ -18,6 +18,10 @@
@@ -415,7 +415,7 @@ index 80a344bf8..632e0661e 100644
 +
  cp $SRC/*.dict $SRC/*.options $OUT/
 diff --git a/projects/tinyxml2/project.yaml b/projects/tinyxml2/project.yaml
-index b2710488d..d8883c8a7 100644
+index b271048..d8883c8 100644
 --- a/projects/tinyxml2/project.yaml
 +++ b/projects/tinyxml2/project.yaml
 @@ -9,7 +9,7 @@ sanitizers:
@@ -428,7 +428,7 @@ index b2710488d..d8883c8a7 100644
    - afl
    - honggfuzz
 diff --git a/projects/zlib/Dockerfile b/projects/zlib/Dockerfile
-index be1cb4c65..e1546a8f7 100644
+index be1cb4c..e1546a8 100644
 --- a/projects/zlib/Dockerfile
 +++ b/projects/zlib/Dockerfile
 @@ -19,3 +19,4 @@ RUN apt-get update && apt-get install -y make autoconf automake libtool
@@ -438,7 +438,7 @@ index be1cb4c65..e1546a8f7 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/zlib/build.sh b/projects/zlib/build.sh
-index 316b7cb6b..11cd01c25 100755
+index 316b7cb..11cd01c 100755
 --- a/projects/zlib/build.sh
 +++ b/projects/zlib/build.sh
 @@ -14,6 +14,9 @@
