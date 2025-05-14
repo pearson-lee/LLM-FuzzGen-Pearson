@@ -27,12 +27,15 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-### 4. Set up `GOOGLE_API_KEY` environment variable
+### 4. Set up environment variables (`GOOGLE_API_KEY` and optional LangSmith)
 ```bash
 export GOOGLE_API_KEY="YOUR_API_KEY"
+# Optional: For LangSmith tracing
+# export LANGSMITH_TRACING=true
+# export LANGSMITH_API_KEY="<your-langsmith-api-key>"
 ```
 
-Replace `"YOUR_API_KEY"` with your actual API key.
+Replace `"YOUR_API_KEY"` with your actual Google API key.
 
 ### 5. Modify config.yaml
 
