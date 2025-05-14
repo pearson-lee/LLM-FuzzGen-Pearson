@@ -102,8 +102,10 @@ setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "9f58c388aa52b9641260
 
 echo "[+] Building OSS-Fuzz base images..."
 cd "$EXTERNAL_DIR/oss-fuzz" || fail "Failed to change directory to oss-fuzz"
-docker build --pull -t gcr.io/oss-fuzz-base/base-image infra/base-images/base-image || fail "Failed to build base-image"
-docker build -t gcr.io/oss-fuzz-base/base-clang infra/base-images/base-clang || fail "Failed to build base-clang image"
+docker pull gcr.io/oss-fuzz-base/base-image@sha256:a1fd7287efaefa39df54216edaa7b732d33eb54c06155fa9ebc7dbdc2e1d9286 || fail "Failed to pull base-image"
+docker tag gcr.io/oss-fuzz-base/base-image@sha256:a1fd7287efaefa39df54216edaa7b732d33eb54c06155fa9ebc7dbdc2e1d9286 gcr.io/oss-fuzz-base/base-image:latest || fail "Failed to tag base-image with latest"
+docker pull gcr.io/oss-fuzz-base/base-clang@sha256:fd173151d9281639f85eff98e998a1601189bc93665b6d9a18a2ecbe24682d76 || fail "Failed to pull base-clang image"
+docker tag gcr.io/oss-fuzz-base/base-clang@sha256:fd173151d9281639f85eff98e998a1601189bc93665b6d9a18a2ecbe24682d76 gcr.io/oss-fuzz-base/base-clang:latest || fail "Failed to tag base-clang with latest"
 docker build -t gcr.io/oss-fuzz-base/base-builder infra/base-images/base-builder || fail "Failed to build base-builder image"
 docker build -t gcr.io/oss-fuzz-base/base-runner infra/base-images/base-runner || fail "Failed to build base-runner image"
 
