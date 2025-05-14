@@ -1,14 +1,50 @@
 #!/bin/bash
 
+# ==============================================================================
+# Script Setup and Helper Functions
+# ==============================================================================
+
 BASE_DIR="$(pwd)"
 EXTERNAL_DIR="$BASE_DIR/external"
 
+# Function to handle errors and exit
 fail() {
     echo "Error: $1" >&2
     exit 1
 }
 
-# Check system requirements
+# Function to prompt user to delete a directory if it exists
+prompt_delete_dir() {
+    local folder="$1"
+    read -p "The folder '$folder' already exists. Do you want to delete it and continue? (y/n): " choice
+    case "$choice" in
+        y|Y ) sudo rm -rf "$folder" || fail "Failed to delete $folder";;
+        n|N ) echo "Exiting..."; exit 0;;
+        * ) echo "Invalid choice"; prompt_delete_dir "$folder";;
+    esac
+}
+
+# Function to set up a repository: clone, enter directory, and checkout a commit
+setup_repo() {
+    local repo_url="$1"
+    local folder="$2"
+    local commit="$3"
+
+    echo "[+] Cloning $folder..."
+    git clone --depth 1 "$repo_url" "$folder" || fail "Failed to clone $folder"
+
+    cd "$folder" || fail "Failed to enter $folder"
+    git fetch --depth 1 origin "$commit" || fail "Failed to fetch specified commit in $folder"
+    git checkout "$commit" || fail "Failed to checkout specified commit in $folder"
+
+    git apply "$EXTERNAL_DIR/patches/$folder.patch" || fail "Failed to apply patch for $folder"
+}
+
+
+# ==============================================================================
+# System Requirements Check
+# ==============================================================================
+
 echo "[+] Checking system requirements..."
 
 # Check OS
@@ -29,52 +65,40 @@ fi
 
 echo "[+] System requirements met."
 
-# Install main project requirements
+
+# ==============================================================================
+# Main Project Requirements Installation
+# ==============================================================================
+
 echo "[+] Installing main project requirements..."
 python -m pip install -r requirements.txt || fail "Failed to install main project requirements"
 
-prompt_delete_dir() {
-    local folder="$1"
-    read -p "The folder '$folder' already exists. Do you want to delete it and continue? (y/n): " choice
-    case "$choice" in 
-        y|Y ) rm -rf "$folder" || fail "Failed to delete $folder";;
-        n|N ) echo "Exiting..."; exit 0;;
-        * ) echo "Invalid choice"; prompt_delete_dir "$folder";;
-    esac
-}
 
-# Check if fuzz-introspector or oss-fuzz folders exist
+# ==============================================================================
+# External Repositories Setup
+# ==============================================================================
+
+# Check if fuzz-introspector or oss-fuzz folders exist and prompt to delete
 for folder in fuzz-introspector oss-fuzz; do
     [ -d "$EXTERNAL_DIR/$folder" ] && prompt_delete_dir "$EXTERNAL_DIR/$folder"
 done
-
-# Function to set up a repository: clone, enter directory, and checkout a commit
-setup_repo() {
-    local repo_url="$1"
-    local folder="$2"
-    local commit="$3"
-
-    echo "[+] Cloning $folder..."
-    git clone --depth 1 "$repo_url" "$folder" || fail "Failed to clone $folder"
-    
-    cd "$folder" || fail "Failed to enter $folder"
-    git fetch --depth 1 origin "$commit" || fail "Failed to fetch specified commit in $folder"
-    git checkout "$commit" || fail "Failed to checkout specified commit in $folder"
-
-    git apply "$EXTERNAL_DIR/patches/$folder.patch" || fail "Failed to apply patch for $folder"
-}
-
 
 echo "[+] Setting up Fuzz Introspector..."
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 setup_repo "https://github.com/ossf/fuzz-introspector" "fuzz-introspector" "8944d0b001754f60a602c95a816880f885f1e38d"
 
 # Install Python requirements for Fuzz Introspector
-python -m pip install -r "$EXTERNAL_DIR/fuzz-introspector/tools/web-fuzzing-introspection/requirements.txt" || fail "Failed to install Python requirements"
+echo "[+] Installing Fuzz Introspector Python requirements..."
+python -m pip install -r "$EXTERNAL_DIR/fuzz-introspector/tools/web-fuzzing-introspection/requirements.txt" || fail "Failed to install Fuzz Introspector Python requirements"
 
 echo "[+] Setting up OSS-Fuzz..."
 cd "$EXTERNAL_DIR" || fail "Failed to change directory to external"
 setup_repo "https://github.com/google/oss-fuzz" "oss-fuzz" "9f58c388aa52b9641260211a546ceb42b23f9fcf"
+
+
+# ==============================================================================
+# Docker Images Build
+# ==============================================================================
 
 echo "[+] Building OSS-Fuzz base images..."
 cd "$EXTERNAL_DIR/oss-fuzz" || fail "Failed to change directory to oss-fuzz"
@@ -82,5 +106,10 @@ docker build --pull -t gcr.io/oss-fuzz-base/base-image infra/base-images/base-im
 docker build -t gcr.io/oss-fuzz-base/base-clang infra/base-images/base-clang || fail "Failed to build base-clang image"
 docker build -t gcr.io/oss-fuzz-base/base-builder infra/base-images/base-builder || fail "Failed to build base-builder image"
 docker build -t gcr.io/oss-fuzz-base/base-runner infra/base-images/base-runner || fail "Failed to build base-runner image"
+
+
+# ==============================================================================
+# Completion
+# ==============================================================================
 
 echo "[+] Setup completed successfully"
