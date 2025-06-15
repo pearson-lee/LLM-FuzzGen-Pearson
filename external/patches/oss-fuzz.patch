@@ -24,21 +24,87 @@ index 742cfd6..cc124ea 100644
      apt-get remove -y $PYTHON_DEPS # https://github.com/google/oss-fuzz/issues/3888
  
  
+diff --git a/infra/base-images/base-builder/compile b/infra/base-images/base-builder/compile
+index 8aa6580..e23a795 100755
+--- a/infra/base-images/base-builder/compile
++++ b/infra/base-images/base-builder/compile
+@@ -222,15 +222,15 @@ if [ "$SANITIZER" = "introspector" ] || [ "$RUST_SANITIZER" = "introspector" ];
+   ln -sf /usr/local/bin/llvm-nm /usr/bin/nm
+   ln -sf /usr/local/bin/llvm-ranlib /usr/bin/ranlib
+ 
+-  apt-get install -y libjpeg-dev zlib1g-dev libyaml-dev
+-  python3 -m pip install --upgrade pip setuptools
+-  python3 -m pip install cxxfilt pyyaml beautifulsoup4 lxml soupsieve rust-demangler
+-  python3 -m pip install --prefer-binary matplotlib
++  # apt-get install -y libjpeg-dev zlib1g-dev libyaml-dev
++  # python3 -m pip install --upgrade pip setuptools
++  # python3 -m pip install cxxfilt pyyaml beautifulsoup4 lxml soupsieve rust-demangler
++  # python3 -m pip install --prefer-binary matplotlib
+ 
+-  # Install Fuzz-Introspector
+-  pushd /fuzz-introspector/src
+-  python3 -m pip install -e .
+-  popd
++  # # Install Fuzz-Introspector
++  # pushd /fuzz-introspector/src
++  # python3 -m pip install -e .
++  # popd
+ 
+   if [ "$FUZZING_LANGUAGE" = "python" ]; then
+     python3 /fuzz-introspector/src/main.py light --language=python
+@@ -266,10 +266,10 @@ if [ "$SANITIZER" = "introspector" ] || [ "$RUST_SANITIZER" = "introspector" ];
+     fi
+ 
+     # Run pure static analysis fuzz introspector
+-    fuzz-introspector full --target-dir=$SRC \
+-        --language=${FUZZING_LANGUAGE} \
+-        --out-dir=$SRC/inspector \
+-        ${REPORT_ARGS}
++      # fuzz-introspector full --target-dir=$SRC \
++      #     --language=${FUZZING_LANGUAGE} \
++      #     --out-dir=$SRC/inspector \
++      #     ${REPORT_ARGS}
+   fi
+ 
+   rsync -avu --delete "$SRC/inspector/" "$OUT/inspector"
+diff --git a/infra/base-images/base-image/Dockerfile b/infra/base-images/base-image/Dockerfile
+index c14adff..a013d7d 100644
+--- a/infra/base-images/base-image/Dockerfile
++++ b/infra/base-images/base-image/Dockerfile
+@@ -19,7 +19,7 @@
+ ARG parent_image=ubuntu:20.04@sha256:4a45212e9518f35983a976eead0de5eecc555a2f047134e9dd2cfc589076a00d
+ 
+ FROM $parent_image
+-
++RUN sed -i 's/archive.ubuntu.com/free.nchc.org.tw/g; s/security.ubuntu.com/free.nchc.org.tw/g' /etc/apt/sources.list
+ ENV DEBIAN_FRONTEND noninteractive
+ # Install tzadata to match ClusterFuzz
+ # (https://github.com/google/oss-fuzz/issues/9280).
 diff --git a/infra/base-images/base-runner/coverage b/infra/base-images/base-runner/coverage
-index 585b4d4..a8e3944 100755
+index 585b4d4..56ee45f 100755
 --- a/infra/base-images/base-runner/coverage
 +++ b/infra/base-images/base-runner/coverage
-@@ -128,6 +128,8 @@ function run_fuzz_target {
+@@ -128,6 +128,9 @@ function run_fuzz_target {
  
    # For introspector.
    llvm-cov show -instr-profile=$profdata_file -object=$target -line-coverage-gt=0 $shared_libraries $BRANCH_COV_ARGS $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.covreport
 +
 +  llvm-cov report -show-functions -show-instantiation-summary -use-color=false -Xdemangler c++filt -instr-profile=$profdata_file -object=$target -sources $OUT$SRC $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.funcovreport
++  llvm-cov show -instr-profile=$profdata_file -object=$target $shared_libraries $LLVM_COV_COMMON_ARGS -line-coverage-lt=5 -show-instantiations=false --show-branches=count -Xdemangler c++filt > ${TEXTCOV_REPORT_DIR}/$target.linecovreport
  }
  
  function run_go_fuzz_target {
+@@ -512,6 +515,8 @@ else
+   objects="$objects $shared_libraries"
+ 
+   generate_html $PROFILE_FILE "$shared_libraries" "$objects" "$REPORT_ROOT_DIR"
++  llvm-cov show -instr-profile=$PROFILE_FILE $objects $LLVM_COV_COMMON_ARGS -show-instantiations=false -Xdemangler c++filt > ${TEXTCOV_REPORT_DIR}/project.linecovreport
++  llvm-cov export -summary-only -instr-profile=$PROFILE_FILE $objects $LLVM_COV_COMMON_ARGS -ignore-filename-regex=.*llm_fuzzgen* -Xdemangler c++filt > ${TEXTCOV_REPORT_DIR}/summary_exclude_target.json
+ 
+   # Per target reports.
+   for fuzz_target in $FUZZ_TARGETS; do
 diff --git a/infra/helper.py b/infra/helper.py
-index edf0734..c2f06e8 100755
+index edf0734..ab64531 100755
 --- a/infra/helper.py
 +++ b/infra/helper.py
 @@ -457,6 +457,10 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
@@ -96,7 +162,7 @@ index edf0734..c2f06e8 100755
 +
 +        parsed_args = parse_args(parser, run_fuzzer_command)
 +        parsed_args.fuzzer_args = [
-+            f'-max_total_time={args.seconds}', '-detect_leaks=0', '-max_len=16384', '-use_value_profile=1'#, '-jobs=2', '-workers=2'
++            f'-max_total_time={args.seconds}'
 +        ]
 +        # Continue even if run command fails, because we do not have 100%
 +        # accuracy in fuzz target detection, i.e. we might try to run something
@@ -117,7 +183,7 @@ index edf0734..c2f06e8 100755
    if not build_fuzzers(parse_args(parser, build_fuzzers_command)):
      logger.error('Failed to build project with ASAN')
      return False
-@@ -1440,7 +1453,9 @@ def run_fuzzer(args):
+@@ -1440,9 +1453,14 @@ def run_fuzzer(args):
      run_args.extend([
          '-v',
          '{corpus_dir}:/tmp/{fuzzer}_corpus'.format(corpus_dir=corpus_dir,
@@ -127,17 +193,110 @@ index edf0734..c2f06e8 100755
 +        'CORPUS_DIR=/tmp/{fuzzer}_corpus'.format(fuzzer=args.fuzzer_name)
      ])
  
++  custom_args = ['-detect_leaks=1', '-shrink=1', '-max_len=8192',
++                 '-use_value_profile=1', f'-artifact_prefix={args.fuzzer_name}_']
++  
    run_args.extend([
+       '-v',
+       '%s:/out' % args.project.out,
+@@ -1450,7 +1468,7 @@ def run_fuzzer(args):
+       BASE_RUNNER_IMAGE,
+       'run_fuzzer',
+       args.fuzzer_name,
+-  ] + args.fuzzer_args)
++  ] + args.fuzzer_args + custom_args)
+ 
+   return docker_run(run_args, architecture=args.architecture)
+ 
+diff --git a/projects/astc-encoder/Dockerfile b/projects/astc-encoder/Dockerfile
+index 3872f22..b65a36b 100644
+--- a/projects/astc-encoder/Dockerfile
++++ b/projects/astc-encoder/Dockerfile
+@@ -19,3 +19,4 @@ RUN apt-get update && apt-get install -y make autoconf automake libtool
+ RUN git clone --depth 1 https://github.com/ARM-software/astc-encoder
+ WORKDIR astc-encoder/Source
+ COPY build.sh $SRC/
++COPY llm_fuzzgen* $SRC/
+\ No newline at end of file
+diff --git a/projects/astc-encoder/build.sh b/projects/astc-encoder/build.sh
+index e34e5b0..af090e8 100755
+--- a/projects/astc-encoder/build.sh
++++ b/projects/astc-encoder/build.sh
+@@ -14,6 +14,60 @@
+ # limitations under the License.
+ #
+ ################################################################################
+-
++export CC="ccache ${CC}"
++export CXX="ccache ${CXX}"
++export CCACHE_DIR="$WORK/ccache"
+ # build project and project-hosted fuzzers
+-$SRC/astc-encoder/Source/Fuzzers/build.sh
++echo "#pragma once" > astcenccli_version.h
++echo "#define VERSION_STRING \"0.0.0\"" >> astcenccli_version.h
++echo "#define YEAR_STRING \"2021\"" >> astcenccli_version.h
++
++# Build the core project for fuzz tests to link against
++for source in ./*.cpp; do
++  BASE="${source##*/}"
++  BASE="${BASE%.cpp}"
++  echo ${BASE}
++
++  $CXX $CXXFLAGS \
++      -c \
++      -DASTCENC_SSE=0 \
++      -DASTCENC_AVX=0 \
++      -DASTCENC_POPCNT=0 \
++      -I. -std=c++14 -mfpmath=sse -msse2 -fno-strict-aliasing -O0 -g \
++      $source \
++      -o ${BASE}.o
++done
++
++ar -qc libastcenc.a *.o
++
++# Build project local fuzzers
++for fuzzer in ./Fuzzers/fuzz_*.cpp; do
++  $CXX $CXXFLAGS \
++      -DASTCENC_SSE=0 \
++      -DASTCENC_AVX=0 \
++      -DASTCENC_POPCNT=0 \
++      -I. -std=c++14 $fuzzer $LIB_FUZZING_ENGINE ./libastcenc.a \
++      -o $OUT/$(basename -s .cpp $fuzzer)
++done
++
++
++
++# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
++find "$SRC" -maxdepth 1 -type f -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" | while read -r target; do
++  target_basename=$(basename "${target%.*}")
++
++    $CXX $CXXFLAGS \
++        -DASTCENC_SSE=0 \
++        -DASTCENC_AVX=0 \
++        -DASTCENC_POPCNT=0 \
++        -I. -std=c++14 "$target" $LIB_FUZZING_ENGINE ./libastcenc.a \
++        -o "$OUT/$target_basename"
++
++  if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
++    echo "[libfuzzer]" > "$SRC/${target_basename}.options"
++    echo "dict = llm_fuzzgen.dict" >> "$SRC/${target_basename}.options"
++  fi
++done
++cp $SRC/llm_fuzzgen.dict $OUT/ || true
++cp $SRC/llm_fuzzgen*.options $OUT/ || true
++cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 diff --git a/projects/cjson/Dockerfile b/projects/cjson/Dockerfile
-index 30597b8..ce5b8ae 100644
+index 30597b8..aabff89 100644
 --- a/projects/cjson/Dockerfile
 +++ b/projects/cjson/Dockerfile
-@@ -20,7 +20,10 @@ FROM gcr.io/oss-fuzz-base/base-builder
+@@ -19,8 +19,11 @@ FROM gcr.io/oss-fuzz-base/base-builder
+ 
  
  RUN apt-get update && apt-get install -y cmake
- 
+-
 -RUN git clone --depth 1 https://github.com/DaveGamble/cJSON.git cjson
 -
++# v1.7.18
 +RUN git clone --depth 1 https://github.com/DaveGamble/cJSON.git cjson && \
 +    cd cjson && \
 +    git fetch --depth 1 origin 76be8fcf15677ca7f6db7c770f5ae6bf8b41d78f && \
@@ -146,19 +305,23 @@ index 30597b8..ce5b8ae 100644
  COPY build.sh $SRC/
 +COPY llm_fuzzgen* $SRC/
 diff --git a/projects/cjson/build.sh b/projects/cjson/build.sh
-index 7d6cea0..a966f01 100644
+index 7d6cea0..71a0119 100644
 --- a/projects/cjson/build.sh
 +++ b/projects/cjson/build.sh
-@@ -15,4 +15,27 @@
+@@ -15,4 +15,31 @@
  #
  ################################################################################
  # Run the OSS-Fuzz script in the project
 -$SRC/cjson/fuzzing/ossfuzz.sh
 \ No newline at end of file
-+export CC="ccache ${CC}"
-+export CXX="ccache ${CXX}"
++export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 +export CCACHE_DIR="$WORK/ccache"
 +
++#https://github.com/google/oss-fuzz/pull/12356
++if [ "$SANITIZER" == "introspector" ]; then
++  export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
++  export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
++fi
 +$SRC/cjson/fuzzing/ossfuzz.sh
 +
 +# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
@@ -200,20 +363,24 @@ index 16d07b8..fd8cc9c 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/lcms/build.sh b/projects/lcms/build.sh
-index 1f9e949..1be2fd4 100755
+index 1f9e949..633b4f6 100755
 --- a/projects/lcms/build.sh
 +++ b/projects/lcms/build.sh
-@@ -14,6 +14,9 @@
+@@ -14,7 +14,12 @@
  # limitations under the License.
  #
  ################################################################################
-+export CC="ccache ${CC}"
-+export CXX="ccache ${CXX}"
+-
++export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 +export CCACHE_DIR="$WORK/ccache"
- 
++if [ "$SANITIZER" == "introspector" ]; then
++  export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
++  export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
++fi
  # build the target.
  ./configure --enable-shared=no
-@@ -62,4 +65,23 @@ cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
+ make -j$(nproc) all
+@@ -62,4 +67,23 @@ cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
  cp $SRC/seed_corpus.zip $OUT/cms_virtual_profile_fuzzer_seed_corpus.zip
  cp $SRC/seed_corpus.zip $OUT/cmsIT8_load_fuzzer_seed_corpus.zip
  cp $SRC/seed_corpus.zip $OUT/cms_md5_fuzzer_seed_corpus.zip
@@ -327,17 +494,20 @@ index b6c5fd8..547d181 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/libtiff/build.sh b/projects/libtiff/build.sh
-index 0889515..8aff4d5 100755
+index 0889515..87a8af5 100755
 --- a/projects/libtiff/build.sh
 +++ b/projects/libtiff/build.sh
-@@ -14,5 +14,26 @@
+@@ -14,5 +14,29 @@
  # limitations under the License.
  #
  ################################################################################
 -
-+export CC="ccache ${CC}"
-+export CXX="ccache ${CXX}"
++export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 +export CCACHE_DIR="$WORK/ccache"
++if [ "$SANITIZER" == "introspector" ]; then
++  export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
++  export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
++fi
  . contrib/oss-fuzz/build.sh
 +# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
 +find "$SRC" -maxdepth 1 -type f -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" | while read -r target; do
@@ -377,42 +547,61 @@ index ef6edf7..971cdbd 100644
  COPY build.sh *.cpp *.dict *.options $SRC/
 +COPY llm_fuzzgen* $SRC/
 diff --git a/projects/tinyxml2/build.sh b/projects/tinyxml2/build.sh
-index 80a344b..632e066 100644
+index 80a344b..7e1a3fe 100644
 --- a/projects/tinyxml2/build.sh
 +++ b/projects/tinyxml2/build.sh
-@@ -18,6 +18,10 @@
+@@ -18,13 +18,48 @@
  # Make sure OSS-Fuzz's CXXFLAGS are propagated into the build
  sed -i 's/CXXFLAGS =/#CXXFLAGS/g' Makefile
  
-+export CC="ccache ${CC}"
-+export CXX="ccache ${CXX}"
++##### LLM-FuzzGen #####
++export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 +export CCACHE_DIR="$WORK/ccache"
++#https://github.com/google/oss-fuzz/pull/10891
++#if [ "$SANITIZER" == "introspector" ]; then
++#  export CFLAGS="${CFLAGS} -fsanitize=address"
++#  export CXXFLAGS="${CXXFLAGS} -fsanitize=address"
++#fi
++#https://github.com/google/oss-fuzz/pull/12356
++if [ "$SANITIZER" == "introspector" ]; then
++  export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
++  export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
++fi
++#######################
 +
  make -j$(nproc) clean
  make -j$(nproc) all
  
-@@ -27,4 +31,22 @@ for h in $fuzz_harness; do
-     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
- done
- 
+-fuzz_harness=$(ls -d "$SRC"/*.cpp)
+-for h in $fuzz_harness; do
+-  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
+-    -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
++# fuzz_harness=$(ls -d "$SRC"/*.cpp)
++# for h in $fuzz_harness; do
++#   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
++#     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
++# done
++
++##### LLM-FuzzGen #####
 +# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
-+find "$SRC" -maxdepth 1 -type f -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" | while read -r target; do
++find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
 +  target_basename=$(basename "${target%.*}")
 +
 +  #### compile the fuzz target
-+  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$target" \
-+    -o "$OUT/$target_basename" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
++  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$target" -Wl,--whole-archive $SRC/tinyxml2/libtinyxml2.a -Wl,--no-whole-archive \
++    -o "$OUT/$target_basename" $LIB_FUZZING_ENGINE
 +  ####
 +
 +  if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
 +    echo "[libfuzzer]" > "$SRC/${target_basename}.options"
 +    echo "dict = llm_fuzzgen.dict" >> "$SRC/${target_basename}.options"
 +  fi
-+done
+ done
 +cp $SRC/llm_fuzzgen.dict $OUT/ || true
 +cp $SRC/llm_fuzzgen*.options $OUT/ || true
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
-+
++#######################
+ 
  cp $SRC/*.dict $SRC/*.options $OUT/
 diff --git a/projects/tinyxml2/project.yaml b/projects/tinyxml2/project.yaml
 index b271048..d8883c8 100644
@@ -427,6 +616,17 @@ index b271048..d8883c8 100644
  fuzzing_engines:
    - afl
    - honggfuzz
+diff --git a/projects/tomlplusplus/Dockerfile b/projects/tomlplusplus/Dockerfile
+index 7025b67..feb7b41 100644
+--- a/projects/tomlplusplus/Dockerfile
++++ b/projects/tomlplusplus/Dockerfile
+@@ -21,3 +21,5 @@ RUN git clone --depth 1 https://github.com/marzer/tomlplusplus.git tomlplusplus
+         && cp tomlplusplus/fuzzing/build.sh $SRC/
+ WORKDIR tomlplusplus
+ 
++COPY build.sh *.cpp *.dict *.options $SRC/
++COPY llm_fuzzgen* $SRC/
+\ No newline at end of file
 diff --git a/projects/zlib/Dockerfile b/projects/zlib/Dockerfile
 index be1cb4c..e1546a8 100644
 --- a/projects/zlib/Dockerfile

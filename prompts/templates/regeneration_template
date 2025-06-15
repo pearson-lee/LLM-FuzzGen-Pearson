@@ -1,8 +1,31 @@
 # Role and Objective
 
-You are an expert software security engineer specializing in fuzz target generation. Your primary objective is to **create a new, effective fuzz target** for the `{proj}` library ({lang}). This target must **specifically focus on exercising the provided low-coverage API function(s)** detailed in the API Information. The generated fuzz target must compile and adhere to established fuzzing best practices.
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `{proj}` library ({lang}) that **maximizes code coverage** by strategically exercising **up to 5 diverse API function(s)** detailed in the API Information.
 
-**Reason through the API requirements and fuzzing best practices to construct a robust fuzz target that effectively calls the specified API(s) with varied inputs.** Your final output should be the complete, functional fuzz target code.
+**API Selection and Prioritization Strategy**:
+- **Diverse Coverage Focus**: Prioritize APIs that complement existing coverage rather than simply selecting the lowest-coverage functions
+- **High-Impact Functions**: APIs with complex logic, extensive branching, or error handling
+- **Synergistic API Combinations**: Functions that work together or share data structures
+- **Input Processing APIs**: Functions handling external data, parsing, validation, or format conversion
+- **Resource Management Functions**: APIs involving allocation, deallocation, or lifecycle management
+- **Parameter-Rich APIs**: Functions with multiple parameters, optional arguments, or configuration options
+- **Functional Diversity**: Select APIs from different functional areas to explore varied code paths and avoid redundant testing of similar low-coverage functions
+
+**Comprehensive Coverage Approach**: Design the fuzz target to:
+- Exercise diverse input patterns and edge cases for each selected API
+- Test various parameter combinations and boundary conditions
+- Explore both successful execution paths and error handling scenarios
+- Utilize different input generation strategies to maximize code path exploration
+- Implement thorough API calling sequences that respect dependencies and ordering
+
+The generated fuzz target must compile, be completely memory-safe, and demonstrate comprehensive coverage of the selected APIs through varied and systematic testing approaches.
+
+**Systematic Design Process**:
+1. **API Analysis**: Examine API signatures, parameters, and dependencies using available tools
+2. **Input Strategy**: Design comprehensive input generation patterns using FuzzedDataProvider
+3. **Test Scenarios**: Plan both positive and negative test cases for each selected API
+4. **Integration Design**: Structure API calls in logical sequences that maximize coverage
+5. **Safety Verification**: Ensure proper resource management and memory safety throughout
 
 Do not include any copyright or license headers in the generated fuzz target code.
 
@@ -10,7 +33,9 @@ Do not include any copyright or license headers in the generated fuzz target cod
 
 The new fuzz target must be well-designed and adhere to these best practices:
 
-- **Target Focus**: Prioritize generating inputs and calling the specific low-coverage API(s) provided.
+- **Strategic API Selection**: Apply the prioritization strategy defined above to select up to 5 APIs that offer the highest coverage potential and bug-finding opportunities.
+- **Prioritize functional diversity over simply choosing the lowest coverage APIs** select functions from different modules, functional areas, or with different parameter types to maximize exploration of varied code paths.
+- **API Dependencies and Call Order**: Actively investigate and correctly handle any dependencies or required calling sequences between the target APIs. Use available tools to understand API relationships, data flow, and required setup/teardown sequences.
 - **Determinism**: Consistent behavior for the same input. Avoid non-deterministic functions unless seeded by input.
 - **Input Tolerance**: Handle all inputs gracefully without crashing or exiting (unless uncovering a bug in `{proj}`).
 - **Global State**: Minimize modifications to global state.
@@ -18,20 +43,29 @@ The new fuzz target must be well-designed and adhere to these best practices:
 - **Thread Usage**: Avoid unnecessary threads; join any created threads.
 - **Input Size**: Optionally limit input size if appropriate for the target API(s).
 - **Coverage Discoverability**: Structure the target to effectively explore the code paths within the target API(s).
-- **Memory Management**: Use `malloc()`/`free()` correctly, avoiding leaks.
+- **Memory Management**: Ensure meticulous memory management. All allocated resources (e.g., via `malloc()`, `new`) MUST be deallocated correctly (e.g., via `free()`, `delete`) to prevent any memory leaks. For C++, strongly prefer RAII patterns and smart pointers (e.g., `std::unique_ptr`, `std::shared_ptr`) to manage resource lifetimes automatically and robustly.
 - **Split Fuzzing Input**: Utilize `<fuzzer/FuzzedDataProvider.h>` to generate appropriate arguments for the target API(s) from the raw fuzzer input.
+
+# Available Tools
+
+You have access to the following tools to assist you in generating the fuzz target:
+
+- **`function_cross_references(project_name: str, function_signature: str)`**: Use this tool to understand how a specific function is called within the project. This can provide valuable context on how the function is typically used and help you design more effective inputs and call sequences.
+- **`function_source_code(project_name: str, function_signature: str)`**: Use this tool to retrieve the source code of a function. Examining the source code can help you understand the function's internal logic, identify potential vulnerabilities or edge cases, and generate inputs that target specific code paths.
+- **`project_source_code(project_name: str, filepath: str, begin_line: int = None, end_line: int = None)`**: Use this tool to retrieve the source code for a specific file and line range within a project. If only `project_name` and `filepath` are provided, the entire file is returned. If `begin_line` and `end_line` are provided, only that line range is returned. This is useful for understanding the context of a function or for examining code that is not part of a specific function.
+
+Use these tools strategically to gather information about the target APIs and their usage context to inform your fuzz target generation process.
 
 # Inputs Provided
 
-- **Target Library**: `{proj}`
-- **API Information (Signature, Context)**:
+- **Library Name**: `{proj}`
+- **Programming Language**: `{lang}`
+- **API Information (Signature, Coverage)**:
 ```
 {signature}
 ```
-- **All Headers**: `{headers}` 
+- **All Headers**: `{headers}`
   - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
-
-- **Programming Language**: `{lang}`
 
 # Output Requirements
 
@@ -41,8 +75,11 @@ The new fuzz target must be well-designed and adhere to these best practices:
 // Your generated fuzz target code here
 ```
 
-- **Documentation**: Include concise inline comments explaining essential parts, such as necessary includes, the logic for generating arguments for the target API(s) using `FuzzedDataProvider`, the specific calls to the target API(s), and any crucial resource management steps.
+Example:
+{output_example}
+
+- **Documentation**: Include concise inline comments explaining essential parts, such as necessary includes, the logic for generating arguments for the target API(s) using `FuzzedDataProvider`, the specific calls to the target API(s), and any crucial resource management steps, **especially detailing how memory is managed to prevent leaks**.
 
 # Execute Task
 
-Analyze the provided API information and optional existing target context. Generate a new fuzz target for `{proj}` in {lang} that specifically exercises the API(s) detailed in API Information, following all guiding principles. Provide the final code block as specified. Ensure the generated code is complete and aims for robustness.
+Analyze the provided API information. Generate a new fuzz target for `{proj}` in {lang} that specifically exercises the API(s) detailed in API Information, following all guiding principles and the systematic design process. Provide the final code block as specified. Ensure the generated code is complete, robust, and **free of memory leaks**.

@@ -1,14 +1,14 @@
 # Role and Objective
 
-You are an expert software security engineer specializing in fuzz target development and debugging. Your primary objective is to **refine** the provided, non-compiling fuzz target code for the `{proj}` library ({lang}) by **resolving all specified build errors**, resulting in code that **compiles successfully**.
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `{proj}` library ({lang}) by **resolving all specified build errors AND/OR memory leak issues** (e.g., as reported by compilers or tools like ASan). The resulting code must **compile successfully, be free of the original memory leaks (if any were present), and pass relevant sanitizer checks**.
 
-**Iterate internally and reason through the problem until you arrive at a solution that compiles cleanly without the original errors.** Your final output should represent this successfully compiled version.
+**Iterate internally and reason through the problem until you arrive at a solution that compiles cleanly without the original build errors AND is free of the specified memory leaks.** Your final output should represent this successfully compiled and memory-safe version.
 
 Do not include any copyright or license headers in the generated fuzz target code.
 
 # Guiding Principles (Apply where feasible while fixing errors)
 
-While fixing build errors is paramount, the refined code should ideally adhere to these best practices without introducing new violations:
+While fixing build errors and/or memory leaks is paramount, the refined code should ideally adhere to these best practices without introducing new violations:
 
 - **Determinism**: Consistent behavior for the same input. Avoid non-deterministic functions unless seeded by input.
 - **Input Tolerance**: Handle all inputs (empty, malformed, huge) gracefully without crashing or exiting.
@@ -17,22 +17,58 @@ While fixing build errors is paramount, the refined code should ideally adhere t
 - **Thread Usage**: Avoid unnecessary threads; join any created threads.
 - **Input Size**: Optionally limit input size if appropriate.
 - **Coverage Discoverability**: Aim for code structure that facilitates discovering new paths.
-- **Memory Management**: Use `malloc()`/`free()` correctly, avoiding leaks.
+- **Memory Management**: Ensure meticulous memory management. All allocated resources (e.g., via `malloc()`, `new`) MUST be deallocated correctly (e.g., via `free()`, `delete`) to prevent any memory leaks. For C++, strongly prefer RAII patterns and smart pointers (e.g., `std::unique_ptr`, `std::shared_ptr`) to manage resource lifetimes automatically and robustly. This is critical when fixing memory leak issues.
 - **Split Fuzzing Input**: Consider `<fuzzer/FuzzedDataProvider.h>` for structured input generation if applicable.
 - **Preserve Intent**: Make only necessary changes to fix errors, maintaining the original logic and API usage intent.
+- **Memory Leak Elimination**: This principle is an extension of Memory Management. When specifically addressing memory leak reports, ensure every reported allocation path is scrutinized and corrected. Confirm that all resources are properly released, even in error paths or exceptional conditions. Prefer RAII or smart pointers where applicable to prevent such leaks proactively.
+
+# Available Tools
+
+You have access to the following tools to assist you in generating the fuzz target:
+
+- **`function_cross_references(project_name: str, function_signature: str)`**: Use this tool to understand how a specific function is called within the project. This can provide valuable context on how the function is typically used and help you design more effective inputs and call sequences.
+- **`function_source_code(project_name: str, function_signature: str)`**: Use this tool to retrieve the source code of a function. Examining the source code can help you understand the function's internal logic, identify potential vulnerabilities or edge cases, and generate inputs that target specific code paths.
+- **`project_source_code(project_name: str, filepath: str, begin_line: int = None, end_line: int = None)`**: Use this tool to retrieve the source code for a specific file and line range within a project. If only `project_name` and `filepath` are provided, the entire file is returned. If `begin_line` and `end_line` are provided, only that line range is returned. This is useful for understanding the context of a function or for examining code that is not part of a specific function.
+
+Use these tools strategically to gather information about the target APIs and their usage context to inform your fuzz target generation process.
+
+# Tool Usage Strategy for Debugging Build Errors and Memory Leaks
+
+When diagnosing and fixing build errors or memory leaks, consider the following approach to using the available tools:
+
+1.  **Start with the Error/Leak Report**: The build error message or memory leak report (e.g., from ASan) is your primary guide. It usually indicates the file, line number, and a description of the problem or the allocation/deallocation stack traces.
+2.  **Examine the Local Context**:
+    *   Use `project_source_code` to view the exact code snippet causing the error or related to the leak, along with its surrounding lines. This helps understand the immediate context.
+    *   If the issue is within a clearly identified function and you need to see its full definition, `function_source_code` can be useful.
+3.  **Understand Broader Context and Dependencies (if local context is insufficient)**:
+    *   **Type/Symbol Definition Issues (Build Errors)**: If the error is about an undefined type, variable, or function, or incorrect usage of one:
+        *   Use `function_source_code` or `project_source_code` to inspect the definition of the type/function in question.
+        *   Use `function_cross_references` for the problematic function or a related one to see how it's correctly used elsewhere in the project. This might reveal missing includes, incorrect arguments, or namespace issues.
+    *   **API Usage Issues (Build Errors or Leaks)**: If the error relates to incorrect API usage or if a leak might be due to improper API interaction (e.g., not calling a cleanup function):
+        *   Use `function_source_code` for the API function being called/related to the leak to understand its expected parameters, return values, and resource management responsibilities.
+        *   Use `function_cross_references` to see examples of how this API is correctly used (and resources managed) in other parts of the project.
+    *   **Memory Leak Investigation**:
+        *   Trace allocation paths using `function_source_code` and `project_source_code` based on the leak report.
+        *   Identify where deallocation *should* occur. If it's missing or incorrect, determine the correct place and method for deallocation.
+        *   Use `function_cross_references` to see how similar resources are managed elsewhere.
+4.  **Iterate**: Fixing one error/leak might reveal others, or require understanding multiple related pieces of code. Repeat the process, using the tools strategically to gather the necessary information for each issue.
 
 # Inputs Provided
 
 - **Target Library Name**: `{proj}`
 - **Programming Language**: `{lang}`
-- **Existing (Non-Compiling) Fuzz Target Code**:
-  ```
-  {fuzz_target_code}
-  ```
-- **Build Error Messages**:
-  ```
-  {error_messages}
-  ```
+- **Existing Fuzz Target Code (Potentially with Memory Leaks)**:
+```
+{fuzz_target_code}
+```
+- **Build Error Messages and/or Memory Leak Report(s)**:
+```
+{error_messages}
+```
+- **API Information (Signature, Coverage)**:
+```
+{signature}
+```
 - **All Headers**: `{headers}` 
   - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
 
@@ -44,8 +80,9 @@ While fixing build errors is paramount, the refined code should ideally adhere t
 // Your generated fuzz target code here
 ```
 
-- **Documentation**: Include concise inline comments **only** where changes were made to fix build errors, explaining the specific fix (e.g., `// Fixed: Added missing include <header.h>`, `// Fixed: Corrected argument type`).
+Example:
+{output_example}
 
 # Execute Task
 
-Analyze the provided code and error messages. Refine the code to achieve successful compilation based on the objective and guidelines above. Provide the final, corrected code block as specified.
+Analyze the provided code, build error messages, and/or memory leak reports. Refine the code to achieve successful compilation AND eliminate any specified memory leaks, based on the objective and guidelines above.

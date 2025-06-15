@@ -103,9 +103,7 @@ def validate_dictionary_content(dict_content: str) -> str:
                 elif next_char == "x":
                     # Check hex digits exist and are valid
                     # Corrected check: ensure 2 hex digits follow \x
-                    if i + 3 < len(content) and all(
-                        c in "0123456789abcdefABCDEF" for c in content[i + 2 : i + 4]
-                    ):
+                    if i + 3 < len(content) and all(c in "0123456789abcdefABCDEF" for c in content[i + 2 : i + 4]):
                         i += 4
                         continue
                     else:
@@ -143,8 +141,11 @@ def generate_seeds_for_fuzzer(project_name: str, fuzzer_name: str, fuzzer_source
     logger.info(f"Generating seeds for fuzzer: {fuzzer_name}")
 
     try:
+        # Get coverage information for the fuzzer
+        coverage_info = oss_fuzz.linecov_reports(project_name, fuzzer_name)
+
         # Generate input prompt
-        prompt = prompt_generator.input_prompt(fuzz_target=fuzzer_source_code, proj=project_name)
+        prompt = prompt_generator.input_prompt(fuzz_target=fuzzer_source_code, proj=project_name, coverage_info=coverage_info)
 
         # Generate seeds using LLM
         seeds = llm_client.generate_seeds(prompt)

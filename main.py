@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from ast import arg
 import logging
 import sys
 import time
@@ -9,7 +10,6 @@ import config.config as config
 import prompts.prompt_generator as prompt_generator
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz
-from external.sut import SUT
 from iterator.fuzz_iterator import FuzzIterator
 from llm_interface.llm_client import LLMClient
 from logger import setup_logging
@@ -17,14 +17,75 @@ from fuzzing_input import generate_seeds_for_fuzzer, generate_dict_for_proj
 
 logger = logging.getLogger(__name__)
 
-sut = SUT()
 oss_fuzz = OSSFuzz()
 introspector = Introspector()
 llm_client = LLMClient()
 
+
+def _find_lowest_coverage_target(project_name: str, exclude_targets: set[str] = None) -> Path | None:
+    target_names = introspector.get_fuzz_target_names(project_name)
+    if not target_names:
+        logger.warning(f"No fuzz targets found for project {project_name}")
+        return None
+
+    exclude_targets = exclude_targets or set()
+    lowest_target = None
+    lowest_coverage = float("inf")
+
+    for target_name in target_names:
+        if target_name in exclude_targets:
+            logger.info(f"Skipping already mutated target: {target_name}")
+            continue
+
+        coverage_summary = oss_fuzz.get_coverage_summary(project_name, target_name)
+        if coverage_summary and coverage_summary.functions:
+            function_coverage = coverage_summary.functions.percent
+            logger.info(f"Target {target_name} function coverage: {function_coverage}%")
+
+            if function_coverage < lowest_coverage:
+                lowest_coverage = function_coverage
+                lowest_target = target_name
+
+    if lowest_target:
+        logger.info(f"Lowest coverage target: {lowest_target} ({lowest_coverage}%)")
+        project_dir = oss_fuzz.oss_fuzz_dir / "projects" / project_name
+        for file_path in project_dir.glob(f"{lowest_target}.*"):
+            if file_path.suffix in [".c", ".cc", ".cpp"]:
+                return file_path
+
+    return None
+
+
+def _format_all_function_for_prompt(project_name: str, coverage_threshold: float = 50.0) -> str:
+    """
+    Formats function signature data obtained from the introspector into a prompt string.
+    Only includes functions with coverage below the specified threshold.
+    """
+    return "\n".join(
+        f"- Signature: `{sig}`\n"
+        f"- Header(s): {', '.join(headers)}\n"
+        f"- Runtime coverage percent: {coverage}%\n"
+        f"- File path: {file_path}"
+        for func in introspector.get_all_functions(project_name)
+        for sig, headers, coverage, file_path in [
+            (
+                func.get("function_signature", "N/A"),
+                func.get("possible_header_files", []),
+                func.get("runtime_coverage_percent", 0.0),
+                func.get("function_filename", ""),
+            )
+        ]
+        if coverage < coverage_threshold
+    )
+
+
 # Statistics for tracking coverage growth
 regeneration_growth = []
 mutation_growth = []
+
+# Statistics for tracking compilation success
+compilation_attempts = 0
+compilation_successes = 0
 
 
 def _parse_args() -> argparse.Namespace:
@@ -53,53 +114,76 @@ def generate_report_and_start_webapp(project_name: str, seconds: int = 30, clean
     return True
 
 
-def build_fuzz_target(project_name: str, initial_prompt: str) -> Path | None:
+def generate_empty_fuzz_target(project_name: str) -> bool:
+    """
+    Copies an empty fuzz target to the project directory and attempts to build it.
+    Returns True if the build is successful, False otherwise.
+    """
+    logger.info(f"Generating empty fuzz target for project: {project_name}")
+    if not oss_fuzz.copy_empty_fuzz_target(project_name):
+        logger.error(f"Failed to copy empty fuzz target for {project_name}.")
+        return False
+
+    logger.info(f"Attempting to build the empty fuzz target")
+    build_result = oss_fuzz.build_fuzzers(project_name)
+
+    if build_result.success:
+        logger.info(f"Successfully built empty fuzz target for {project_name}.")
+        return True
+    else:
+        logger.error(f"Failed to build empty fuzz target for {project_name}: {build_result.error}")
+        oss_fuzz.remove_target(project_name, "llm_fuzzgen_empty")
+        return False
+
+
+def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
     """
     Builds a fuzz target for the given project using prompt-based iteration with multiple compilation attempts.
     """
-    langgraph_threadid = int(time.time())  # Used to correlate a series of LLM interactions
-    current_input_for_llm = initial_prompt
+    global compilation_attempts, compilation_successes
+    langgraph_threadid = int(time.time())
+    current_prompt = prompt
+    last_code = None
+    using_build_prompt = False
 
-    for attempt_num in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
-        logger.info(
-            f"Attempt {attempt_num}/{config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} to build fuzz target for '{project_name}'."
-        )
+    for attempt in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
+        compilation_attempts += 1
+        logger.info(f"Build attempt {attempt}/{config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} for '{project_name}'.")
 
-        fuzz_target_code = llm_client.generate(current_input_for_llm, langgraph_threadid)
-        fuzz_target_file: Path | None = None
         try:
-            fuzz_target_file = oss_fuzz.save_target(project_name, fuzz_target_code)
-            logger.info(
-                f"Saved fuzz target to '{fuzz_target_file}' for '{project_name}' (attempt {attempt_num})."
-            )
+            last_code = llm_client.generate(current_prompt, langgraph_threadid)
+            fuzz_file = oss_fuzz.save_target(project_name, last_code)
+            logger.info(f"Saved fuzz target: '{fuzz_file}'.")
 
-            build_result = oss_fuzz.build_fuzzers(project_name)
+            result = oss_fuzz.run_fuzzer(project_name, fuzz_file.stem)  # Run the fuzzer to check memory leaks and other issues
+            if result.success:
+                compilation_successes += 1
+                logger.info(f"Build succeeded: '{fuzz_file}'.")
+                return fuzz_file
 
-            if build_result.success:
-                logger.info(
-                    f"Successfully built fuzz target '{fuzz_target_file}' for '{project_name}' after {attempt_num} attempts."
+            logger.error(f"Build failed (attempt {attempt}).")
+            oss_fuzz.remove_target(project_name, fuzz_file.stem)
+            if not using_build_prompt:
+                using_build_prompt = True
+                langgraph_threadid = int(time.time())  # Reset thread ID for the build template
+                current_prompt = prompt_generator.build_prompt(
+                    fuzz_target_code=last_code,
+                    error_messages=result.error,
+                    lang=oss_fuzz.proj_lang(project_name),
+                    proj=project_name,
+                    headers=", ".join(introspector.get_all_header_files(project_name)),
+                    signature=_format_all_function_for_prompt(project_name),
                 )
-                return fuzz_target_file
-
-            logger.error(
-                f"Build attempt {attempt_num} for '{project_name}' failed."
-            )
-            current_input_for_llm = build_result.error
-            # Clean up the failed target file
-            logger.info(f"Cleaning up target file: '{fuzz_target_file}' after failed attempt {attempt_num}.")
-            fuzz_target_file.unlink(missing_ok=True)
+            else:
+                current_prompt = result.error
 
         except Exception as e:
-            logger.error(
-                f"Unexpected error during attempt {attempt_num} for '{project_name}': {e}", exc_info=True
-            )
-            current_input_for_llm = initial_prompt
-            # Clean up the target file if it was created before the exception
-            fuzz_target_file.unlink(missing_ok=True)
+            oss_fuzz.remove_target(project_name, fuzz_file.stem)
+            logger.error(f"Error in build attempt {attempt}: {e}", exc_info=True)
+            current_prompt = prompt
+            using_build_prompt = False
 
-    logger.warning(
-        f"All {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} attempts to build fuzz target for '{project_name}' failed."
-    )
+    logger.warning(f"All {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} attempts failed for '{project_name}'.")
     return None
 
 
@@ -108,10 +192,11 @@ def mutate_fuzz_target(project_name: str, fuzz_target: str, fuzz_target_name: st
 
     prompt = prompt_generator.coverage_prompt(
         fuzz_target_code=fuzz_target,
-        coverage_information=oss_fuzz.funcov_reports(project_name, fuzz_target_name),
+        signature=_format_all_function_for_prompt(project_name),
         lang=oss_fuzz.proj_lang(project_name),
         proj=project_name,
         headers=", ".join(introspector.get_all_header_files(project_name)),
+        coverage_report=oss_fuzz.linecov_reports(project_name, fuzz_target_name),
     )
 
     new_fuzz_target = build_fuzz_target(project_name, prompt)
@@ -124,17 +209,8 @@ def mutate_fuzz_target(project_name: str, fuzz_target: str, fuzz_target_name: st
 def regenerate_fuzz_target(project_name: str) -> Path | None:
     logger.info(f"Regenerating fuzz target for project: {project_name}")
 
-    target_functions_data = introspector.target_functions(project_name)[:50]
-    formatted_signatures = []
-    for func_info in target_functions_data:
-        sig = func_info.get("function_signature", "N/A")
-        headers = func_info.get("possible_header_files", [])
-        header_str = ", ".join(headers) if headers else ""
-        formatted_signatures.append(f"- Signature: `{sig}`\n- Header(s): {header_str}")
-    signature_prompt = "\n".join(formatted_signatures)
-
     prompt = prompt_generator.regeneration_prompt(
-        signature=signature_prompt,
+        signature=_format_all_function_for_prompt(project_name),
         headers=", ".join(introspector.get_all_header_files(project_name)),
         proj=project_name,
         lang=oss_fuzz.proj_lang(project_name),
@@ -147,59 +223,53 @@ def regenerate_fuzz_target(project_name: str) -> Path | None:
     return new_fuzz_target
 
 
-def process_project(project_name: str, generate_initial_target: bool) -> bool:
+def process_project(project_name: str) -> bool:
     """Process a single project and generate fuzz targets."""
     try:
         logger.info(f"Starting to process project: {project_name}")
 
         # generate_dict_for_proj(project_name)
-        iterator = FuzzIterator(project_name)
+        iterator = FuzzIterator(project_name, oss_fuzz)
         fuzz_target = None  # Will hold the path to the current fuzz target
+        mutated_targets = set()  # Track mutated targets to avoid re-mutation
         iterator.record_cov()  # Record coverage before any fuzz target generation
 
-        if generate_initial_target:
-            logger.info("Attempting to generate initial fuzz target.")
-            prompt = prompt_generator.initial_prompt(
-                sut_info=sut.get_project_info(project_name),
-                fuzz_targets=[],
-            )
-
-            # Create initial fuzz target
-            if not (fuzz_target := build_fuzz_target(project_name, prompt)):
-                logger.error(f"Failed to build initial fuzz target for {project_name} when requested.")
-                return False
-
-            logger.info(f"Successfully built initial fuzz target: {fuzz_target}")
-            # Initial coverage recording after successful generation
-            generate_report_and_start_webapp(project_name)
-            iterator.record_cov()
-
+        no_growth_count = 0
         # Iterative improvement loop
         for iteration in range(config.ITERATION_LOOP):
+            if no_growth_count >= config.NO_GROWTH_STOP_THRESHOLD:
+                logger.warning(
+                    f"Stopping iteration for {project_name} due to {config.NO_GROWTH_STOP_THRESHOLD} consecutive iterations with no coverage growth."
+                )
+                break
             previous_cov = iterator.latest_cov()
             is_regeneration = iterator.should_regenerate()
 
-            if is_regeneration:
+            # Determine target generation strategy
+            total_coverage = oss_fuzz.get_coverage_summary(project_name)
+            function_coverage = total_coverage.functions.percent if total_coverage and total_coverage.functions else 0.0
+
+            # High coverage strategy: mutate lowest coverage target
+            if function_coverage > 90.0 and (lowest_target := _find_lowest_coverage_target(project_name, mutated_targets)):
+                mutated_targets.add(lowest_target.stem)
+                new_target = mutate_fuzz_target(project_name, lowest_target.read_text(), lowest_target.stem)
+                is_regeneration = False
+            # Standard strategy: regenerate or mutate existing
+            elif is_regeneration or fuzz_target is None:
                 new_target = regenerate_fuzz_target(project_name)
-            elif fuzz_target:  # Only mutate if there's a fuzz_target to mutate
-                new_target = mutate_fuzz_target(project_name, fuzz_target.read_text(), fuzz_target.stem)
+                is_regeneration = True
             else:
-                logger.warning("fuzz_target is None and not regenerating, forcing regeneration.")
-                new_target = regenerate_fuzz_target(project_name)
-                is_regeneration = True  # Mark this as a regeneration
+                new_target = mutate_fuzz_target(project_name, fuzz_target.read_text(), fuzz_target.stem)
 
             if new_target is None:
+                fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 continue
 
             if (cov_without_seeds := oss_fuzz.coverage(project_name, new_target.stem)) <= 0:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 continue
 
-            generate_seeds_for_fuzzer(
-                project_name=project_name,
-                fuzzer_name=new_target.stem,
-                fuzzer_source_code=new_target.read_text(),
-            )
+            generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
 
             cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem)
             coverage_growth = cov_with_seeds - previous_cov
@@ -210,16 +280,19 @@ def process_project(project_name: str, generate_initial_target: bool) -> bool:
             if cov_with_seeds <= previous_cov:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 logger.warning(f"Fuzz target's coverage is lower than the previous iteration {iteration + 1}")
+                no_growth_count += 1
                 continue
 
-            if not generate_report_and_start_webapp(project_name, 10):
+            if not generate_report_and_start_webapp(project_name):
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 logger.warning(f"Fuzz target is failed to generate report {iteration + 1}")
                 continue
 
+            no_growth_count = 0
             # Record successful growth statistics
             if is_regeneration:
                 regeneration_growth.append(coverage_growth)
+                iterator.clean_cov()  # Clear coverage records for regeneration
                 logger.info(f"Regeneration growth recorded: {coverage_growth:.2f}")
             else:
                 mutation_growth.append(coverage_growth)
@@ -227,19 +300,19 @@ def process_project(project_name: str, generate_initial_target: bool) -> bool:
 
             fuzz_target = new_target
             iterator.record_cov()
-            logger.info(
-                f"Finished iteration {iteration + 1} for {project_name}, coverage: {iterator.latest_cov()}"
-            )
+            logger.info(f"Finished iteration {iteration + 1} for {project_name}, coverage: {iterator.latest_cov()}")
 
         return True
 
     except Exception as e:
-        logger.error(f"Failed to process project {project_name}: {e}")
+        logger.error(f"Failed to process project {project_name}: {e}", exc_info=True)
         return False
 
 
-def calculate_growth_statistics(project_name: str):
-    """Calculate and return the growth statistics for both strategies and log the results."""
+def calculate_statistics(project_name: str, initial_coverage_percent: float):
+    """Calculate and return the growth statistics, compilation success rate, and other metrics."""
+    total_coverage_summary = oss_fuzz.get_coverage_summary(project_name)
+    total_coverage_summary_exclude_target = oss_fuzz.get_coverage_summary(project_name, exclude_target=True)
     stats = {
         "regeneration": {
             "count": len(regeneration_growth),
@@ -251,25 +324,41 @@ def calculate_growth_statistics(project_name: str):
         },
     }
 
+    # Calculate compilation success rate
+    compilation_success_rate = (compilation_successes / compilation_attempts * 100) if compilation_attempts > 0 else 0
+
     logger.info("=" * 50)
+    logger.info(f"Initial coverage: {initial_coverage_percent:.2f}%")
     logger.info("Coverage Growth Statistics:")
     logger.info(
         f"Regeneration: {stats['regeneration']['count']} iterations, Average growth: {stats['regeneration']['average']:.2f}%"
     )
-    logger.info(
-        f"Mutation: {stats['mutation']['count']} iterations, Average growth: {stats['mutation']['average']:.2f}%"
-    )
-    logger.info(f"Project: {project_name} coverage: {introspector.line_coverage(project_name)}%")
+    logger.info(f"Mutation: {stats['mutation']['count']} iterations, Average growth: {stats['mutation']['average']:.2f}%")
+    logger.info("=" * 50)
+    logger.info("Compilation Success Rate:")
+    logger.info(f"Total compilation attempts: {compilation_attempts}")
+    logger.info(f"Successful compilations: {compilation_successes}")
+    logger.info(f"Success rate: {compilation_success_rate:.2f}% ")
     logger.info("=" * 50)
 
-    if total_coverage_summary := oss_fuzz.get_total_coverage_summary(project_name):
+    if total_coverage_summary:
         logger.info("Total Coverage Summary:")
         for metric_name, summary in total_coverage_summary.__dict__.items():
             if summary:
                 logger.info(
                     f"  {metric_name.capitalize()}: Count={summary.count}, Covered={summary.covered}, Percent={summary.percent:.2f}%"
                 )
+
+    if total_coverage_summary_exclude_target:
         logger.info("=" * 50)
+        logger.info("Total Coverage Summary (excluding fuzz target):")
+        for metric_name, summary in total_coverage_summary_exclude_target.__dict__.items():
+            if summary:
+                logger.info(
+                    f"  {metric_name.capitalize()}: Count={summary.count}, Covered={summary.covered}, Percent={summary.percent:.2f}%"
+                )
+
+    logger.info("=" * 50)
 
 
 def main() -> None:
@@ -279,14 +368,29 @@ def main() -> None:
         project_name = args.project_name
         setup_logging(project_name)
 
-        generate_report_and_start_webapp(project_name, clean=True)
-
-        result = process_project(project_name, args.initial_fuzz_target)
+        if args.initial_fuzz_target:
+            logger.info("Generating initial fuzz target")
+            if not generate_empty_fuzz_target(project_name):
+                logger.error(f"Failed to generate initial fuzz target for {project_name}")
+                sys.exit(1)
+        else:
+            logger.info("Skipping initial fuzz target generation")
+        logger.info(f"Starting introspector webapp for initial analysis of {project_name}")
 
         if not generate_report_and_start_webapp(project_name, clean=True):
             sys.exit(1)
 
-        calculate_growth_statistics(project_name)
+        initial_coverage_percent = oss_fuzz.get_coverage_summary(project_name, exclude_target=True).lines.percent
+        logger.info(f"Initial coverage for {project_name}: {initial_coverage_percent:.2f}%")
+        if args.initial_fuzz_target:
+            oss_fuzz.remove_target(project_name, "llm_fuzzgen_empty")
+
+        result = process_project(project_name)
+
+        if not generate_report_and_start_webapp(project_name, clean=True):
+            sys.exit(1)
+
+        calculate_statistics(project_name, initial_coverage_percent)
 
         logger.info("Project processed")
         logger.info(f"Successful project: {result}")

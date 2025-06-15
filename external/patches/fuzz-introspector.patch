@@ -1,8 +1,60 @@
 diff --git a/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py b/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py
-index 427d288..78dcdf1 100644
+index 427d288..bb5ce99 100644
 --- a/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py
 +++ b/tools/web-fuzzing-introspection/app/static/assets/db/oss_fuzz.py
-@@ -549,3 +549,16 @@ def try_to_get_project_repository(project_name):
+@@ -30,6 +30,10 @@ def get_introspector_report_url_base(project_name, datestr):
+ def get_introspector_report_url_summary(project_name, datestr):
+     return get_introspector_report_url_base(project_name,
+                                             datestr) + "summary.json"
++    
++def get_introspector_report_url_branch_blockers(project_name, datestr):
++    return get_introspector_report_url_base(project_name,
++                                            datestr) + "branch-blockers.json"
+ 
+ 
+ def get_introspector_report_url_all_functions(project_name, datestr):
+@@ -342,6 +346,23 @@ def extract_introspector_test_files(project_name, date_str):
+ 
+     return test_files
+ 
++def extract_introspector_branch_blockers(project_name, date_str):
++    introspector_branch_blockers_url = get_introspector_report_url_branch_blockers(
++        project_name, date_str.replace("-", ""))
++
++    # Read the introspector atifact
++    try:
++        raw_introspector_json_request = requests.get(introspector_branch_blockers_url,
++                                                     timeout=10)
++    except:
++        return None
++    try:
++        branch_blockers = json.loads(raw_introspector_json_request.text)
++    except:
++        return None
++
++    return branch_blockers
++
+ 
+ def extract_introspector_report(project_name, date_str):
+     introspector_summary_url = get_introspector_report_url_summary(
+@@ -423,6 +444,16 @@ def extract_local_introspector_debug_info(project_name, oss_fuzz_folder):
+     return json_dict
+ 
+ 
++def extract_local_introspector_branch_blockers(project_name, oss_fuzz_folder):
++    summary_json = os.path.join(oss_fuzz_folder, 'build', 'out', project_name,
++                                'inspector', 'branch-blockers.json')
++    if not os.path.isfile(summary_json):
++        return {}
++    with open(summary_json, 'r') as f:
++        json_dict = json.load(f)
++    return json_dict
++
++
+ def get_local_introspector_type_map(project_name, oss_fuzz_folder):
+     summary_json = os.path.join(oss_fuzz_folder, 'build', 'out', project_name,
+                                 'inspector', 'all-friendly-debug-types.json')
+@@ -549,3 +580,16 @@ def try_to_get_project_repository(project_name):
          project_yaml = yaml.safe_load(r.text)
          return project_yaml['main_repo']
      return "N/A"
@@ -20,14 +72,95 @@ index 427d288..78dcdf1 100644
 +        except json.JSONDecodeError:
 +            return None
 diff --git a/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py b/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
-index 4bd41cc..d2a5f9b 100644
+index 4bd41cc..4b57491 100644
 --- a/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
 +++ b/tools/web-fuzzing-introspection/app/static/assets/db/web_db_creator_from_summary.py
-@@ -462,17 +462,30 @@ def extract_local_project_data(project_name, oss_fuzz_path,
+@@ -162,24 +162,20 @@ def save_type_map(debug_report, project_name):
+         json.dump(debug_report, report_fd)
+ 
+ 
+-def extract_and_refine_branch_blockers(introspector_report, project_name):
++def extract_and_refine_branch_blockers(branch_blockers, project_name):
+     branch_pairs = list()
+-    for key in introspector_report:
+-        if key == "MergedProjectProfile" or key == 'analyses':
+-            continue
+-
+-        # Fuzzer-specific dictionary, get the contents of it.
+-        val = introspector_report[key]
+-        if not isinstance(val, dict):
+-            continue
+-
+-        branch_blockers = val.get('branch_blockers', None)
+-        if branch_blockers is None or not isinstance(branch_blockers, list):
+-            continue
++    if branch_blockers is None or not isinstance(branch_blockers, dict):
++        return branch_pairs
++
++    for fuzzer_name, blockers in branch_blockers.items():
++        for blocker in blockers:
++            # We only want to include branch blockers that have a complexity of at least 5.
++            # This is to avoid including trivial branch blockers that are not interesting.
++            if "blocked_unique_not_covered_complexity" not in blocker:
++                continue
+ 
+-        for branch_blocker in branch_blockers:
+-            function_blocked = branch_blocker.get('function_name', None)
+-            blocked_unique_not_covered_complexity = branch_blocker.get(
++            function_blocked = blocker.get('function_name', None)
++            blocked_unique_not_covered_complexity = blocker.get(
+                 'blocked_unique_not_covered_complexity', None)
+             if blocked_unique_not_covered_complexity < 5:
+                 continue
+@@ -191,16 +187,18 @@ def extract_and_refine_branch_blockers(introspector_report, project_name):
+             branch_pairs.append({
+                 'project':
+                 project_name,
++                'fuzzer':
++                fuzzer_name,
+                 'function_name':
+                 function_blocked,
+                 'blocked_runtime_coverage':
+                 blocked_unique_not_covered_complexity,
+                 'source_file':
+-                branch_blocker.get('source_file', "N/A"),
++                blocker.get('source_file', "N/A"),
+                 'linenumber':
+-                branch_blocker.get('branch_line_number', -1),
++                blocker.get('branch_line_number', -1),
+                 'blocked_unique_functions':
+-                branch_blocker.get('blocked_unique_functions', [])
++                blocker.get('blocked_unique_functions', [])
+             })
+     return branch_pairs
+ 
+@@ -346,6 +344,8 @@ def extract_local_project_data(project_name, oss_fuzz_path,
+         # Default set to c++ as this is OSS-Fuzz's default.
+         project_language = 'c++'
+ 
++    branch_blockers = oss_fuzz.extract_local_introspector_branch_blockers(
++        project_name, oss_fuzz_path)
+     code_coverage_summary = oss_fuzz.get_local_code_coverage_summary(
+         project_name, oss_fuzz_path)
+     cov_fuzz_stats = oss_fuzz.get_local_code_coverage_stats(
+@@ -428,8 +428,10 @@ def extract_local_project_data(project_name, oss_fuzz_path,
+         all_constructor_list, '')
+     annotated_cfg = extract_and_refine_annotated_cfg(introspector_report)
+ 
+-    # Dump things we dont want to accummulate.
+-    #save_branch_blockers(branch_pairs, project_name)
++    # Extract and save branch blockers
++    if branch_blockers is not None:
++        branch_pairs = extract_and_refine_branch_blockers(branch_blockers, project_name)
++        save_branch_blockers(branch_pairs, project_name)
+     try:
+         project_repository = oss_fuzz.try_to_get_project_repository(
+             project_name)
+@@ -462,17 +464,28 @@ def extract_local_project_data(project_name, oss_fuzz_path,
      code_coverage_data_dict = prepare_code_coverage_dict(
          code_coverage_summary, project_name, '', project_language)
  
-+    per_fuzzer_cov = {} # Add per-fuzzer coverage data
++    per_fuzzer_cov = {}  # Add per-fuzzer coverage data
      if cov_fuzz_stats is not None:
          all_fuzzers = cov_fuzz_stats.split("\n")
          if all_fuzzers[-1] == '':
@@ -36,9 +169,7 @@ index 4bd41cc..d2a5f9b 100644
  
 +        for ff in all_fuzzers:
 +            try:
-+                fuzzer_cov = oss_fuzz.get_local_fuzzer_code_coverage_summary(
-+                    project_name, oss_fuzz_path, ff
-+                )
++                fuzzer_cov = oss_fuzz.get_local_fuzzer_code_coverage_summary(project_name, oss_fuzz_path, ff)
 +                fuzzer_cov_data = extract_code_coverage_data(fuzzer_cov)
 +                per_fuzzer_cov[ff] = fuzzer_cov_data
 +            except Exception as e:
@@ -51,35 +182,11 @@ index 4bd41cc..d2a5f9b 100644
 +        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
          'language': project_language,
          'coverage-data': code_coverage_data_dict,
-+        "per-fuzzer-coverage-data": per_fuzzer_cov,  # Add per-fuzzer coverage data here
++        'per-fuzzer-coverage-data': per_fuzzer_cov,  # Add per-fuzzer coverage data here
          'introspector-data': introspector_data_dict,
          'fuzzer-count': amount_of_fuzzers,
          'project_repository': project_repository,
-@@ -965,12 +978,9 @@ def calculate_recent_results(projects_with_new_results, timestamps,
-         fuzzers_current: Set[str] = set()
-         per_fuzzer_coverages = defaultdict(list)
- 
--        for do in (get_date_at_offset_as_str(ii)
--                   for ii in range(-num_days, 0, 1)):
-+        for date_data in project_data:
-             try:
--                date_data = project_data[do]
--                per_fuzzer_coverage_data = date_data[
--                    'per-fuzzer-coverage-data']
-+                per_fuzzer_coverage_data = project_data[date_data]['per-fuzzer-coverage-data']
- 
-                 fuzzers_past |= fuzzers_current
-                 fuzzers_current = set(per_fuzzer_coverage_data.keys())
-@@ -982,7 +992,7 @@ def calculate_recent_results(projects_with_new_results, timestamps,
-                     except:
-                         perc = 0
- 
--                    per_fuzzer_coverages[ff].append((perc, do))
-+                    per_fuzzer_coverages[ff].append((perc, date_data))
-             except:
-                 continue
- 
-@@ -1513,8 +1523,8 @@ def create_local_db(oss_fuzz_path):
+@@ -1513,8 +1526,8 @@ def create_local_db(oss_fuzz_path):
  
      # Create a DB timestamp
      db_timestamp = {
@@ -90,6 +197,191 @@ index 4bd41cc..d2a5f9b 100644
          "fuzzer_count": 0,
          "function_count": 0,
          "function_coverage_estimate": 0,
+diff --git a/tools/web-fuzzing-introspection/app/webapp/routes.py b/tools/web-fuzzing-introspection/app/webapp/routes.py
+index e091aaa..1584245 100644
+--- a/tools/web-fuzzing-introspection/app/webapp/routes.py
++++ b/tools/web-fuzzing-introspection/app/webapp/routes.py
+@@ -118,6 +118,21 @@ class ProjectSourceCodeSpecificationSchema(marshmallow.Schema):
+     end_line = marshmallow.fields.Integer(description='Ending source line')
+ 
+ 
++class ProjectTestCodeSchema(marshmallow.Schema):
++    """Schema for project test code extraction"""
++
++    project = marshmallow.fields.String(description="Name of the OSS-Fuzz project.")
++    filepath = marshmallow.fields.String(description="Test file path to be extracted.")
++    max_size = marshmallow.fields.String(missing=str(MAX_TEST_SIZE), description="Maximum content size to return.")
++
++
++class ProjectReturnTypeQuerySchema(marshmallow.Schema):
++    """Schema for project return type query"""
++
++    project = marshmallow.fields.String(description="Name of the OSS-Fuzz project.")
++    return_type = marshmallow.fields.String(data_key="return-type", description="Return type to match.")
++
++
+ def get_introspector_report_url_base(project_name, datestr):
+     base_url = 'https://storage.googleapis.com/oss-fuzz-introspector/{0}/inspector-report/{1}/'
+     project_url = base_url.format(project_name, datestr.replace("-", ""))
+@@ -1073,11 +1088,17 @@ def api():
+ 
+ 
+ @api_blueprint.route('/api/optimal-targets')
+-def api_optimal_targets():
++@api_blueprint.arguments(ProjectSchema, location="query")
++def api_optimal_targets(args):
+     """Returns the list of functions generated by Fuzz Introspector's analysis
+     `Optimal Targets`.
++    
++    # Examples
++    
++    ## Example 1:
++    - `project`: `tinyxml2`
+     """
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide project name'}
+ 
+@@ -1541,9 +1562,10 @@ def api_project_all_functions(args):
+ 
+ 
+ @api_blueprint.route('/api/all-jvm-constructors')
+-def api_project_all_jvm_constructors():
++@api_blueprint.arguments(ProjectSchema, location='query')
++def api_project_all_jvm_constructors(args):
+     """Returns a json representation of all the constructors in a given project"""
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+ 
+@@ -1555,12 +1577,13 @@ def api_project_all_jvm_constructors():
+ 
+ 
+ @api_blueprint.route('/api/all-public-candidates')
+-def api_project_all_public_candidates():
++@api_blueprint.arguments(ProjectSchema, location='query')
++def api_project_all_public_candidates(args):
+     """
+         Returns a json representation of all the functions / constructors
+         candidates for further process in a given project.
+     """
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+ 
+@@ -1574,11 +1597,12 @@ def api_project_all_public_candidates():
+ 
+ 
+ @api_blueprint.route('/api/all-public-classes')
+-def api_project_all_public_classes():
++@api_blueprint.arguments(ProjectSchema, location='query')
++def api_project_all_public_classes(args):
+     """
+         Return a list of public classes in the project.
+     """
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+ 
+@@ -1669,16 +1693,17 @@ def get_latest_introspector_date(project_name: str) -> str:
+ 
+ 
+ @api_blueprint.route('/api/project-test-code')
+-def api_project_test_code():
++@api_blueprint.arguments(ProjectTestCodeSchema, location='query')
++def api_project_test_code(args):
+     """Extracts source code of a test"""
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+-    filepath = request.args.get('filepath', None)
++    filepath = args.get('filepath', None)
+     if filepath is None:
+         return {'result': 'error', 'msg': 'No filepath provided'}
+ 
+-    max_content_size = request.args.get('max_size', str(MAX_TEST_SIZE))
++    max_content_size = args.get('max_size', str(MAX_TEST_SIZE))
+     try:
+         max_content_size = int(max_content_size)
+     except ValueError:
+@@ -1776,13 +1801,14 @@ def api_type_info(args):
+ 
+ 
+ @api_blueprint.route('/api/func-debug-types')
+-def function_debug_types():
++@api_blueprint.arguments(ProjectFunctionSignatureQuerySchema, location='query')
++def function_debug_types(args):
+     """Returns a json representation of all the functions in a given project"""
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+ 
+-    function_signature = request.args.get('function_signature', None)
++    function_signature = args.get('function_signature', None)
+     if function_signature is None:
+         return {'result': 'error', 'msg': 'No function signature provided'}
+ 
+@@ -1907,12 +1933,13 @@ def api_function_source_code(args):
+ 
+ 
+ @api_blueprint.route('/api/function-with-matching-return-type')
+-def api_function_with_matching_type():
++@api_blueprint.arguments(ProjectReturnTypeQuerySchema, location='query')
++def api_function_with_matching_type(args):
+     """
+         Returns a json representation of all the functions in a given project
+         that match the needed return type
+     """
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+ 
+@@ -1920,7 +1947,7 @@ def api_function_with_matching_type():
+     if project is None:
+         return {'result': 'error', 'msg': 'Could not find project'}
+ 
+-    return_type = request.args.get('return-type', None)
++    return_type = args.get('return_type', None)
+     if return_type is None:
+         return {
+             'result': 'error',
+@@ -1941,12 +1968,13 @@ def api_function_with_matching_type():
+ 
+ 
+ @api_blueprint.route('/api/jvm-method-properties')
+-def api_jvm_method_properties():
++@api_blueprint.arguments(ProjectFunctionSignatureQuerySchema, location='query')
++def api_jvm_method_properties(args):
+     """Returns some properties for the jvm method"""
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {'result': 'error', 'msg': 'Please provide a project name'}
+-    function_signature = request.args.get('function_signature', None)
++    function_signature = args.get('function_signature', None)
+     if function_signature is None:
+         return {'result': 'error', 'msg': 'No function signature provided'}
+ 
+@@ -2127,9 +2155,10 @@ def api_oracle_1(args):
+ 
+ 
+ @api_blueprint.route('/api/project-repository')
+-def project_repository():
++@api_blueprint.arguments(ProjectSchema, location='query')
++def project_repository(args):
+     """Returns the source code repository of a given project."""
+-    project_name = request.args.get('project', None)
++    project_name = args.get('project', None)
+     if project_name is None:
+         return {
+             'result': 'error',
 diff --git a/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html b/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html
 index 6874be5..664b586 100644
 --- a/tools/web-fuzzing-introspection/app/webapp/templates/project-profile.html

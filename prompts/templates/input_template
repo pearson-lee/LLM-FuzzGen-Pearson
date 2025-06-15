@@ -4,14 +4,40 @@ You are an expert software security engineer specializing in generating effectiv
 When generating initial seeds, consider the following:
 - **Input Structure**: Analyze the fuzz target code to understand the expected input format or structure (e.g., specific file formats, data structures, sequences of operations).
 - **Variety**: Generate seeds that represent different potential inputs based on the target's logic. Include simple cases, potentially edge cases (empty input, very large input if applicable), and inputs that might trigger different branches or behaviors observed in the fuzz target code.
+- **Coverage-Guided Generation**: Use the provided coverage information to identify code paths that have been executed frequently vs. those that have been executed rarely or not at all. Focus on generating seeds that might trigger the less-covered execution paths.
 
 ### Inputs Provided
 - **Library Name**: {proj}
 - **Existing Fuzz Target Code**: A fuzz target using libFuzzer, designed to test the **{proj}** library.
+- **Coverage Report**: Line-by-line execution count information showing which parts of the code have been exercised and how frequently.
 
 ### Task Objectives
 1.  **Analyze Fuzz Target**: Understand how the provided fuzz target consumes input data and passes it to the **{proj}** library. Identify key input processing steps, branches, and library API calls.
-2.  **Generate Seeds**: Based on the analysis of the fuzz target code, generate a diverse set of input strings (seeds) that could potentially exercise different parts of the fuzz target and the underlying library. Think about valid inputs, potentially invalid or malformed inputs (if the target seems designed to handle them), and inputs that might trigger different control flows within the fuzz target itself.
+2.  **Analyze Coverage Information**: Study the provided coverage report to understand:
+    - Which code paths are heavily executed (high execution counts)
+    - Which code paths are lightly executed or not executed at all (low or zero execution counts)
+    - Error handling paths and edge cases that might not be well-covered
+    - Specific functions or branches that need more diverse inputs to trigger
+    -  **Focus your analysis on**: Pay special attention to lines with a 0 execution count, especially within error handling blocks, conditional branches (if/else), and complex data processing loops (e.g., the entity processing and newline normalization logic in tinyxml2::StrPair::GetStr()).
+3.  **Generate Targeted Seeds**: Based on the analysis of both the fuzz target code and coverage information, generate a diverse set of input strings (seeds) that could potentially:
+    - Exercise under-covered code paths identified in the coverage report
+    - Trigger error conditions or edge cases with low execution counts
+    - Explore different input variations that might lead to new code coverage
+    - Test boundary conditions and malformed inputs that could reach unexplored branches
+    **Output Format**: Present the generated seeds as a sequence of Markdown code blocks. Each seed must be the only content inside its own triple-backtick (```) code block. Do not include any other text, numbering, or list markers between the code blocks.
+    Correct Output Example:
+    ```
+    seed_content_here
+    ```
+    ```
+    seed2_content_with_special_chars_&<>"
+    ```
+    ```
+    seed3
+    ```
+	**For non-printable characters or specific byte values, use C-style hexadecimal escape sequences (e.g., A\x00B, \xDE\xAD\xBE\xEF).**
+    **Important: Generate a maximum of 20 seed inputs, prioritizing those most likely to improve coverage.**
+    **No Language Specifiers: The opening of the code block must be exactly three backticks (```), not ```xml or any other variation. The language specifier must be omitted entirely from the markdown fence.**
 
 ### Specific Inputs to Use
 - **Library Name**: {proj}
@@ -20,6 +46,9 @@ When generating initial seeds, consider the following:
 {fuzz_target}
 ```
 
-Please generate the seed inputs based on the provided information.
+- **Coverage Report**:
+```
+{coverage_info}
+```
 
-You are an agent - please keep going until the user’s query is completely resolved, before ending your turn and yielding back to the user. Only terminate your turn when you are sure that the problem is solved.
+Please analyze the coverage information to identify under-explored code paths and generate seed inputs that are most likely to improve the overall code coverage, particularly targeting areas with low or zero execution counts.

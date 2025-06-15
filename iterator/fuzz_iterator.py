@@ -1,19 +1,20 @@
 import logging
+from math import e
 
 from config.config import MIN_COVERAGE_IMPROVEMENT
-from external.introspector import Introspector
+from external.oss_fuzz import OSSFuzz
 
 logger = logging.getLogger(__name__)
 
 
 class FuzzIterator:
-    def __init__(self, project: str):
+    def __init__(self, project: str, oss_fuzz: OSSFuzz):
         self.project = project
-        self.introspector = Introspector()
+        self.oss_fuzz = oss_fuzz
         self.coverages: list[float] = []
 
     def record_cov(self):
-        cov = self.introspector.line_coverage(self.project)
+        cov = self.oss_fuzz.get_coverage_summary(self.project, exclude_target=True).lines.percent
         if cov is None or cov == 0:
             logger.warning("Coverage is None, skipping record.")
             return
@@ -22,10 +23,19 @@ class FuzzIterator:
         logger.info(f"Project: {self.project}, Current coverage: {cov}")
         return
 
+    def clean_cov(self):
+        self.coverages.clear()
+
     def latest_cov(self):
+        if not self.coverages:
+            logger.warning(f"[{self.project}] Attempted to get latest coverage, but no coverages recorded yet. Returning 0.0.")
+            return 0.0
         return self.coverages[-1]
 
     def first_cov(self):
+        if not self.coverages:
+            logger.warning(f"[{self.project}] Attempted to get first coverage, but no coverages recorded yet. Returning 0.0.")
+            return 0.0
         return self.coverages[0]
 
     def should_regenerate(self) -> bool:
@@ -34,6 +44,8 @@ class FuzzIterator:
         Returns True if coverage has stagnated (should regenerate),
         False if coverage is still improving (should mutate).
         """
+        logger.info(f"[{self.project}] Current coverage array: {self.coverages}")
+
         # Need at least 4 coverage records to evaluate three consecutive improvements
         if len(self.coverages) < 4:
             return False

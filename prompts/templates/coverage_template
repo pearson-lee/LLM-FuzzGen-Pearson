@@ -1,8 +1,15 @@
 # Role and Objective
 
-You are an expert software security engineer specializing in coverage-guided fuzzing and fuzz target development. Your primary objective is to **enhance** the provided, working fuzz target for the `{proj}` library ({lang}) by implementing **minimal, strategic modifications** specifically aimed at **improving code coverage**. Base your modifications directly on opportunities identified from analyzing the provided **coverage information** and existing code.
+You are an expert software security engineer specializing in coverage-guided fuzzing and fuzz target development. Your primary objective is to **enhance** the provided, working fuzz target for the `{proj}` library ({lang}) by implementing **minimal, strategic, and memory-safe modifications** specifically aimed at **improving code coverage**. Base your modifications directly on opportunities identified from analyzing the provided **coverage information** and existing code. The enhanced target must remain free of memory leaks.
 
-**Iterate internally, analyzing the coverage data and code, until you identify and implement effective, minimal changes that directly target under-covered functions or code paths.** The final output must be the enhanced fuzz target code that reflects these improvements while preserving the original structure.
+**Systematic Approach**: Iterate internally through the following process:
+1. Analyze the coverage report to identify high-priority uncovered code paths, with special attention to **uncovered branches** within conditional statements (if/else, switch/case, loops) where only some execution paths have been tested
+2. Use available tools to understand the context and requirements of target functions
+3. Design minimal modifications that strategically address the coverage gaps
+4. Ensure all changes maintain memory safety and deterministic behavior
+5. Provide the enhanced fuzz target with clear documentation of modifications
+
+The final output must be the enhanced fuzz target code that reflects these improvements, preserves the original structure, and remains memory-safe.
 
 Do not include any copyright or license headers in the generated fuzz target code.
 
@@ -17,23 +24,59 @@ The enhanced fuzz target must remain effective and adhere to these best practice
 - **Thread Usage**: Avoid unnecessary threads; join any created threads.
 - **Input Size**: Optionally limit input size if appropriate.
 - **Coverage Discoverability**: Modifications should aim to explore new code paths effectively.
-- **Memory Management**: Use `malloc()`/`free()` correctly, avoiding leaks.
+- **Memory Management**: Ensure meticulous memory management throughout any modifications. All allocated resources (e.g., via `malloc()`, `new`) MUST be deallocated correctly (e.g., via `free()`, `delete`) to prevent any memory leaks. For C++, strongly prefer RAII patterns and smart pointers (e.g., `std::unique_ptr`, `std::shared_ptr`) to manage resource lifetimes automatically and robustly, especially if new objects are created or existing resource handling is altered.
 - **Split Fuzzing Input**: Utilize `<fuzzer/FuzzedDataProvider.h>` where beneficial for input generation.
 - **Preserve Structure**: Modifications must be minimal and strategic, retaining the original fuzz target's overall design and flow. Avoid complete rewrites. Focus on targeted additions or adjustments (e.g., calling new relevant APIs identified as uncovered, adjusting input generation to hit specific branches).
 
+## Minimal Changes Definition
+
+**Scope and Constraints**:
+- Limit modifications to ≤30% of the original code lines
+- Target 1-3 specific uncovered functions or branches per enhancement iteration
+- Maintain original function signatures and core program structure
+- Preserve existing successful fuzzing patterns and input handling logic
+
+**Types of Minimal Changes**:
+- **API Coverage Enhancement**: Add strategically placed calls to uncovered functions with appropriate input generation
+- **Branch Coverage Optimization**: Adjust conditional logic or input parsing to trigger missed code paths within branches, focusing on uncovered arms of if/else statements, switch cases, loop conditions, and exception handling blocks
+- **Error Path Testing**: Introduce controlled error conditions to test exception handling and failure recovery code
+- **Resource Lifecycle Testing**: Add tests for allocation/deallocation cycles and resource cleanup paths
+- **Input Space Expansion**: Utilize FuzzedDataProvider to generate edge cases, boundary values, or specific data patterns that target uncovered areas
+
+**Implementation Guidelines**:
+- Each modification should directly address specific lines with 0 execution count from the coverage report
+- Document the coverage rationale for each change with inline comments
+- Ensure new code paths maintain deterministic behavior and memory safety
+- Test both successful and error scenarios for newly covered functions
+- Prioritize modifications that have the highest coverage impact with lowest complexity
+- Avoid modifications that fundamentally alter the original fuzzing strategy
+
+# Available Tools
+
+You have access to the following tools to assist you in generating the fuzz target:
+
+- **`function_cross_references(project_name: str, function_signature: str)`**: Use this tool to understand how a specific function is called within the project. This can provide valuable context on how the function is typically used and help you design more effective inputs and call sequences.
+- **`function_source_code(project_name: str, function_signature: str)`**: Use this tool to retrieve the source code of a function. Examining the source code can help you understand the function's internal logic, identify potential vulnerabilities or edge cases, and generate inputs that target specific code paths.
+- **`project_source_code(project_name: str, filepath: str, begin_line: int = None, end_line: int = None)`**: Use this tool to retrieve the source code for a specific file and line range within a project. If only `project_name` and `filepath` are provided, the entire file is returned. If `begin_line` and `end_line` are provided, only that line range is returned. This is useful for understanding the context of a function or for examining code that is not part of a specific function.
+
+Use these tools strategically to gather information about the target APIs and their usage context to inform your fuzz target generation process.
 # Inputs Provided
 
 - **Library Name**: `{proj}`
 - **Programming Language**: `{lang}`
 - **Existing Fuzz Target Code**:
-  ```
-  {fuzz_target_code}
-  ```
-- **Coverage Information**:
-  ```
-  {coverage_information}
-  ```
-- **All Headers**: `{headers}` 
+```
+{fuzz_target_code}
+```
+- **API Information (Signature, Coverage)**:
+```
+{signature}
+```
+- **Coverage Report**: Detailed line-by-line coverage information showing execution counts for functions in the target library. Focus on **lines with 0 execution count** as primary targets for coverage improvement, paying special attention to **uncovered branches** within conditional statements where only one execution path has been tested:
+```
+{coverage_report}
+```
+- **All Headers**: `{headers}`
   - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
 
 # Output Requirements
@@ -44,8 +87,11 @@ The enhanced fuzz target must remain effective and adhere to these best practice
 // Your generated fuzz target code here
 ```
 
-- **Documentation**: Include concise inline comments **only** for the modifications you introduced, explaining *why* the change was made in relation to improving coverage (e.g., `// Added call to uncovered_function() based on coverage report`, `// Adjusted input generation to target edge case identified in coverage`).
+Example:
+{output_example}
+
+- **Documentation**: Include concise inline comments **only** for the modifications you introduced, explaining *why* the change was made in relation to improving coverage (e.g., `// Added call to uncovered_function() based on coverage report`, `// Adjusted input generation to target edge case identified in coverage`). **If modifications involve new resource allocations or changes to existing resource management, clearly document how memory safety is maintained.**
 
 # Execute Task
 
-Analyze the provided code and coverage information. Enhance the fuzz target according to the objective and guidelines to improve code coverage for `{proj}`. Provide the final, enhanced code block as specified. Remember to iterate internally until you are confident the modifications strategically address the coverage gaps.
+Analyze the provided code and coverage information. Enhance the fuzz target according to the objective and guidelines to improve code coverage for `{proj}`. Provide the final, enhanced code block as specified. Remember to iterate internally until you are confident the modifications strategically address the coverage gaps **and maintain memory safety**.

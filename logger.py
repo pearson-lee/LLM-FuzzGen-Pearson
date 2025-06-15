@@ -24,5 +24,6 @@ def setup_logging(project_name: str, log_dir: Path = Path(__file__).parent / "lo
     logging.info(f"Iteration loop: {config.ITERATION_LOOP}")
     logging.info(f"Temperature: {config.TEMPERATURE}")
     logging.info(f"Max Tokens: {config.MAX_TOKENS}")
+    logging.info(f"Think Budget Tokens: {config.THINK_BUDGET_TOKEN}")
     logging.info(f"Max Compiler Attempts: {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}")
-    logging.info("======================\n")
+    logging.info("=====================\n")

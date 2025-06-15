@@ -9,6 +9,7 @@ from typing import TypedDict, List
 from contextlib import contextmanager
 
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 import config.config as config
 
@@ -22,6 +23,9 @@ class FunctionInfo(TypedDict):
     function_signature: str
     possible_header_files: List[str]
     runtime_coverage_percent: float
+    function_filename: str
+    source_line_begin: int
+    source_line_end: int
 
 
 class CrossReference(TypedDict):
@@ -42,12 +46,28 @@ class TargetFunctionInfo(TypedDict):
 class Introspector:
     LOCKFILE_PATH = Path("/tmp/llm_fuzzgen.lock")
     API_REQUEST_TIMEOUT = 3
-    MAX_RETRIES = 5
-    RETRY_WAIT_TIME = 5
+    MAX_RETRIES = 10
+    RETRY_BACKOFF = 0.5  # seconds
 
     def __init__(self, base_url: str = None):
+        self._specific_cache = {}
         self.base_url = base_url or config.INTROSPECTOR_API_BASE_URL
+        self.retry_strategy = Retry(
+            total=self.MAX_RETRIES,
+            backoff_factor=self.RETRY_BACKOFF,
+        )
+
         self.session = requests.Session()
+        retry_adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=self.retry_strategy)
+        self.session.mount("http://", retry_adapter)
+        self.session.mount("https://", retry_adapter)
+
+        # Session without retries for shutdown endpoint
+        self.session_no_retry = requests.Session()
+        no_retry_adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=0)
+        self.session_no_retry.mount("http://", no_retry_adapter)
+        self.session_no_retry.mount("https://", no_retry_adapter)
+
         self.base_dir = Path(__file__).parent
         self.oss_fuzz_dir = self.base_dir / "oss-fuzz"
         self.fi_dir = self.base_dir / "fuzz-introspector"
@@ -55,26 +75,16 @@ class Introspector:
 
     def _query_api(self, endpoint: str, params: dict, enable_retry: bool = True) -> dict:
         logger.info(f"Querying API: {endpoint} with params: {params}")
-        max_attempts = self.MAX_RETRIES + 1 if enable_retry else 1
-
-        for attempt in range(max_attempts):
-            try:
-                response = self.session.get(
-                    f"{self.base_url}/{endpoint}", params=params, timeout=self.API_REQUEST_TIMEOUT
-                )
-                response.raise_for_status()
-                return response.json()
-            except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-                if attempt == max_attempts - 1:
-                    if endpoint == "shutdown":
-                        return {}
-                    logger.error(f"API request failed: {e} for endpoint: {endpoint}")
-                    return {}
-
-                logger.warning(
-                    f"API request failed ({attempt + 1}/{max_attempts}): {e} for endpoint: {endpoint}"
-                )
-                time.sleep(self.RETRY_WAIT_TIME)
+        session = self.session if enable_retry else self.session_no_retry
+        try:
+            response = session.get(f"{self.base_url}/{endpoint}", params=params, timeout=self.API_REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return response.json()
+        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
+            if endpoint == "shutdown":
+                return {}
+            logger.error(f"API request failed: {e} for endpoint: {endpoint}")
+            return {}
 
     def _webapp_db_update(self) -> bool:
         db_script_path = (
@@ -189,11 +199,27 @@ class Introspector:
         return signature, headers
 
     def function_source_code(self, project_name: str, function_signature: str) -> str:
+        """Get function source code by function signature."""
+        cache_key = json.dumps(
+            {
+                "endpoint": "function-source-code",
+                "project": project_name,
+                "function_signature": function_signature,
+            },
+            sort_keys=True,
+        )
+
+        if cache_key in self._specific_cache:
+            logger.info(f"Returning cached source code for {function_signature} in {project_name}")
+            return self._specific_cache[cache_key]
+
         response = self._query_api(
             "function-source-code",
             {"project": project_name, "function_signature": function_signature},
         )
-        return response.get("source", "")
+        source_code = response.get("source", "")
+        self._specific_cache[cache_key] = source_code
+        return source_code
 
     def function_required_headers(self, project_name: str, function_signature: str) -> str:
         response = self._query_api(
@@ -205,9 +231,7 @@ class Introspector:
     def line_coverage(self, project_name: str) -> float:
         response = self._query_api("project-summary", {"project": project_name})
         try:
-            coverage_data = (
-                response.get("project", {}).get("runtime_coverage_data", {}).get("line_coverage", {})
-            )
+            coverage_data = response.get("project", {}).get("runtime_coverage_data", {}).get("line_coverage", {})
             coverage = round(float(coverage_data.get("percent", 0)), 2)
             logger.info(f"Line coverage data for {project_name}: {coverage}")
             return coverage
@@ -249,9 +273,7 @@ class Introspector:
             if code := self._query_api("project-source-code", params).get("source_code"):
                 results.append({"name": fuzzer_name, "code": code})
             else:
-                logger.warning(
-                    f"Could not retrieve source code for fuzzer: {fuzzer_name} in project: {project_name}"
-                )
+                logger.warning(f"Could not retrieve source code for fuzzer: {fuzzer_name} in project: {project_name}")
 
         if not results:
             logger.warning(f"No fuzz target source code found for project: {project_name}")
@@ -259,9 +281,56 @@ class Introspector:
 
         return results
 
-    def get_function_cross_references(
-        self, project_name: str, function_signature: str
-    ) -> List[CrossReference]:
+    def get_fuzz_target_names(self, project_name: str) -> List[str]:
+        """Get all fuzz target names for the project."""
+        logger.info(f"Getting fuzz target names for project: {project_name}")
+        response = self._query_api("harness-source-and-executable", {"project": project_name})
+
+        if response.get("result") != "success":
+            logger.warning(f"API request failed for project: {project_name}")
+            return []
+
+        pairs = response.get("pairs", [])
+        target_names = []
+
+        for pair in pairs:
+            executable = pair.get("executable")
+            if executable:
+                # Remove file extension to get the target name
+                target_name = os.path.splitext(executable)[0]
+                target_names.append(target_name)
+            else:
+                logger.warning(f"Skipping pair due to missing executable: {pair}")
+
+        logger.info(f"Found {len(target_names)} fuzz targets for project {project_name}: {target_names}")
+        return target_names
+
+    def get_project_source_code(self, project_name: str, filepath: str, begin_line: int, end_line: int) -> str:
+        """Get source code for a specific file and line range within a project.
+
+        Args:
+            project_name (str): The name of the project.
+            filepath (str): The path to the file within the project.
+            begin_line (int): The starting line number.
+            end_line (int): The ending line number.
+
+        Returns:
+            str: The source code as a string, or an empty string if not found.
+        """
+        logger.info(f"Getting source code for project: {project_name}, file: {filepath}, lines: {begin_line}-{end_line}")
+        params = {
+            "project": project_name,
+            "filepath": filepath,
+            "begin_line": begin_line,
+            "end_line": end_line,
+        }
+        response = self._query_api("project-source-code", params)
+        source_code = response.get("source_code", "")
+        if not source_code:
+            logger.warning(f"Could not retrieve source code for project: {project_name}, file: {filepath}")
+        return source_code
+
+    def get_function_cross_references(self, project_name: str, function_signature: str) -> List[CrossReference]:
         """Get detailed cross-reference information for the given function.
 
         Args:
@@ -274,6 +343,19 @@ class Introspector:
                 - possible_header_files (List[str]): List of possible header files for the source function
                 - src_func_signature (str): The signature of the source function
         """
+        cache_key = json.dumps(
+            {
+                "endpoint": "all-cross-references",
+                "project": project_name,
+                "function_signature": function_signature,
+            },
+            sort_keys=True,
+        )
+
+        if cache_key in self._specific_cache:
+            logger.info(f"Returning cached cross-references for {function_signature} in {project_name}")
+            return self._specific_cache[cache_key]
+
         response = self._query_api(
             "all-cross-references",
             {"project": project_name, "function_signature": function_signature},
@@ -285,7 +367,7 @@ class Introspector:
         func_to_headers = {func["function_name"]: func["possible_header_files"] for func in all_functions}
         func_to_signature = {func["function_name"]: func["function_signature"] for func in all_functions}
 
-        return [
+        cross_references = [
             {
                 "src_func": callsite.get("src_func", ""),
                 "possible_header_files": func_to_headers.get(callsite.get("src_func", ""), []),
@@ -293,6 +375,8 @@ class Introspector:
             }
             for callsite in callsites
         ]
+        self._specific_cache[cache_key] = cross_references
+        return cross_references
 
     def get_all_header_files(self, project_name: str) -> list[str]:
         """Get all header files for the project.
@@ -303,8 +387,16 @@ class Introspector:
         Returns:
             list[str]: List of header file paths
         """
+        cache_key = json.dumps({"endpoint": "all-header-files", "project": project_name}, sort_keys=True)
+
+        if cache_key in self._specific_cache:
+            logger.info(f"Returning cached header files for {project_name}")
+            return self._specific_cache[cache_key]
+
         response = self._query_api("all-header-files", {"project": project_name})
-        return response.get("all-header-files", [])
+        header_files = response.get("all-header-files", [])
+        self._specific_cache[cache_key] = header_files
+        return header_files
 
     def get_all_functions(self, project_name: str) -> List[FunctionInfo]:
         """Get all functions for the project.
@@ -324,8 +416,11 @@ class Introspector:
             {
                 "function_name": func.get("function_name", ""),
                 "function_signature": func.get("function_signature", ""),
-                "possible_header_files": func.get("debug_summary").get("possible-header-files", []),
+                "possible_header_files": func.get("debug_summary", {}).get("possible-header-files", []),
                 "runtime_coverage_percent": func.get("runtime_coverage_percent", 0.0),
+                "function_filename": func.get("function_filename", ""),
+                "source_line_begin": func.get("debug_summary", {}).get("source", {}).get("source_line", 0),
+                "source_line_end": func.get("source_line_end", 0),
             }
             for func in response.get("functions", [])
         ]

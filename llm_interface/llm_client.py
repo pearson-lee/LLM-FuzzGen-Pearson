@@ -1,3 +1,4 @@
+from langchain_google_vertexai import ChatVertexAI, HarmCategory, HarmBlockThreshold
 from langgraph.checkpoint.memory import MemorySaver
 import config.config as config
 import logging
@@ -8,19 +9,12 @@ from langchain.schema import HumanMessage
 from .tools import tools
 from typing import Annotated
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_google_genai import ChatGoogleGenerativeAI, HarmBlockThreshold, HarmCategory
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
-
-# --- Output Schema for Seeds ---
-class SeedList(BaseModel):
-    """A list of seed inputs for fuzzing."""
-
-    seeds: list[str] = Field(description="List of generated seed strings.")
 
 
 class State(TypedDict):
@@ -31,32 +25,48 @@ class State(TypedDict):
 class LLMClient:
     def __init__(self):
         try:
-            llm_base = ChatGoogleGenerativeAI(
-                temperature=config.TEMPERATURE,
+            # llm_base = ChatGoogleGenerativeAI(
+            #     temperature=config.TEMPERATURE,
+            #     model=config.MODEL_NAME,
+            #     max_output_tokens=config.MAX_TOKENS,
+            #     thinking_budget=config.THINK_BUDGET_TOKEN,
+            #     safety_settings={
+            #         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_TOXICITY: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_VIOLENCE: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_DANGEROUS: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_DEROGATORY: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_MEDICAL: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_SEXUAL: HarmBlockThreshold.OFF,
+            #         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.OFF,
+            #     },
+            #     max_retries=10,
+            # )
+
+            llm_base = ChatVertexAI(
                 model=config.MODEL_NAME,
-                max_output_tokens=config.MAX_TOKENS,
-                thinking_budget=24575,
+                temperature=config.TEMPERATURE,
+                max_tokens=config.MAX_TOKENS,
+                max_retries=6,
+                # thinking_budget=config.THINK_BUDGET_TOKEN, # 2.5 pro cannot use thinking budget
                 safety_settings={
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_TOXICITY: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_VIOLENCE: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_DANGEROUS: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_DEROGATORY: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_MEDICAL: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_SEXUAL: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.OFF,
+                    HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.OFF,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.OFF,
+                    HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: HarmBlockThreshold.OFF,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.OFF,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.OFF,
                 },
-                max_retries=10,
-                timeout=300.0,
+                project="ordinal-oxygen-lz9rc",
+                location="global",
             )
 
             self._llm_without_tools = llm_base
             self._llm = llm_base.bind_tools(tools=tools, tool_choice="auto")
-            self._seed_generator_llm = llm_base.with_structured_output(schema=SeedList)
 
             self._graph = self._build_graph()
 
@@ -74,7 +84,7 @@ class LLMClient:
                     return {"messages": [res]}
                 else:
                     logger.warning(f"LLM response empty on attempt {attempt + 1}. Retrying...")
-                    time.sleep(3)
+                    time.sleep(30)
 
             # If all attempts fail, raise an exception
             raise Exception("LLM generation failed after multiple retries.")
@@ -123,12 +133,8 @@ class LLMClient:
         logger.info(f"Generating response for prompt: {prompt[:300]}...")
         try:
             message = HumanMessage(content=prompt)
-            if thread_id:
-                final_state = self._graph.invoke(
-                    {"messages": [message]}, config={"configurable": {"thread_id": thread_id}}
-                )
-            else:
-                final_state = self._graph.invoke({"messages": [message]})
+            config_thread_id = thread_id if thread_id else int(time.time())
+            final_state = self._graph.invoke({"messages": [message]}, config={"configurable": {"thread_id": config_thread_id}})
             result = final_state.pop("parsed", "")
             logger.info(f"\nfuzz target: \n{result}")
 
@@ -138,49 +144,51 @@ class LLMClient:
             return None
 
     def generate_seeds(self, prompt: str) -> List[str] | None:
-        """Generates a list of seed strings using the structured output LLM."""
+        """Generates a list of seed strings using the LLM, expecting Markdown format."""
         if not prompt:
             logger.warning("Generate_seeds called with empty prompt.")
             return None
+
         logger.info(f"Generating seeds for prompt: {prompt[:300]}...")
-        try:
-            structured_response = self._seed_generator_llm.invoke([HumanMessage(content=prompt)])
+        for i in range(3):
+            try:
+                response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
+                response_content = getattr(response, "content", "").strip()
+                if response_content:
+                    if seeds := [s.strip() for s in re.findall(r"```(.*?)```", response_content, re.DOTALL) if s.strip()]:
+                        logger.info(f"Successfully generated {len(seeds)} seeds.")
+                        return seeds
 
-            if isinstance(structured_response, SeedList) and structured_response.seeds:
-                logger.info(f"Successfully generated {len(structured_response.seeds)} seeds.")
-                return structured_response.seeds
-            else:
-                logger.warning(
-                    f"LLM did not return the expected SeedList structure or the list was empty. Response: {structured_response}"
-                )
-                return None
-        except Exception as e:
-            logger.error(f"Seed generation failed: {e}")
-            return None
+                logger.warning(f"No seeds from LLM response, retrying..., raw response: {response_content}")
+            except Exception as e:
+                logger.error(f"Attempt {i+1}/3 failed: {e}", exc_info=True)
 
-    def generate_dict(self, prompt: str) -> str:
+        return None
+
+    def generate_dict(self, prompt: str) -> str | None:
         if not prompt:
             logger.warning("Generate_dict called with empty prompt.")
             return None
         logger.info(f"Generating dict for prompt: {prompt[:300]}...")
-        try:
-            response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
-            if response and response.content:
-                # Use regex to extract content within ```text ... ```
-                match = re.search(r"```(?:text)?\n(.*?)\n```", response.content, re.DOTALL)
-                if match:
-                    dict_content = match.group(1).strip()
-                    logger.info("Successfully extracted dictionary content.")
-                    return dict_content
-                else:
-                    logger.warning(
-                        "Could not find ```text ... ``` block in LLM response. Returning raw content."
-                    )
-                    return response.content.strip()
-            else:
-                logger.warning("LLM response was empty.")
-                return None
 
-        except Exception as e:
-            logger.error(f"Dictionary generation failed: {e}")
-            return None
+        for i in range(3):
+            try:
+                response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
+                if response and response.content:
+                    # Use regex to extract content within ```text ... ```
+                    if match := re.search(r"```(?:text)?\n(.*?)\n```", response.content, re.DOTALL):
+                        dict_content = match.group(1).strip()
+                        logger.info("Successfully extracted dictionary content.")
+                        return dict_content
+
+                    logger.warning(
+                        f"Could not find ```text ... ``` block in LLM response, retrying..., raw response: {response.content}"
+                    )
+
+                else:
+                    logger.warning(f"Empty LLM response, retrying..., raw response: {response.content}")
+
+            except Exception as e:
+                logger.error(f"Dictionary generation failed: {e}", exc_info=True)
+
+        return None
