@@ -66,7 +66,7 @@ def _format_all_function_for_prompt(project_name: str, coverage_threshold: float
         f"- Header(s): {', '.join(headers)}\n"
         f"- Runtime coverage percent: {coverage}%\n"
         f"- File path: {file_path}"
-        for func in introspector.get_all_functions(project_name)
+        for func in introspector.get_all_functions(project_name)[:50]
         for sig, headers, coverage, file_path in [
             (
                 func.get("function_signature", "N/A"),
@@ -99,11 +99,18 @@ def _parse_args() -> argparse.Namespace:
         help="Generate an initial fuzz target. Default is not to generate.",
     )
 
+    parser.add_argument(
+        "--seconds",
+        type=int,
+        default=60,
+        help="The number of seconds to wait for report generation. Default is 60 seconds.",
+    )
+
     args = parser.parse_args()
     return args
 
 
-def generate_report_and_start_webapp(project_name: str, seconds: int = 30, clean: bool = False) -> bool:
+def generate_report_and_start_webapp(project_name: str, seconds: int = 60, clean: bool = False) -> bool:
     if not oss_fuzz.generate_report(project_name, seconds, clean):
         logger.error(f"Failed to generate report for {project_name}")
         return False
@@ -152,6 +159,10 @@ def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
 
         try:
             last_code = llm_client.generate(current_prompt, langgraph_threadid)
+            if not last_code:
+                logger.error(f"LLM generation failed for attempt {attempt}. No code generated.")
+                break
+
             fuzz_file = oss_fuzz.save_target(project_name, last_code)
             logger.info(f"Saved fuzz target: '{fuzz_file}'.")
 
@@ -172,7 +183,6 @@ def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
                     lang=oss_fuzz.proj_lang(project_name),
                     proj=project_name,
                     headers=", ".join(introspector.get_all_header_files(project_name)),
-                    signature=_format_all_function_for_prompt(project_name),
                 )
             else:
                 current_prompt = result.error
@@ -189,14 +199,15 @@ def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
 
 def mutate_fuzz_target(project_name: str, fuzz_target: str, fuzz_target_name: str) -> Path | None:
     logger.info(f"Mutating fuzz target for project: {project_name}")
-
+    fuzz_target_coverage_report = oss_fuzz.linecov_reports(project_name, fuzz_target_name, "LLVMFuzzerTestOneInput")
     prompt = prompt_generator.coverage_prompt(
         fuzz_target_code=fuzz_target,
-        signature=_format_all_function_for_prompt(project_name),
         lang=oss_fuzz.proj_lang(project_name),
         proj=project_name,
         headers=", ".join(introspector.get_all_header_files(project_name)),
-        coverage_report=oss_fuzz.linecov_reports(project_name, fuzz_target_name),
+        fun_coverage_report=oss_fuzz.funcov_reports(project_name),
+        fuzz_target_name=fuzz_target_name,
+        fuzz_target_coverage_report=fuzz_target_coverage_report,
     )
 
     new_fuzz_target = build_fuzz_target(project_name, prompt)
@@ -211,6 +222,7 @@ def regenerate_fuzz_target(project_name: str) -> Path | None:
 
     prompt = prompt_generator.regeneration_prompt(
         signature=_format_all_function_for_prompt(project_name),
+        fun_coverage_report=oss_fuzz.funcov_reports(project_name),
         headers=", ".join(introspector.get_all_header_files(project_name)),
         proj=project_name,
         lang=oss_fuzz.proj_lang(project_name),
@@ -223,7 +235,7 @@ def regenerate_fuzz_target(project_name: str) -> Path | None:
     return new_fuzz_target
 
 
-def process_project(project_name: str) -> bool:
+def process_project(project_name: str, seconds: int) -> bool:
     """Process a single project and generate fuzz targets."""
     try:
         logger.info(f"Starting to process project: {project_name}")
@@ -246,16 +258,16 @@ def process_project(project_name: str) -> bool:
             is_regeneration = iterator.should_regenerate()
 
             # Determine target generation strategy
-            total_coverage = oss_fuzz.get_coverage_summary(project_name)
-            function_coverage = total_coverage.functions.percent if total_coverage and total_coverage.functions else 0.0
+            # total_coverage = oss_fuzz.get_coverage_summary(project_name)
+            # function_coverage = total_coverage.functions.percent if total_coverage and total_coverage.functions else 0.0
 
             # High coverage strategy: mutate lowest coverage target
-            if function_coverage > 90.0 and (lowest_target := _find_lowest_coverage_target(project_name, mutated_targets)):
-                mutated_targets.add(lowest_target.stem)
-                new_target = mutate_fuzz_target(project_name, lowest_target.read_text(), lowest_target.stem)
-                is_regeneration = False
+            # if function_coverage > 90.0 and (lowest_target := _find_lowest_coverage_target(project_name, mutated_targets)):
+            #     mutated_targets.add(lowest_target.stem)
+            #     new_target = mutate_fuzz_target(project_name, lowest_target.read_text(), lowest_target.stem)
+            #     is_regeneration = False
             # Standard strategy: regenerate or mutate existing
-            elif is_regeneration or fuzz_target is None:
+            if is_regeneration or fuzz_target is None:
                 new_target = regenerate_fuzz_target(project_name)
                 is_regeneration = True
             else:
@@ -265,13 +277,14 @@ def process_project(project_name: str) -> bool:
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 continue
 
-            if (cov_without_seeds := oss_fuzz.coverage(project_name, new_target.stem)) <= 0:
+            if (cov_without_seeds := oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)) <= 0:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 continue
 
-            generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
+            # generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
+            # oss_fuzz.remove_corpus(project_name, new_target.stem)
 
-            cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem)
+            cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
             coverage_growth = cov_with_seeds - previous_cov
             logger.info(f"Coverage without seeds: {cov_without_seeds}")
             logger.info(f"Coverage with seeds: {cov_with_seeds}")
@@ -280,10 +293,11 @@ def process_project(project_name: str) -> bool:
             if cov_with_seeds <= previous_cov:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 logger.warning(f"Fuzz target's coverage is lower than the previous iteration {iteration + 1}")
+                fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 no_growth_count += 1
                 continue
 
-            if not generate_report_and_start_webapp(project_name):
+            if not generate_report_and_start_webapp(project_name, seconds=seconds):
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 logger.warning(f"Fuzz target is failed to generate report {iteration + 1}")
                 continue
@@ -328,7 +342,6 @@ def calculate_statistics(project_name: str, initial_coverage_percent: float):
     compilation_success_rate = (compilation_successes / compilation_attempts * 100) if compilation_attempts > 0 else 0
 
     logger.info("=" * 50)
-    logger.info(f"Initial coverage: {initial_coverage_percent:.2f}%")
     logger.info("Coverage Growth Statistics:")
     logger.info(
         f"Regeneration: {stats['regeneration']['count']} iterations, Average growth: {stats['regeneration']['average']:.2f}%"
@@ -341,6 +354,7 @@ def calculate_statistics(project_name: str, initial_coverage_percent: float):
     logger.info(f"Success rate: {compilation_success_rate:.2f}% ")
     logger.info("=" * 50)
 
+    logger.info(f"Initial coverage: {initial_coverage_percent:.2f}%")
     if total_coverage_summary:
         logger.info("Total Coverage Summary:")
         for metric_name, summary in total_coverage_summary.__dict__.items():
@@ -377,7 +391,7 @@ def main() -> None:
             logger.info("Skipping initial fuzz target generation")
         logger.info(f"Starting introspector webapp for initial analysis of {project_name}")
 
-        if not generate_report_and_start_webapp(project_name, clean=True):
+        if not generate_report_and_start_webapp(project_name, seconds=args.seconds, clean=True):
             sys.exit(1)
 
         initial_coverage_percent = oss_fuzz.get_coverage_summary(project_name, exclude_target=True).lines.percent
@@ -385,9 +399,9 @@ def main() -> None:
         if args.initial_fuzz_target:
             oss_fuzz.remove_target(project_name, "llm_fuzzgen_empty")
 
-        result = process_project(project_name)
+        result = process_project(project_name, seconds=args.seconds)
 
-        if not generate_report_and_start_webapp(project_name, clean=True):
+        if not generate_report_and_start_webapp(project_name, seconds=args.seconds, clean=True):
             sys.exit(1)
 
         calculate_statistics(project_name, initial_coverage_percent)
@@ -396,14 +410,17 @@ def main() -> None:
         logger.info(f"Successful project: {result}")
         logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
 
-        input("Press Enter to shutdown the server (http://localhost:8080)")
+        user_input = input("Enter 'y' to shutdown the server (http://localhost:8080): ")
+        if user_input.lower() == "y":
+            introspector.shutdown_webapp()
 
-    except KeyboardInterrupt:
-        logger.info("Process interrupted by user")
     except Exception as e:
-        logger.error(f"Process failed with error: {e}")
-    finally:
-        introspector.shutdown_webapp()
+        logger.error(f"An error occurred: {e}", exc_info=True)
+        try:
+            introspector.shutdown_webapp()
+            logger.info("Server shutdown due to exception.")
+        except Exception as e:
+            logger.error(f"Failed to shutdown server in finally block: {e}")
 
 
 if __name__ == "__main__":

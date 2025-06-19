@@ -1,11 +1,14 @@
 # MODEL_NAME: "gemini-2.5-flash-preview-05-20"
-MODEL_NAME: "gemini-2.5-pro-preview-05-06"
+# MODEL_NAME: "gemini-2.5-flash-preview-04-17"
+MODEL_NAME: "gemini-2.5-flash"
+# MODEL_NAME: "gemini-2.5-pro-preview-05-06"
+# MODEL_NAME: "gemini-2.5-pro"
 # MODEL_NAME: "gemini-2.0-flash"
-MAX_TOKENS: 62768
-THINK_BUDGET_TOKEN: 2048
+MAX_TOKENS: 32768
+THINK_BUDGET_TOKEN: -1 # Setting the thinkingBudget to -1 turns on dynamic thinking on Gemini
 ITERATION_LOOP: 50
-TEMPERATURE: 0
+TEMPERATURE: 0.2
 INTROSPECTOR_API_BASE_URL: "http://localhost:8080/api"
 FUZZ_TARGET_COMPILER_MAX_ATTEMPTS: 10
-MIN_COVERAGE_IMPROVEMENT: 2.00  # Minimum coverage improvement to consider progress
-NO_GROWTH_STOP_THRESHOLD: 5  # Stop iteration if no coverage growth for this many consecutive iterations
+MIN_COVERAGE_IMPROVEMENT: 1.00  # Minimum coverage improvement to consider progress
+NO_GROWTH_STOP_THRESHOLD: 10  # Stop iteration if no coverage growth for this many consecutive iterations

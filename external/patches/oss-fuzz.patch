@@ -80,31 +80,70 @@ index c14adff..a013d7d 100644
  ENV DEBIAN_FRONTEND noninteractive
  # Install tzadata to match ClusterFuzz
  # (https://github.com/google/oss-fuzz/issues/9280).
+diff --git a/infra/base-images/base-runner/Dockerfile b/infra/base-images/base-runner/Dockerfile
+index 2235281..c7ba164 100644
+--- a/infra/base-images/base-runner/Dockerfile
++++ b/infra/base-images/base-runner/Dockerfile
+@@ -74,7 +74,7 @@ RUN git clone https://chromium.googlesource.com/chromium/src/tools/code_coverage
+ # Note that these match the settings used in ClusterFuzz and
+ # shouldn't be changed unless a corresponding change is made on
+ # ClusterFuzz side as well.
+-ENV ASAN_OPTIONS="alloc_dealloc_mismatch=0:allocator_may_return_null=1:allocator_release_to_os_interval_ms=500:check_malloc_usable_size=0:detect_container_overflow=1:detect_odr_violation=0:detect_leaks=1:detect_stack_use_after_return=1:fast_unwind_on_fatal=0:handle_abort=1:handle_segv=1:handle_sigill=1:max_uar_stack_size_log=16:print_scariness=1:quarantine_size_mb=10:strict_memcmp=1:strip_path_prefix=/workspace/:symbolize=1:use_sigaltstack=1:dedup_token_length=3"
++ENV ASAN_OPTIONS="alloc_dealloc_mismatch=0:allocator_may_return_null=1:allocator_release_to_os_interval_ms=500:check_malloc_usable_size=0:detect_container_overflow=1:detect_odr_violation=0:detect_leaks=0:detect_stack_use_after_return=1:fast_unwind_on_fatal=0:handle_abort=1:handle_segv=1:handle_sigill=1:max_uar_stack_size_log=16:print_scariness=1:quarantine_size_mb=10:strict_memcmp=1:strip_path_prefix=/workspace/:symbolize=1:use_sigaltstack=1:dedup_token_length=3"
+ ENV MSAN_OPTIONS="print_stats=1:strip_path_prefix=/workspace/:symbolize=1:dedup_token_length=3"
+ ENV UBSAN_OPTIONS="print_stacktrace=1:print_summary=1:silence_unsigned_overflow=1:strip_path_prefix=/workspace/:symbolize=1:dedup_token_length=3"
+ ENV FUZZER_ARGS="-rss_limit_mb=2560 -timeout=25"
 diff --git a/infra/base-images/base-runner/coverage b/infra/base-images/base-runner/coverage
-index 585b4d4..56ee45f 100755
+index 585b4d4..d040803 100755
 --- a/infra/base-images/base-runner/coverage
 +++ b/infra/base-images/base-runner/coverage
-@@ -128,6 +128,9 @@ function run_fuzz_target {
+@@ -57,7 +57,8 @@ PATH_EQUIVALENCE_ARGS="-path-equivalence=/,$OUT"
+ # It's important to use $COVERAGE_EXTRA_ARGS as the last argument, because it
+ # can contain paths to source files / directories which are positional args.
+ LLVM_COV_COMMON_ARGS="$PATH_EQUIVALENCE_ARGS \
+-    -ignore-filename-regex=.*src/libfuzzer/.* $COVERAGE_EXTRA_ARGS"
++    -ignore-filename-regex=.*src/libfuzzer/.*"
++$COVERAGE_EXTRA_ARGS = $COVERAGE_EXTRA_ARGS
+ 
+ # Options to extract branch coverage.
+ BRANCH_COV_ARGS="--show-branches=count --show-expansions"
+@@ -124,10 +125,13 @@ function run_fuzz_target {
+   shared_libraries=$(coverage_helper shared_libs -build-dir=$OUT -object=$target)
+ 
+   llvm-cov export -summary-only -instr-profile=$profdata_file -object=$target \
+-      $shared_libraries $LLVM_COV_COMMON_ARGS > $FUZZER_STATS_DIR/$target.json
++      $shared_libraries $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > $FUZZER_STATS_DIR/$target.json
  
    # For introspector.
-   llvm-cov show -instr-profile=$profdata_file -object=$target -line-coverage-gt=0 $shared_libraries $BRANCH_COV_ARGS $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.covreport
+-  llvm-cov show -instr-profile=$profdata_file -object=$target -line-coverage-gt=0 $shared_libraries $BRANCH_COV_ARGS $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.covreport
++  llvm-cov show -instr-profile=$profdata_file -object=$target -line-coverage-gt=0 $shared_libraries $BRANCH_COV_ARGS $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/$target.covreport
 +
-+  llvm-cov report -show-functions -show-instantiation-summary -use-color=false -Xdemangler c++filt -instr-profile=$profdata_file -object=$target -sources $OUT$SRC $LLVM_COV_COMMON_ARGS > ${TEXTCOV_REPORT_DIR}/$target.funcovreport
-+  llvm-cov show -instr-profile=$profdata_file -object=$target $shared_libraries $LLVM_COV_COMMON_ARGS -line-coverage-lt=5 -show-instantiations=false --show-branches=count -Xdemangler c++filt > ${TEXTCOV_REPORT_DIR}/$target.linecovreport
++  llvm-cov report -show-functions -show-instantiation-summary -use-color=false -Xdemangler c++filt -instr-profile=$profdata_file -object=$target -sources $OUT$SRC $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/$target.funcovreport
++  llvm-cov show -instr-profile=$profdata_file -object=$target $shared_libraries -show-instantiations=false --show-branches=count -Xdemangler c++filt $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/$target.linecovreport
  }
  
  function run_go_fuzz_target {
-@@ -512,6 +515,8 @@ else
+@@ -288,7 +292,7 @@ function generate_html {
+   # Export coverage summary in JSON format.
+   local summary_file=$output_dir/$PLATFORM/summary.json
+ 
+-  llvm-cov export -summary-only $llvm_cov_args > $summary_file
++  llvm-cov export -summary-only $llvm_cov_args $COVERAGE_EXTRA_ARGS > $summary_file
+ 
+   coverage_helper -v post_process -src-root-dir=/ -summary-file=$summary_file \
+       -output-dir=$output_dir $PATH_EQUIVALENCE_ARGS
+@@ -512,6 +516,9 @@ else
    objects="$objects $shared_libraries"
  
    generate_html $PROFILE_FILE "$shared_libraries" "$objects" "$REPORT_ROOT_DIR"
-+  llvm-cov show -instr-profile=$PROFILE_FILE $objects $LLVM_COV_COMMON_ARGS -show-instantiations=false -Xdemangler c++filt > ${TEXTCOV_REPORT_DIR}/project.linecovreport
-+  llvm-cov export -summary-only -instr-profile=$PROFILE_FILE $objects $LLVM_COV_COMMON_ARGS -ignore-filename-regex=.*llm_fuzzgen* -Xdemangler c++filt > ${TEXTCOV_REPORT_DIR}/summary_exclude_target.json
++  llvm-cov show -instr-profile=$PROFILE_FILE $objects -show-branches=count -show-instantiations=false -Xdemangler c++filt $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/project.linecovreport
++  llvm-cov report -show-functions -show-instantiation-summary -ignore-filename-regex=.*llm_fuzzgen* -use-color=false -Xdemangler c++filt -instr-profile=$PROFILE_FILE $objects -sources $OUT$SRC $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/project.funcovreport
++  llvm-cov export -summary-only -instr-profile=$PROFILE_FILE $objects -ignore-filename-regex=.*llm_fuzzgen* -Xdemangler c++filt $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/summary_exclude_target.json
  
    # Per target reports.
    for fuzz_target in $FUZZ_TARGETS; do
 diff --git a/infra/helper.py b/infra/helper.py
-index edf0734..ab64531 100755
+index edf0734..d90425d 100755
 --- a/infra/helper.py
 +++ b/infra/helper.py
 @@ -457,6 +457,10 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
@@ -118,7 +157,22 @@ index edf0734..ab64531 100755
    introspector_parser.add_argument('source_path',
                                     help='path of local source',
                                     nargs='?')
-@@ -1310,6 +1314,7 @@ def coverage(args):  # pylint: disable=too-many-branches
+@@ -1269,11 +1273,12 @@ def coverage(args):  # pylint: disable=too-many-branches
+   ]
+ 
+   if not args.no_serve:
+-    env.append(f'HTTP_PORT={args.port}')
++    if args.port:
++        env.append(f'HTTP_PORT={args.port}')
+ 
+   run_args = _env_to_docker_args(env)
+ 
+-  if args.port:
++  if args.port and not args.no_serve:
+     run_args.extend([
+         '-p',
+         '%s:%s' % (args.port, args.port),
+@@ -1310,6 +1315,7 @@ def coverage(args):  # pylint: disable=too-many-branches
  
  
  def _introspector_prepare_corpus(args):
@@ -126,7 +180,7 @@ index edf0734..ab64531 100755
    """Helper function for introspector runs to generate corpora."""
    parser = get_parser()
    # Generate corpus, either by downloading or running fuzzers.
-@@ -1323,24 +1328,28 @@ def _introspector_prepare_corpus(args):
+@@ -1323,24 +1329,28 @@ def _introspector_prepare_corpus(args):
        return False
    else:
      fuzzer_targets = _get_fuzz_targets(args.project)
@@ -172,7 +226,7 @@ index edf0734..ab64531 100755
    return True
  
  
-@@ -1356,6 +1365,10 @@ def introspector(args):
+@@ -1356,6 +1366,10 @@ def introspector(args):
    build_fuzzers_command = [
        'build_fuzzers', '--sanitizer=address', args.project.name
    ] + args_to_append
@@ -183,7 +237,7 @@ index edf0734..ab64531 100755
    if not build_fuzzers(parse_args(parser, build_fuzzers_command)):
      logger.error('Failed to build project with ASAN')
      return False
-@@ -1440,9 +1453,14 @@ def run_fuzzer(args):
+@@ -1440,9 +1454,14 @@ def run_fuzzer(args):
      run_args.extend([
          '-v',
          '{corpus_dir}:/tmp/{fuzzer}_corpus'.format(corpus_dir=corpus_dir,
@@ -193,13 +247,13 @@ index edf0734..ab64531 100755
 +        'CORPUS_DIR=/tmp/{fuzzer}_corpus'.format(fuzzer=args.fuzzer_name)
      ])
  
-+  custom_args = ['-detect_leaks=1', '-shrink=1', '-max_len=8192',
++  custom_args = ['-detect_leaks=0', '-shrink=1', '-max_len=8192',
 +                 '-use_value_profile=1', f'-artifact_prefix={args.fuzzer_name}_']
 +  
    run_args.extend([
        '-v',
        '%s:/out' % args.project.out,
-@@ -1450,7 +1468,7 @@ def run_fuzzer(args):
+@@ -1450,7 +1469,7 @@ def run_fuzzer(args):
        BASE_RUNNER_IMAGE,
        'run_fuzzer',
        args.fuzzer_name,
@@ -305,7 +359,7 @@ index 30597b8..aabff89 100644
  COPY build.sh $SRC/
 +COPY llm_fuzzgen* $SRC/
 diff --git a/projects/cjson/build.sh b/projects/cjson/build.sh
-index 7d6cea0..71a0119 100644
+index 7d6cea0..be6be8c 100644
 --- a/projects/cjson/build.sh
 +++ b/projects/cjson/build.sh
 @@ -15,4 +15,31 @@
@@ -329,9 +383,9 @@ index 7d6cea0..71a0119 100644
 +  target_basename=$(basename "${target%.*}")
 +
 +  #### compile the fuzz target
-+  $CXX $CXXFLAGS -std=c++11 "$target" -I$SRC/cjson -I$SRC/cjson/build \
++  $CXX $CXXFLAGS "$target" -I. \
 +    -o "$OUT/$target_basename" \
-+    $LIB_FUZZING_ENGINE $SRC/cjson/build/libcjson.a
++    $LIB_FUZZING_ENGINE -Wl,--whole-archive $SRC/cjson/build/libcjson.a -Wl,--no-whole-archive
 +  ####
 +
 +  if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
@@ -363,10 +417,10 @@ index 16d07b8..fd8cc9c 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/lcms/build.sh b/projects/lcms/build.sh
-index 1f9e949..633b4f6 100755
+index 1f9e949..ed205ee 100755
 --- a/projects/lcms/build.sh
 +++ b/projects/lcms/build.sh
-@@ -14,7 +14,12 @@
+@@ -14,52 +14,78 @@
  # limitations under the License.
  #
  ################################################################################
@@ -380,22 +434,103 @@ index 1f9e949..633b4f6 100755
  # build the target.
  ./configure --enable-shared=no
  make -j$(nproc) all
-@@ -62,4 +67,23 @@ cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
- cp $SRC/seed_corpus.zip $OUT/cms_virtual_profile_fuzzer_seed_corpus.zip
- cp $SRC/seed_corpus.zip $OUT/cmsIT8_load_fuzzer_seed_corpus.zip
- cp $SRC/seed_corpus.zip $OUT/cms_md5_fuzzer_seed_corpus.zip
+ 
+ # build your fuzzer(s)
+-FUZZERS="cmsIT8_load_fuzzer            \
+-        cms_transform_fuzzer           \
+-        cms_overwrite_transform_fuzzer \
+-        cms_transform_all_fuzzer       \
+-        cms_profile_fuzzer             \
+-        cms_universal_transform_fuzzer \
+-        cms_transform_extended_fuzzer  \
+-        cms_md5_fuzzer                 \
+-        cms_dict_fuzzer                \
+-        cms_postscript_fuzzer          \
+-        cms_cie_cam02_fuzzer           \
+-        cms_gdb_fuzzer                 \
+-        cms_cgats_fuzzer               \
+-        cms_virtual_profile_fuzzer     \
+-        cms_devicelink_fuzzer" 
++# FUZZERS="cmsIT8_load_fuzzer            \
++#         cms_transform_fuzzer           \
++#         cms_overwrite_transform_fuzzer \
++#         cms_transform_all_fuzzer       \
++#         cms_profile_fuzzer             \
++#         cms_universal_transform_fuzzer \
++#         cms_transform_extended_fuzzer  \
++#         cms_md5_fuzzer                 \
++#         cms_dict_fuzzer                \
++#         cms_postscript_fuzzer          \
++#         cms_cie_cam02_fuzzer           \
++#         cms_gdb_fuzzer                 \
++#         cms_cgats_fuzzer               \
++#         cms_virtual_profile_fuzzer     \
++#         cms_devicelink_fuzzer" 
+ 
+ 
+-for F in $FUZZERS; do
+-    $CC $CFLAGS -c -Iinclude \
+-        $SRC/$F.c -o $SRC/$F.o
+-    $CXX $CXXFLAGS \
+-        $SRC/$F.o -o $OUT/$F \
+-        $LIB_FUZZING_ENGINE src/.libs/liblcms2.a
+-done
++# for F in $FUZZERS; do
++#     $CC $CFLAGS -c -Iinclude \
++#         $SRC/$F.c -o $SRC/$F.o
++#     $CXX $CXXFLAGS \
++#         $SRC/$F.o -o $OUT/$F \
++#         $LIB_FUZZING_ENGINE src/.libs/liblcms2.a
++# done
++
++# cp $SRC/*.dict $SRC/*.options $OUT/
++# cp $SRC/icc.dict $OUT/cms_transform_all_fuzzer.dict
++# cp $SRC/icc.dict $OUT/cms_transform_extended_fuzzer.dict
++# cp $SRC/icc.dict $OUT/cms_universal_transform_fuzzer.dict
++# cp $SRC/icc.dict $OUT/cms_profile_fuzzer.dict
++# cp $SRC/icc.dict $OUT/cms_postscript_fuzzer.dict
++# cp $SRC/icc.dict $OUT/cms_virtual_profile_fuzzer.dict
++# cp $SRC/icc.dict $OUT/cms_md5_fuzzer.dict
++# cp $SRC/seed_corpus.zip $OUT/cms_postscript_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_profile_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_universal_transform_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_transform_all_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_transform_extended_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_virtual_profile_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cmsIT8_load_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_md5_fuzzer_seed_corpus.zip
++# cp $SRC/seed_corpus.zip $OUT/cms_overwrite_transform_fuzzer_seed_corpus.zip
+ 
+-cp $SRC/*.dict $SRC/*.options $OUT/
+-cp $SRC/icc.dict $OUT/cms_transform_all_fuzzer.dict
+-cp $SRC/icc.dict $OUT/cms_transform_extended_fuzzer.dict
+-cp $SRC/icc.dict $OUT/cms_universal_transform_fuzzer.dict
+-cp $SRC/icc.dict $OUT/cms_profile_fuzzer.dict
+-cp $SRC/icc.dict $OUT/cms_postscript_fuzzer.dict
+-cp $SRC/icc.dict $OUT/cms_virtual_profile_fuzzer.dict
+-cp $SRC/icc.dict $OUT/cms_md5_fuzzer.dict
+-cp $SRC/seed_corpus.zip $OUT/cms_postscript_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_profile_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_universal_transform_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_transform_all_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_transform_extended_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_virtual_profile_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cmsIT8_load_fuzzer_seed_corpus.zip
+-cp $SRC/seed_corpus.zip $OUT/cms_md5_fuzzer_seed_corpus.zip
 -cp $SRC/seed_corpus.zip $OUT/cms_overwrite_transform_fuzzer_seed_corpus.zip
 \ No newline at end of file
-+cp $SRC/seed_corpus.zip $OUT/cms_overwrite_transform_fuzzer_seed_corpus.zip
-+
 +# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
 +find "$SRC" -maxdepth 1 -type f -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" | while read -r target; do
 +  target_basename=$(basename "${target%.*}")
 +
 +  #### compile the fuzz target
-+  $CXX $CXXFLAGS -Iinclude \
-+      "$target" -o "$OUT/${target_basename}" \
-+      $LIB_FUZZING_ENGINE src/.libs/liblcms2.a
++  $CC $CFLAGS -c -Iinclude \
++      "$target" -o "$OUT/${target_basename}.o"
++  $CXX $CXXFLAGS \
++      "$OUT/${target_basename}.o" -o "$OUT/${target_basename}" \
++      $LIB_FUZZING_ENGINE -Wl,--whole-archive src/.libs/liblcms2.a -Wl,--no-whole-archive
 +  ####
 +
 +  if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
@@ -407,6 +542,18 @@ index 1f9e949..633b4f6 100755
 +cp $SRC/llm_fuzzgen*.options $OUT/ || true
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 \ No newline at end of file
+diff --git a/projects/lcms/project.yaml b/projects/lcms/project.yaml
+index 7cabc34..5e5b5b8 100644
+--- a/projects/lcms/project.yaml
++++ b/projects/lcms/project.yaml
+@@ -1,6 +1,6 @@
+ main_repo: "https://github.com/mm2/Little-CMS"
+ homepage: "http://www.littlecms.com/"
+-language: c++
++language: c
+ primary_contact: "marti.maria.s@gmail.com"
+ auto_ccs:
+   - "david@adalogics.com"
 diff --git a/projects/libplist/Dockerfile b/projects/libplist/Dockerfile
 index 375fff6..c0e62f7 100644
 --- a/projects/libplist/Dockerfile
@@ -547,10 +694,10 @@ index ef6edf7..971cdbd 100644
  COPY build.sh *.cpp *.dict *.options $SRC/
 +COPY llm_fuzzgen* $SRC/
 diff --git a/projects/tinyxml2/build.sh b/projects/tinyxml2/build.sh
-index 80a344b..7e1a3fe 100644
+index 80a344b..b8f4445 100644
 --- a/projects/tinyxml2/build.sh
 +++ b/projects/tinyxml2/build.sh
-@@ -18,13 +18,48 @@
+@@ -18,6 +18,21 @@
  # Make sure OSS-Fuzz's CXXFLAGS are propagated into the build
  sed -i 's/CXXFLAGS =/#CXXFLAGS/g' Makefile
  
@@ -572,16 +719,10 @@ index 80a344b..7e1a3fe 100644
  make -j$(nproc) clean
  make -j$(nproc) all
  
--fuzz_harness=$(ls -d "$SRC"/*.cpp)
--for h in $fuzz_harness; do
--  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
--    -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
-+# fuzz_harness=$(ls -d "$SRC"/*.cpp)
-+# for h in $fuzz_harness; do
-+#   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
-+#     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
-+# done
-+
+@@ -27,4 +42,24 @@ for h in $fuzz_harness; do
+     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
+ done
+ 
 +##### LLM-FuzzGen #####
 +# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
 +find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
@@ -596,12 +737,12 @@ index 80a344b..7e1a3fe 100644
 +    echo "[libfuzzer]" > "$SRC/${target_basename}.options"
 +    echo "dict = llm_fuzzgen.dict" >> "$SRC/${target_basename}.options"
 +  fi
- done
++done
 +cp $SRC/llm_fuzzgen.dict $OUT/ || true
 +cp $SRC/llm_fuzzgen*.options $OUT/ || true
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 +#######################
- 
++
  cp $SRC/*.dict $SRC/*.options $OUT/
 diff --git a/projects/tinyxml2/project.yaml b/projects/tinyxml2/project.yaml
 index b271048..d8883c8 100644
@@ -628,30 +769,51 @@ index 7025b67..feb7b41 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/zlib/Dockerfile b/projects/zlib/Dockerfile
-index be1cb4c..e1546a8 100644
+index be1cb4c..2a6644d 100644
 --- a/projects/zlib/Dockerfile
 +++ b/projects/zlib/Dockerfile
-@@ -19,3 +19,4 @@ RUN apt-get update && apt-get install -y make autoconf automake libtool
- RUN git clone --depth 1 -b develop https://github.com/madler/zlib.git
+@@ -16,6 +16,7 @@
+ 
+ FROM gcr.io/oss-fuzz-base/base-builder
+ RUN apt-get update && apt-get install -y make autoconf automake libtool
+-RUN git clone --depth 1 -b develop https://github.com/madler/zlib.git
++RUN git clone https://github.com/madler/zlib.git && cd zlib && git checkout 09155eaa2f9270dc4ed1fa13e2b4b2613e6e4851
  WORKDIR zlib
  COPY build.sh *_fuzzer.c* $SRC/
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/zlib/build.sh b/projects/zlib/build.sh
-index 316b7cb..11cd01c 100755
+index 316b7cb..8f8637a 100755
 --- a/projects/zlib/build.sh
 +++ b/projects/zlib/build.sh
-@@ -14,6 +14,9 @@
+@@ -14,6 +14,12 @@
  # limitations under the License.
  #
  ################################################################################
-+export CC="ccache ${CC}"
-+export CXX="ccache ${CXX}"
++export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 +export CCACHE_DIR="$WORK/ccache"
++if [ "$SANITIZER" == "introspector" ]; then
++  export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
++  export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
++fi
  
  ./configure
  make -j$(nproc) clean
-@@ -34,3 +37,20 @@ for f in $(find $SRC -name '*_fuzzer.c'); do
+@@ -22,7 +28,7 @@ make -j$(nproc) check
+ 
+ for f in $(find $SRC -name '*_fuzzer.cc'); do
+     b=$(basename -s .cc $f)
+-    $CXX $CXXFLAGS -std=c++11 -I. $f -o $OUT/$b $LIB_FUZZING_ENGINE ./libz.a
++    $CXX $CXXFLAGS -std=c++11 -I. $f -o $OUT/$b $LIB_FUZZING_ENGINE -Wl,--whole-archive ./libz.a -Wl,--no-whole-archive
+ done
+ 
+ zip $OUT/seed_corpus.zip *.*
+@@ -30,7 +36,25 @@ zip $OUT/seed_corpus.zip *.*
+ for f in $(find $SRC -name '*_fuzzer.c'); do
+     b=$(basename -s .c $f)
+     $CC $CFLAGS -I. $f -c -o /tmp/$b.o
+-    $CXX $CXXFLAGS -o $OUT/$b /tmp/$b.o -stdlib=libc++ $LIB_FUZZING_ENGINE ./libz.a
++    $CXX $CXXFLAGS -o $OUT/$b /tmp/$b.o -stdlib=libc++ $LIB_FUZZING_ENGINE -Wl,--whole-archive ./libz.a -Wl,--no-whole-archive
      rm -f /tmp/$b.o
      ln -sf $OUT/seed_corpus.zip $OUT/${b}_seed_corpus.zip
  done
@@ -661,7 +823,8 @@ index 316b7cb..11cd01c 100755
 +  target_basename=$(basename "${target%.*}")
 +
 +  #### compile the fuzz target
-+  $CXX $CXXFLAGS -std=c++11 -I. "$target" -o "$OUT/$target_basename" $LIB_FUZZING_ENGINE ./libz.a
++  $CC $CFLAGS -I. "$target" -c -o "/tmp/${target_basename}.o"
++  $CXX $CXXFLAGS -o "$OUT/$target_basename" "/tmp/${target_basename}.o" -stdlib=libc++ $LIB_FUZZING_ENGINE -Wl,--whole-archive ./libz.a -Wl,--no-whole-archive
 +  ####
 +
 +  if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
@@ -673,3 +836,216 @@ index 316b7cb..11cd01c 100755
 +cp $SRC/llm_fuzzgen*.options $OUT/ || true
 +cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 \ No newline at end of file
+diff --git a/projects/zlib/gzio_fuzzer.c b/projects/zlib/gzio_fuzzer.c
+deleted file mode 100644
+index 5ac0534..0000000
+--- a/projects/zlib/gzio_fuzzer.c
++++ /dev/null
+@@ -1,196 +0,0 @@
+-/********************************************************************************
+- * Copyright 2025 Google LLC
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- *      http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- *
+- *******************************************************************************/
+-#include <stdio.h>
+-#include <stddef.h>
+-#include <stdint.h>
+-#include <string.h>
+-#include <assert.h>
+-#include <stdlib.h>
+-#include <inttypes.h>
+-#include "zlib.h"
+-
+-#undef gzgetc
+-
+-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t dataLen) {
+-
+-    gzFile file;
+-    char fname[] = "gzio.XXXXXX";
+-    close(mkstemp(fname));
+-    unsigned mode_sz = (dataLen ? (--dataLen, *data++) | 2 : 8) & 0xF;
+-    char mode[mode_sz];
+-    memcpy(mode, data, dataLen >= mode_sz ? mode_sz - 1: dataLen);
+-    mode[mode_sz - 1] = 0;
+-    file = gzopen(fname, mode);
+-
+-    /* Chain I/O operations on a file opened with random mode the nature of the
+-     * operation and their operand are controlled by the fuzzer
+-     */
+-    int op_count = 2; //< Number of operations chained.
+-    while(op_count--) {
+-      switch((--dataLen, (*data)%19)) {
+-        case 0: {
+-          char c = dataLen ? (--dataLen, (char)*data++) : 'c';
+-          if(gzputc(file, c) < 0) {
+-            goto exit;
+-          }
+-          break;
+-        }
+-        case 1: {
+-          unsigned sz = dataLen ? ((--dataLen, *data++)&0xF) + 1 : 8;
+-          char input[sz];
+-          memcpy(input, data, dataLen >= sz ? sz - 1: dataLen);
+-          input[sz - 1] = 0;
+-          if(gzputs(file, input) < 0)
+-            goto exit;
+-          break;
+-        }
+-        case 2: {
+-          unsigned sz = dataLen ? ((--dataLen, *data++)&0xF) + 1 : 8;
+-          unsigned nitems = dataLen ? ((--dataLen, *data++)&0xF) + 1 : 8;
+-          unsigned count = sz * nitems;
+-          char input[count];
+-          memcpy(input, data, dataLen >= count ? count - 1: dataLen);
+-          input[count - 1] = 0;
+-          if(gzfwrite(input, sz, nitems, file) <= 0)
+-            goto exit;
+-          break;
+-        }
+-        case 3: {
+-          unsigned sz = dataLen ? (--dataLen, *data++) : 8;
+-          char uncompr[sz];
+-          if(gzread(file, uncompr, sz) < 0)
+-            goto exit;
+-          break;
+-        }
+-        case 4: {
+-          int whences[5] = {SEEK_CUR, SEEK_SET, SEEK_END, 18};
+-          int whence = dataLen ? (--dataLen, whences[(*data++)%6]) : SEEK_CUR;
+-          long offset = dataLen >= sizeof(long) ? (*(long*)data &0xFF) + 1: 1L;
+-          if(gzseek(file, offset, whence) < 0)
+-            goto exit;
+-          break;
+-        }
+-        case 5:
+-          gztell(file);
+-          break;
+-        case 6:
+-          gzgetc(file);
+-          break;
+-        case 7: {
+-          char c = dataLen ? (--dataLen, (char)*data++) : 'c';
+-          if(gzungetc(c, file) < 0)
+-            goto exit;
+-          break;
+-        }
+-        case 8: {
+-          unsigned sz = dataLen ? (--dataLen, *data++) : 8;
+-          char uncompr[sz];
+-          if(gzgets(file, uncompr, sz) < 0)
+-            goto exit;
+-          break;
+-        }
+-        case 9: {
+-          int level = dataLen ? (--dataLen, *data++) : 1;
+-          int strat = dataLen ? (--dataLen, *data++) : 2;
+-          if(gzsetparams(file, level, strat) < 0)
+-            goto exit;
+-          break;
+-        }
+-        case 10: {
+-          int flush = dataLen ? (--dataLen, *data++) : 1;
+-          gzflush(file, flush); break;
+-        }
+-        case 11: {
+-          static const char formats [][4] = { "%d", "%f", "%c", "%s" };
+-          int nformat = dataLen ? (--dataLen, *data++)%5 : 1;
+-          switch(nformat) {
+-            case 0: {
+-              int value = dataLen >= sizeof(int) ? *(int*)data : 1;
+-              gzprintf(file, formats[nformat], value);
+-              break;
+-            }
+-            case 1: {
+-              float value = dataLen >= sizeof(float) ? *(float*)data : 1;
+-              gzprintf(file, formats[nformat], value);
+-              break;
+-            }
+-            case 2: {
+-              char value = dataLen >= sizeof(char) ? *(char*)data : 1;
+-              gzprintf(file, formats[nformat], value);
+-              break;
+-            }
+-            case 3: {
+-             unsigned sz = dataLen ? ((--dataLen, *data++)&0xF)+1 : 8;
+-             char input[sz];
+-             memcpy(input, data, dataLen >= sz ? sz - 1: dataLen);
+-             input[sz - 1] = 0;
+-             gzprintf(file, formats[nformat], input);
+-             break;
+-            }
+-            default: {
+-             unsigned sz = dataLen ? ((--dataLen, *data++)&0xF)+1 : 8;
+-             char input[sz] = {};
+-             memcpy(input, data, dataLen >= sz ? sz - 1: dataLen);
+-             for(int i = 0; i < sz - 1; ++i)
+-               if(input[i] == '%') input[i] = '!';
+-             gzprintf(file, input);
+-             break;
+-            }
+-          };
+-          break;
+-        }
+-        case 12: {
+-          gzoffset(file);
+-          break;
+-        }
+-        case 13: {
+-          gzrewind(file);
+-          break;
+-        }
+-        case 14: {
+-          gzeof(file);
+-          break;
+-        }
+-        case 15: {
+-          gzdirect(file);
+-          break;
+-        }
+-        case 16: {
+-          unsigned sz = dataLen ? ((--dataLen, *data++))|1 : 128;
+-          if(gzbuffer(file, sz) <0)
+-            goto exit;
+-          break;
+-        }
+-        case 17: {
+-          int errnum;
+-          gzerror(file, &errnum);
+-          break;
+-        }
+-        case 18: {
+-          gzclearerr(file);
+-          break;
+-        }
+-      }
+-    }
+-    gzclose(file);
+-    remove(fname);
+-  return 0;
+-exit:
+-    gzclose(file);
+-    remove(fname);
+-  return -1;
+-}
+diff --git a/projects/zlib/project.yaml b/projects/zlib/project.yaml
+index d301993..dd1a5cf 100644
+--- a/projects/zlib/project.yaml
++++ b/projects/zlib/project.yaml
+@@ -1,5 +1,5 @@
+ homepage: "https://www.zlib.net/"
+-language: c++
++language: c
+ primary_contact: "glennrp@gmail.com"
+ auto_ccs:
+   - "sebpop@gmail.com"

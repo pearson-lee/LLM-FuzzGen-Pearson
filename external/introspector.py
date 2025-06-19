@@ -47,7 +47,7 @@ class Introspector:
     LOCKFILE_PATH = Path("/tmp/llm_fuzzgen.lock")
     API_REQUEST_TIMEOUT = 3
     MAX_RETRIES = 10
-    RETRY_BACKOFF = 0.5  # seconds
+    RETRY_BACKOFF = 1  # seconds
 
     def __init__(self, base_url: str = None):
         self._specific_cache = {}
@@ -140,7 +140,7 @@ class Introspector:
                     stderr=subprocess.DEVNULL,
                 )
 
-                time.sleep(3)
+                time.sleep(5)
                 if self.webapp_tester():
                     logger.info("Web application started successfully.")
                     return True
@@ -399,17 +399,20 @@ class Introspector:
         return header_files
 
     def get_all_functions(self, project_name: str) -> List[FunctionInfo]:
-        """Get all functions for the project.
+        """Retrieve all functions associated with the specified project.
 
         Args:
-            project_name: str - The name of the project
+            project_name (str): The name of the project.
 
         Returns:
-            List[FunctionInfo]: List of dictionaries containing:
-                - function_name (str): The name of the function
-                - function_signature (str): The demangled function signature
-                - possible_header_files (List[str]): List of possible header files
-                - runtime_coverage_percent (float): Runtime coverage percentage
+            List[FunctionInfo]: A list of dictionaries, each containing:
+                - function_name (str): The name of the function.
+                - function_signature (str): The demangled function signature.
+                - possible_header_files (List[str]): A list of potential header files.
+                - runtime_coverage_percent (float): The runtime coverage percentage.
+                - function_filename (str): The source file containing the function.
+                - source_line_begin (int): The starting line number of the function in the source file.
+                - source_line_end (int): The ending line number of the function in the source file.
         """
         response = self._query_api("all-functions", {"project": project_name})
         return [
@@ -418,8 +421,8 @@ class Introspector:
                 "function_signature": func.get("function_signature", ""),
                 "possible_header_files": func.get("debug_summary", {}).get("possible-header-files", []),
                 "runtime_coverage_percent": func.get("runtime_coverage_percent", 0.0),
-                "function_filename": func.get("function_filename", ""),
-                "source_line_begin": func.get("debug_summary", {}).get("source", {}).get("source_line", 0),
+                "function_filename": func.get("debug_summary", {}).get("source", {}).get("source_file", ""),
+                "source_line_begin": func.get("source_line_begin", 0),
                 "source_line_end": func.get("source_line_end", 0),
             }
             for func in response.get("functions", [])

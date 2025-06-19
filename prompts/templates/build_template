@@ -18,17 +18,18 @@ While fixing build errors and/or memory leaks is paramount, the refined code sho
 - **Input Size**: Optionally limit input size if appropriate.
 - **Coverage Discoverability**: Aim for code structure that facilitates discovering new paths.
 - **Memory Management**: Ensure meticulous memory management. All allocated resources (e.g., via `malloc()`, `new`) MUST be deallocated correctly (e.g., via `free()`, `delete`) to prevent any memory leaks. For C++, strongly prefer RAII patterns and smart pointers (e.g., `std::unique_ptr`, `std::shared_ptr`) to manage resource lifetimes automatically and robustly. This is critical when fixing memory leak issues.
-- **Split Fuzzing Input**: Consider `<fuzzer/FuzzedDataProvider.h>` for structured input generation if applicable.
+- **Split Fuzzing Input**: Consider `<fuzzer/FuzzedDataProvider.h>` (C++ only) for structured input generation if applicable.
 - **Preserve Intent**: Make only necessary changes to fix errors, maintaining the original logic and API usage intent.
 - **Memory Leak Elimination**: This principle is an extension of Memory Management. When specifically addressing memory leak reports, ensure every reported allocation path is scrutinized and corrected. Confirm that all resources are properly released, even in error paths or exceptional conditions. Prefer RAII or smart pointers where applicable to prevent such leaks proactively.
+- **Language-Specific Syntax**: Ensure correct language-specific syntax is used. For example, C++ fuzz targets should declare `LLVMFuzzerTestOneInput` within an `extern "C" {{}}` block, while this is not needed in C.
 
 # Available Tools
 
 You have access to the following tools to assist you in generating the fuzz target:
 
 - **`function_cross_references(project_name: str, function_signature: str)`**: Use this tool to understand how a specific function is called within the project. This can provide valuable context on how the function is typically used and help you design more effective inputs and call sequences.
-- **`function_source_code(project_name: str, function_signature: str)`**: Use this tool to retrieve the source code of a function. Examining the source code can help you understand the function's internal logic, identify potential vulnerabilities or edge cases, and generate inputs that target specific code paths.
 - **`project_source_code(project_name: str, filepath: str, begin_line: int = None, end_line: int = None)`**: Use this tool to retrieve the source code for a specific file and line range within a project. If only `project_name` and `filepath` are provided, the entire file is returned. If `begin_line` and `end_line` are provided, only that line range is returned. This is useful for understanding the context of a function or for examining code that is not part of a specific function.
+- **`search_function(project_name: str, function_name_pattern: str)`**: Searches for functions that match a name pattern and retrieves their complete information including source code. It returns the full function signature, possible header files, runtime coverage percentage, source location (in format "filepath:start_line:end_line"), and the complete source code. This is crucial for fixing build errors like 'undefined reference' by identifying which headers to include, understanding function implementation, and getting the exact signature needed for other tools.
 
 Use these tools strategically to gather information about the target APIs and their usage context to inform your fuzz target generation process.
 
@@ -39,16 +40,17 @@ When diagnosing and fixing build errors or memory leaks, consider the following 
 1.  **Start with the Error/Leak Report**: The build error message or memory leak report (e.g., from ASan) is your primary guide. It usually indicates the file, line number, and a description of the problem or the allocation/deallocation stack traces.
 2.  **Examine the Local Context**:
     *   Use `project_source_code` to view the exact code snippet causing the error or related to the leak, along with its surrounding lines. This helps understand the immediate context.
-    *   If the issue is within a clearly identified function and you need to see its full definition, `function_source_code` can be useful.
+    *   If the issue is within a clearly identified function and you need to see its full definition, use `search_function` to get comprehensive information including the source code.
 3.  **Understand Broader Context and Dependencies (if local context is insufficient)**:
     *   **Type/Symbol Definition Issues (Build Errors)**: If the error is about an undefined type, variable, or function, or incorrect usage of one:
-        *   Use `function_source_code` or `project_source_code` to inspect the definition of the type/function in question.
+        *   If the build error provides a function name but not its full signature, use `search_function` with the known name to find the exact signature, possible header files, and complete source code information. This can directly help resolve missing include issues and also enables you to use other tools like `function_cross_references`.
+        *   Use `search_function` or `project_source_code` to inspect the definition of the type/function in question.
         *   Use `function_cross_references` for the problematic function or a related one to see how it's correctly used elsewhere in the project. This might reveal missing includes, incorrect arguments, or namespace issues.
     *   **API Usage Issues (Build Errors or Leaks)**: If the error relates to incorrect API usage or if a leak might be due to improper API interaction (e.g., not calling a cleanup function):
-        *   Use `function_source_code` for the API function being called/related to the leak to understand its expected parameters, return values, and resource management responsibilities.
+        *   Use `search_function` for the API function being called/related to the leak to understand its expected parameters, return values, source code, and resource management responsibilities.
         *   Use `function_cross_references` to see examples of how this API is correctly used (and resources managed) in other parts of the project.
     *   **Memory Leak Investigation**:
-        *   Trace allocation paths using `function_source_code` and `project_source_code` based on the leak report.
+        *   Trace allocation paths using `search_function` and `project_source_code` based on the leak report.
         *   Identify where deallocation *should* occur. If it's missing or incorrect, determine the correct place and method for deallocation.
         *   Use `function_cross_references` to see how similar resources are managed elsewhere.
 4.  **Iterate**: Fixing one error/leak might reveal others, or require understanding multiple related pieces of code. Repeat the process, using the tools strategically to gather the necessary information for each issue.
@@ -65,16 +67,12 @@ When diagnosing and fixing build errors or memory leaks, consider the following 
 ```
 {error_messages}
 ```
-- **API Information (Signature, Coverage)**:
-```
-{signature}
-```
 - **All Headers**: `{headers}` 
   - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
 
 # Output Requirements
 
-- **Final Output Format**: After successfully resolving the build errors through your internal reasoning and iteration, present **only** the complete, corrected fuzz target code in this exact structure:
+- **Final Output Format**: After successfully resolving the build errors through your internal reasoning and iteration, present **only** the complete, corrected fuzz target code in this exact structure. **You MUST return the entire fuzz target code, not just the modified or fixed parts.**
 
 ```{lang}
 // Your generated fuzz target code here

@@ -5,6 +5,7 @@ When generating initial seeds, consider the following:
 - **Input Structure**: Analyze the fuzz target code to understand the expected input format or structure (e.g., specific file formats, data structures, sequences of operations).
 - **Variety**: Generate seeds that represent different potential inputs based on the target's logic. Include simple cases, potentially edge cases (empty input, very large input if applicable), and inputs that might trigger different branches or behaviors observed in the fuzz target code.
 - **Coverage-Guided Generation**: Use the provided coverage information to identify code paths that have been executed frequently vs. those that have been executed rarely or not at all. Focus on generating seeds that might trigger the less-covered execution paths.
+- **Library-Specific Input Formats**: Analyze the **{proj}** library's documentation or common use cases to identify typical input formats it processes (e.g., JSON, XML, configuration files, specific binary formats). Generate seeds that represent valid, complex, and potentially malformed instances of these formats, even if the current fuzz target doesn't explicitly focus on them. This helps explore broader library functionality.
 
 ### Inputs Provided
 - **Library Name**: {proj}
@@ -12,32 +13,38 @@ When generating initial seeds, consider the following:
 - **Coverage Report**: Line-by-line execution count information showing which parts of the code have been exercised and how frequently.
 
 ### Task Objectives
-1.  **Analyze Fuzz Target**: Understand how the provided fuzz target consumes input data and passes it to the **{proj}** library. Identify key input processing steps, branches, and library API calls.
+1.  **Analyze Fuzz Target and Library Input Scope**:
+    - Understand how the provided fuzz target consumes input data and passes it to the **{proj}** library.
+    - Broaden the scope to consider the {proj} library's general capabilities. What types of data or file formats (e.g., JSON, XML, text with specific syntax) is the library designed to parse or handle? Think beyond the immediate fuzz target.
+
 2.  **Analyze Coverage Information**: Study the provided coverage report to understand:
-    - Which code paths are heavily executed (high execution counts)
     - Which code paths are lightly executed or not executed at all (low or zero execution counts)
-    - Error handling paths and edge cases that might not be well-covered
-    - Specific functions or branches that need more diverse inputs to trigger
-    -  **Focus your analysis on**: Pay special attention to lines with a 0 execution count, especially within error handling blocks, conditional branches (if/else), and complex data processing loops (e.g., the entity processing and newline normalization logic in tinyxml2::StrPair::GetStr()).
-3.  **Generate Targeted Seeds**: Based on the analysis of both the fuzz target code and coverage information, generate a diverse set of input strings (seeds) that could potentially:
-    - Exercise under-covered code paths identified in the coverage report
-    - Trigger error conditions or edge cases with low execution counts
-    - Explore different input variations that might lead to new code coverage
-    - Test boundary conditions and malformed inputs that could reach unexplored branches
-    **Output Format**: Present the generated seeds as a sequence of Markdown code blocks. Each seed must be the only content inside its own triple-backtick (```) code block. Do not include any other text, numbering, or list markers between the code blocks.
-    Correct Output Example:
-    ```
-    seed_content_here
-    ```
-    ```
-    seed2_content_with_special_chars_&<>"
-    ```
-    ```
-    seed3
-    ```
-	**For non-printable characters or specific byte values, use C-style hexadecimal escape sequences (e.g., A\x00B, \xDE\xAD\xBE\xEF).**
-    **Important: Generate a maximum of 20 seed inputs, prioritizing those most likely to improve coverage.**
-    **No Language Specifiers: The opening of the code block must be exactly three backticks (```), not ```xml or any other variation. The language specifier must be omitted entirely from the markdown fence.**
+    -  Focus your analysis on: Pay special attention to lines with a 0 execution count, especially within error handling blocks, conditional branches (if/else), and complex data processing loops.
+
+3.  **Generate Targeted and Library-Aware Seeds**: Based on the analysis of the fuzz target code, coverage information, **and the general input types relevant to the {proj} library**, generate a diverse set of input strings (seeds). These seeds should aim to:
+    - Represent typical and edge-case inputs for the {proj} library's known data formats (e.g., generate sample JSON files, XML documents, or other relevant structured inputs if applicable to {proj}).
+
+### Output Format
+- Your entire response MUST be wrapped in `<seeds>` tags.
+- Each seed MUST be inside its own triple-backtick (```) code block.
+- **DO NOT** use language specifiers (e.g., ```xml).
+- **DO NOT** add any text, comments, or numbering outside the seed blocks.
+- For non-printable bytes, use C-style hex escapes (e.g., `\xDE\xAD\xBE\xEF`).
+- Generate a maximum of **20** high-impact, concise seeds.
+
+Correct Example:
+<seeds>
+```
+seed_content_here
+```
+```
+seed2_content_with_special_chars_&<>"
+```
+```
+\x00\x01\x02
+```
+</seeds>
+
 
 ### Specific Inputs to Use
 - **Library Name**: {proj}
@@ -51,4 +58,4 @@ When generating initial seeds, consider the following:
 {coverage_info}
 ```
 
-Please analyze the coverage information to identify under-explored code paths and generate seed inputs that are most likely to improve the overall code coverage, particularly targeting areas with low or zero execution counts.
+Now, based on the principles and the strict output specification above, analyze the provided code and coverage report. Generate your seeds. Your response **must** begin directly with the `<seeds>` tag and end with `</seeds>`.

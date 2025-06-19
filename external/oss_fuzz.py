@@ -132,7 +132,7 @@ class OSSFuzz:
 
         if not success:
             full_output = stdout + stderr
-            error_pattern = r"ERROR:.*?(\nINFO:|\Z)"
+            error_pattern = r"ERROR:.*?SUMMARY:[^\n]*"
             match = re.search(error_pattern, full_output, re.DOTALL)
             error_message = match.group(0) if match else full_output
             logger.error(f"Failed to run fuzzer {fuzzer_name}: \n {error_message}")
@@ -142,12 +142,16 @@ class OSSFuzz:
         logger.info(f"Fuzzer {fuzzer_name} ran successfully")
         return CompilationResult(success=True, error="")
 
-    def coverage(self, proj_name: str, fuzzer_name: str = None, seconds: int = 60) -> float:
-        """Run fuzzer and return the coverage percentage of the given fuzzer."""
+    def coverage(self, proj_name: str, fuzzer_name: str = None, seconds: int = 60, fun_name_regex: str = None) -> float:
+        """
+        Run fuzzer and return the coverage percentage of the given fuzzer.
+        `seconds` only applies if `fuzzer_name` is provided.
+        `fun_name_regex` is the regex to filter function names for coverage.
+        """
         if fuzzer_name:
             logger.info(f"Computing coverage for {proj_name} with fuzzer {fuzzer_name}")
         else:
-            logger.info(f"Computing coverage for {proj_name}")
+            logger.info(f"Computing coverage for {proj_name} with existing corpus")
 
         # If fuzzer_name is provided, run the fuzzer to build the corpus
         if fuzzer_name:
@@ -162,19 +166,23 @@ class OSSFuzz:
             return 0.0
 
         # Generate coverage report
-        success, stdout, stderr = self._run_helper_command(["coverage", "--no-corpus-download", "--no-serve", proj_name])
+        cmd = ["coverage", "--no-corpus-download", "--no-serve", proj_name]
+        if fun_name_regex:
+            cmd.extend(["--", f"--name-regex={fun_name_regex}"])
+        success, stdout, stderr = self._run_helper_command(cmd)
 
         if not success:
             logger.error(f"Coverage computation failed: \n {stdout}{stderr}")
             return 0.0
 
         # Read coverage data
+        source_info = f"with fuzzer {fuzzer_name}" if fuzzer_name else "with existing corpus"
         if total_cov := self.get_coverage_summary(proj_name, exclude_target=True):
             percent = total_cov.lines.percent
-            logger.info(f"Coverage for {proj_name} with {fuzzer_name}: {percent}%")
+            logger.info(f"Coverage for {proj_name} {source_info}: {percent}%")
             return percent
 
-        logger.error(f"Could not retrieve coverage for {proj_name} with fuzzer {fuzzer_name}")
+        logger.error(f"Could not retrieve coverage for {proj_name} {source_info}")
         return 0.0
 
     def generate_report(self, proj_name: str, seconds: int = 10, clean: bool = False) -> bool:
@@ -237,27 +245,29 @@ class OSSFuzz:
             binary_path.unlink(True)
             logger.info(f"Removed binary target at {binary_path}")
 
-    def textcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
-        """Returns the textcov report for the given fuzzer."""
-        report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.covreport"
+        self.remove_corpus(proj_name, target_name)
 
-        if not report_file.exists():
-            logger.error(f"Report file {report_file} does not exist.")
-            return ""
-
-        return report_file.read_text()
-
-    def funcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
+    def funcov_reports(self, proj_name: str, fuzzer_name: str = None) -> str:
         """Returns the funcov report for the given fuzzer."""
-        report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.funcovreport"
+        logger.info(f"Generating funcov report for {proj_name} with {fuzzer_name if fuzzer_name else 'project'}")
+        self.coverage(proj_name)
+        if fuzzer_name:
+            report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.funcovreport"
+        else:
+            report_file = self.build_out_dir / proj_name / "textcov_reports" / "project.funcovreport"
         if not report_file.exists():
             logger.error(f"Report file {report_file} does not exist.")
             return ""
 
         return report_file.read_text()
 
-    def linecov_reports(self, proj_name: str, fuzzer_name: str) -> str:
-        """Returns the linecov report for the given fuzzer."""
+    def linecov_reports(self, proj_name: str, fuzzer_name: str, fun_name_regex: str = None) -> str:
+        """
+        Returns the linecov report for the given fuzzer.
+        `fun_name_regex` is the regex to filter function names for coverage.
+        """
+        logger.info(f"Generating linecov report for {proj_name} with fuzzer {fuzzer_name} and function regex {fun_name_regex}")
+        self.coverage(proj_name, fun_name_regex=fun_name_regex)
         report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.linecovreport"
         if not report_file.exists():
             logger.error(f"Report file {report_file} does not exist.")
@@ -265,24 +275,19 @@ class OSSFuzz:
 
         return report_file.read_text()
 
-    def reachable_functions_covered(self, proj_name: str, fuzzer_name: str) -> float:
-        """Returns the percentage of reachable functions covered by the fuzzer."""
-        summary_json = self.build_out_dir / proj_name / "inspector" / "summary.json"
+    def proj_linecov_reports(self, proj_name: str, fun_name_regex: str = None) -> str:
+        """
+        Returns the project linecov report.
+        `fun_name_regex` is the regex to filter function names for coverage.
+        """
+        logger.info(f"Generating project linecov report for {proj_name} with function regex {fun_name_regex}")
+        self.coverage(proj_name, fun_name_regex=fun_name_regex)
+        report_file = self.build_out_dir / proj_name / "textcov_reports" / "project.linecovreport"
+        if not report_file.exists():
+            logger.error(f"Report file {report_file} does not exist.")
+            return ""
 
-        if not summary_json.exists():
-            logger.error(f"Summary JSON file {summary_json} does not exist.")
-            return 0.0
-
-        try:
-            with open(summary_json) as f:
-                data = json.load(f)
-                cov = data[fuzzer_name]["coverage-blocker-stats"]["cov-reach-proportion"]
-                cov = round(cov, 2)
-                logger.info(f"Reachable functions covered by {proj_name}-{fuzzer_name}: {cov}")
-                return cov
-        except Exception as e:
-            logger.error(f"Error parsing coverage data: {e}")
-            return 0.0
+        return report_file.read_text()
 
     def add_seeds(self, proj_name: str, fuzzer_name: str, seeds: list[str]) -> None:
         """Adds seeds to the project's seed corpus.
@@ -406,7 +411,11 @@ class OSSFuzz:
                 logger.error("Could not extract any summary data from totals.")
                 return None
 
-            logger.info(f"Successfully extracted total coverage summary for {proj_name}.")
+            if exclude_target:
+                logger.info(f"Successfully extracted total coverage summary for {proj_name} (excluding target).")
+            else:
+                logger.info(f"Successfully extracted total coverage summary for {proj_name}.")
+
             return TotalCoverageSummary(**summary_data)
 
         except Exception as e:
@@ -429,3 +438,42 @@ class OSSFuzz:
         except Exception as e:
             logger.error(f"Failed to copy empty fuzz target from {empty_target_path} to {destination_path}: {e}")
             return False
+
+    def remove_corpus(self, proj_name: str, fuzzer_name: str) -> None:
+        """Removes the corpus directory for the specified project and fuzzer."""
+        corpus_dir = self.build_corpus_dir / proj_name / fuzzer_name
+        if corpus_dir.exists():
+            try:
+                shutil.rmtree(corpus_dir)
+                logger.info(f"Removed corpus directory {corpus_dir}")
+            except Exception as e:
+                logger.error(f"Failed to remove corpus directory {corpus_dir}: {e}", exc_info=True)
+
+    # def textcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
+    #     """Returns the textcov report for the given fuzzer."""
+    #     report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.covreport"
+
+    #     if not report_file.exists():
+    #         logger.error(f"Report file {report_file} does not exist.")
+    #         return ""
+
+    #     return report_file.read_text()
+
+    # def reachable_functions_covered(self, proj_name: str, fuzzer_name: str) -> float:
+    #     """Returns the percentage of reachable functions covered by the fuzzer."""
+    #     summary_json = self.build_out_dir / proj_name / "inspector" / "summary.json"
+
+    #     if not summary_json.exists():
+    #         logger.error(f"Summary JSON file {summary_json} does not exist.")
+    #         return 0.0
+
+    #     try:
+    #         with open(summary_json) as f:
+    #             data = json.load(f)
+    #             cov = data[fuzzer_name]["coverage-blocker-stats"]["cov-reach-proportion"]
+    #             cov = round(cov, 2)
+    #             logger.info(f"Reachable functions covered by {proj_name}-{fuzzer_name}: {cov}")
+    #             return cov
+    #     except Exception as e:
+    #         logger.error(f"Error parsing coverage data: {e}")
+    #         return 0.0

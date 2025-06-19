@@ -3,13 +3,13 @@
 You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `{proj}` library ({lang}) that **maximizes code coverage** by strategically exercising **up to 5 diverse API function(s)** detailed in the API Information.
 
 **API Selection and Prioritization Strategy**:
-- **Diverse Coverage Focus**: Prioritize APIs that complement existing coverage rather than simply selecting the lowest-coverage functions
-- **High-Impact Functions**: APIs with complex logic, extensive branching, or error handling
+- **Coverage-Guided Selection**: Prioritize functions with low **line coverage** and/or **branch coverage** as identified in the **Function-Level Coverage Report**. These functions have significant untested code paths and are high-priority targets.
+- **High-Impact Functions**: APIs with complex logic, extensive branching, or error handling. Low branch coverage often points to these.
 - **Synergistic API Combinations**: Functions that work together or share data structures
 - **Input Processing APIs**: Functions handling external data, parsing, validation, or format conversion
 - **Resource Management Functions**: APIs involving allocation, deallocation, or lifecycle management
 - **Parameter-Rich APIs**: Functions with multiple parameters, optional arguments, or configuration options
-- **Functional Diversity**: Select APIs from different functional areas to explore varied code paths and avoid redundant testing of similar low-coverage functions
+- **Functional Diversity**: After identifying low-coverage candidates, select a diverse set from different functional areas. This avoids redundant testing of similar logic and explores a wider range of the library's functionality.
 
 **Comprehensive Coverage Approach**: Design the fuzz target to:
 - Exercise diverse input patterns and edge cases for each selected API
@@ -21,11 +21,11 @@ You are an expert software security engineer specializing in comprehensive fuzz 
 The generated fuzz target must compile, be completely memory-safe, and demonstrate comprehensive coverage of the selected APIs through varied and systematic testing approaches.
 
 **Systematic Design Process**:
-1. **API Analysis**: Examine API signatures, parameters, and dependencies using available tools
-2. **Input Strategy**: Design comprehensive input generation patterns using FuzzedDataProvider
-3. **Test Scenarios**: Plan both positive and negative test cases for each selected API
-4. **Integration Design**: Structure API calls in logical sequences that maximize coverage
-5. **Safety Verification**: Ensure proper resource management and memory safety throughout
+1. **Coverage and API Analysis**: Start by reviewing the **Function-Level Coverage Report** to identify functions with low **line coverage** and **branch coverage**. These are your primary candidates. If you only have function names, use `search_function` to get the full signatures and complete source code information. Then, for a deeper analysis, use `get_line_coverage_report` to investigate detailed line-by-line coverage and identify specific un-tested code paths within those functions. Finally, use `search_function` and `function_cross_references` to fully understand their logic, parameters, and dependencies.
+2. **Input Strategy**: Design comprehensive input generation patterns using FuzzedDataProvider (C++ only) to target the identified uncovered code paths.
+3. **Test Scenarios**: Plan both positive and negative test cases for each selected API, ensuring to trigger edge cases and error conditions found in the source code.
+4. **Integration Design**: Structure API calls in logical sequences that maximize coverage, paying attention to any required setup or teardown.
+5. **Safety Verification**: Ensure proper resource management and memory safety throughout the fuzz target.
 
 Do not include any copyright or license headers in the generated fuzz target code.
 
@@ -44,15 +44,17 @@ The new fuzz target must be well-designed and adhere to these best practices:
 - **Input Size**: Optionally limit input size if appropriate for the target API(s).
 - **Coverage Discoverability**: Structure the target to effectively explore the code paths within the target API(s).
 - **Memory Management**: Ensure meticulous memory management. All allocated resources (e.g., via `malloc()`, `new`) MUST be deallocated correctly (e.g., via `free()`, `delete`) to prevent any memory leaks. For C++, strongly prefer RAII patterns and smart pointers (e.g., `std::unique_ptr`, `std::shared_ptr`) to manage resource lifetimes automatically and robustly.
-- **Split Fuzzing Input**: Utilize `<fuzzer/FuzzedDataProvider.h>` to generate appropriate arguments for the target API(s) from the raw fuzzer input.
+- **Split Fuzzing Input**: Utilize `<fuzzer/FuzzedDataProvider.h>` (C++ only) to generate appropriate arguments for the target API(s) from the raw fuzzer input.
+- **Language-Specific Syntax**: Ensure correct language-specific syntax is used. For example, C++ fuzz targets should declare `LLVMFuzzerTestOneInput` within an `extern "C" {{}}` block, while this is not needed in C.
 
 # Available Tools
 
 You have access to the following tools to assist you in generating the fuzz target:
 
 - **`function_cross_references(project_name: str, function_signature: str)`**: Use this tool to understand how a specific function is called within the project. This can provide valuable context on how the function is typically used and help you design more effective inputs and call sequences.
-- **`function_source_code(project_name: str, function_signature: str)`**: Use this tool to retrieve the source code of a function. Examining the source code can help you understand the function's internal logic, identify potential vulnerabilities or edge cases, and generate inputs that target specific code paths.
 - **`project_source_code(project_name: str, filepath: str, begin_line: int = None, end_line: int = None)`**: Use this tool to retrieve the source code for a specific file and line range within a project. If only `project_name` and `filepath` are provided, the entire file is returned. If `begin_line` and `end_line` are provided, only that line range is returned. This is useful for understanding the context of a function or for examining code that is not part of a specific function.
+- **`get_line_coverage_report(project_name: str, function_name_pattern: str)`**: Retrieves a detailed, line-by-line coverage report for functions matching a specific name pattern. Use this to analyze the coverage of candidate APIs and identify specific uncovered lines and branches to target in your new fuzzer.
+- **`search_function(project_name: str, function_name_pattern: str)`**: Searches for functions in a project that match a given name pattern and retrieves their complete information including source code. This provides comprehensive function information including signature, headers, coverage data, source location, and complete source code implementation.
 
 Use these tools strategically to gather information about the target APIs and their usage context to inform your fuzz target generation process.
 
@@ -63,6 +65,10 @@ Use these tools strategically to gather information about the target APIs and th
 - **API Information (Signature, Coverage)**:
 ```
 {signature}
+```
+- **Function-Level Coverage Report**: A function-level coverage summary that includes **line coverage** and **branch coverage** percentages. Use this report as the primary source to identify functions with significant untested code. Focus on functions with the lowest percentages in these columns. For a more detailed line-by-line breakdown, you must use the `get_line_coverage_report` tool.
+```
+{fun_coverage_report}
 ```
 - **All Headers**: `{headers}`
   - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
@@ -78,7 +84,7 @@ Use these tools strategically to gather information about the target APIs and th
 Example:
 {output_example}
 
-- **Documentation**: Include concise inline comments explaining essential parts, such as necessary includes, the logic for generating arguments for the target API(s) using `FuzzedDataProvider`, the specific calls to the target API(s), and any crucial resource management steps, **especially detailing how memory is managed to prevent leaks**.
+- **Documentation**: Include concise inline comments explaining essential parts, such as necessary includes, the logic for generating arguments for the target API(s) using `FuzzedDataProvider` (C++ only), the specific calls to the target API(s), and any crucial resource management steps, **especially detailing how memory is managed to prevent leaks**.
 
 # Execute Task
 

@@ -7,6 +7,8 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 FUZZ_TARGET_EXAMPLES = {
     "c": """
 ```c
+// Please note that in C, you do not need to use `extern "C"` to declare the `LLVMFuzzerTestOneInput` function, as it is a C function, not a C++ function.
+// Additionally, in C, you cannot use FuzzedDataProvider.
 #include <stdint.h>
 #include <stddef.h>
 
@@ -70,15 +72,13 @@ def build_prompt(
     lang: str = "c++",
     proj: str = "",
     headers: str = "",
-    signature: str = "",
 ) -> str:
     """Generates a prompt for building the fuzz target."""
     output_example = FUZZ_TARGET_EXAMPLES.get(lang.lower(), "")
 
     return _load_and_format_template(
         template_name="build_template",
-        input_variables=["fuzz_target_code", "error_messages", "lang", "proj", "headers", "output_example", "signature"],
-        signature=signature,
+        input_variables=["fuzz_target_code", "error_messages", "lang", "proj", "headers", "output_example"],
         fuzz_target_code=fuzz_target_code,
         headers=headers,
         error_messages=error_messages,
@@ -91,25 +91,36 @@ def build_prompt(
 def coverage_prompt(
     *,
     fuzz_target_code: str = "",
-    signature: str = "",
     lang: str = "c++",
     proj: str = "",
     headers: str = "",
-    coverage_report: str = "",
+    fun_coverage_report: str = "",
+    fuzz_target_name: str = "",
+    fuzz_target_coverage_report: str = "",
 ) -> str:
     """Generates a prompt for improving coverage."""
     output_example = FUZZ_TARGET_EXAMPLES.get(lang.lower(), "")
 
     return _load_and_format_template(
         template_name="coverage_template",
-        input_variables=["fuzz_target_code", "signature", "lang", "proj", "headers", "output_example", "coverage_report"],
+        input_variables=[
+            "fuzz_target_code",
+            "lang",
+            "proj",
+            "headers",
+            "output_example",
+            "fun_coverage_report",
+            "fuzz_target_name",
+            "fuzz_target_coverage_report",
+        ],
         fuzz_target_code=fuzz_target_code,
         headers=headers,
-        signature=signature,
         lang=lang,
         proj=proj,
         output_example=output_example,
-        coverage_report=coverage_report,
+        fun_coverage_report=fun_coverage_report,
+        fuzz_target_name=fuzz_target_name,
+        fuzz_target_coverage_report=fuzz_target_coverage_report,
     )
 
 
@@ -124,18 +135,21 @@ def input_prompt(*, fuzz_target: str = "", proj: str = "", coverage_info: str = 
     )
 
 
-def regeneration_prompt(*, signature: str = "", headers: str = "", lang: str = "c++", proj: str = "") -> str:
+def regeneration_prompt(
+    *, signature: str = "", headers: str = "", lang: str = "c++", proj: str = "", fun_coverage_report: str = ""
+) -> str:
     """Generates a prompt for regenerating a fuzz target."""
     output_example = FUZZ_TARGET_EXAMPLES.get(lang.lower(), "")
 
     return _load_and_format_template(
         template_name="regeneration_template",
-        input_variables=["signature", "headers", "lang", "proj", "output_example"],
+        input_variables=["signature", "headers", "lang", "proj", "output_example", "fun_coverage_report"],
         signature=signature,
         headers=headers,
         lang=lang,
         proj=proj,
         output_example=output_example,
+        fun_coverage_report=fun_coverage_report,
     )
 
 

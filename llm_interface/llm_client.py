@@ -1,3 +1,7 @@
+from asyncio import sleep
+from socket import timeout
+from sys import api_version
+from langchain.chains import api
 from langchain_google_vertexai import ChatVertexAI, HarmCategory, HarmBlockThreshold
 from langgraph.checkpoint.memory import MemorySaver
 import config.config as config
@@ -51,8 +55,8 @@ class LLMClient:
                 model=config.MODEL_NAME,
                 temperature=config.TEMPERATURE,
                 max_tokens=config.MAX_TOKENS,
-                max_retries=6,
-                # thinking_budget=config.THINK_BUDGET_TOKEN, # 2.5 pro cannot use thinking budget
+                max_retries=10,
+                thinking_budget=config.THINK_BUDGET_TOKEN,
                 safety_settings={
                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.OFF,
                     HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.OFF,
@@ -83,8 +87,12 @@ class LLMClient:
                 if res.content or res.tool_calls:
                     return {"messages": [res]}
                 else:
-                    logger.warning(f"LLM response empty on attempt {attempt + 1}. Retrying...")
-                    time.sleep(30)
+                    sleep_time = 30 * attempt
+                    logger.warning(
+                        f"LLM response empty on attempt {attempt + 1}. Retrying... {sleep_time} seconds, raw response: {res}",
+                        exc_info=True,
+                    )
+                    time.sleep(sleep_time)
 
             # If all attempts fail, raise an exception
             raise Exception("LLM generation failed after multiple retries.")
@@ -155,11 +163,16 @@ class LLMClient:
                 response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
                 response_content = getattr(response, "content", "").strip()
                 if response_content:
+                    # First, try to extract content within <seeds> tags
+                    seeds_block_match = re.search(r"<seeds>(.*?)</seeds>", response_content, re.DOTALL)
+                    if seeds_block_match:
+                        response_content = seeds_block_match.group(1).strip()
+
                     if seeds := [s.strip() for s in re.findall(r"```(.*?)```", response_content, re.DOTALL) if s.strip()]:
-                        logger.info(f"Successfully generated {len(seeds)} seeds.")
+                        logger.info(f"Successfully generated {len(seeds)} seeds. Seeds: {seeds}")
                         return seeds
 
-                logger.warning(f"No seeds from LLM response, retrying..., raw response: {response_content}")
+                logger.warning(f"No seeds extracted from LLM response, retrying..., raw response: {response}")
             except Exception as e:
                 logger.error(f"Attempt {i+1}/3 failed: {e}", exc_info=True)
 
