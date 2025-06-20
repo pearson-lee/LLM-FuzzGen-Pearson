@@ -140,7 +140,7 @@ class Introspector:
                     stderr=subprocess.DEVNULL,
                 )
 
-                time.sleep(5)
+                time.sleep(10)
                 if self.webapp_tester():
                     logger.info("Web application started successfully.")
                     return True
