@@ -2716,3 +2716,26 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
 16:10:44 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620160809: 91.71492204899778%[0m
 16:10:44 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620160809[0m
 16:10:44 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620160809 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+16:12:04 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620160809 ran successfully[0m
+16:12:31 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+16:12:31 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620160809: 91.71492204899778%[0m
+16:12:31 - __main__.process_project:289 - INFO - Coverage without seeds: 91.71492204899778[0m
+16:12:31 - __main__.process_project:290 - INFO - Coverage with seeds: 91.71492204899778[0m
+16:12:31 - __main__.process_project:291 - INFO - coverage: 91.71492204899778 -> 91.71492204899778 (growth: 0.00)[0m
+16:12:31 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620160809.cc[0m
+16:12:31 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620160809[0m
+16:12:31 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620160809[0m
+16:12:31 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 14[0m
+16:12:31 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [91.71492204899778][0m
+16:12:31 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+16:12:31 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+16:12:31 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+16:12:31 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+16:12:55 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+16:12:55 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+16:12:55 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+16:12:55 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+16:12:55 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+16:12:55 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
