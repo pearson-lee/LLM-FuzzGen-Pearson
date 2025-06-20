@@ -2433,3 +2433,47 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 15:52:23 - __main__.process_project:290 - INFO - Coverage with seeds: 91.71492204899778[0m
 15:52:23 - __main__.process_project:291 - INFO - coverage: 91.58129175946547 -> 91.71492204899778 (growth: 0.13)[0m
 15:52:23 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for cjson_wo_exist_b8371_l8917[0m
+15:54:54 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for cjson_wo_exist_b8371_l8917[0m
+15:54:54 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+15:55:08 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+15:55:13 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+15:55:13 - urllib3.connectionpool.urlopen:868 - WARNING - Retrying (Retry(total=9, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f7f1f563150>: Failed to establish a new connection: [Errno 111] Connection refused')': /api/tester[0m
+15:55:15 - urllib3.connectionpool.urlopen:868 - WARNING - Retrying (Retry(total=8, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f7f1f587850>: Failed to establish a new connection: [Errno 111] Connection refused')': /api/tester[0m
+15:55:15 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+15:55:15 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+15:55:15 - __main__.process_project:310 - INFO - Regeneration growth recorded: 0.13[0m
+15:55:15 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+15:55:15 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: cjson_wo_exist_b8371_l8917, Current coverage: 91.71492204899778[0m
+15:55:15 - __main__.process_project:317 - INFO - Finished iteration 12 for cjson_wo_exist_b8371_l8917, coverage: 91.71492204899778[0m
+15:55:15 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [91.71492204899778][0m
+15:55:15 - __main__.mutate_fuzz_target:201 - INFO - Mutating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+15:55:15 - external.oss_fuzz.linecov_reports:269 - INFO - Generating linecov report for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620154812 and function regex LLVMFuzzerTestOneInput[0m
+15:55:15 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+15:55:39 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+15:55:39 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+15:55:39 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+15:55:39 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+15:55:39 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+15:56:04 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+15:56:04 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+15:56:04 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+15:56:04 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in coverage-guided fuzzing and fuzz target development. Your primary objective is to **enhance** the provided, working fuzz target for the `cjson_wo_exist_b8371_l8917` library (c++) by implementing **minimal, strategic, ...[0m
+15:56:04 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+15:57:19 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex ensure[0m
+15:57:19 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+15:57:43 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+15:57:43 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+15:57:43 - llm_interface.tools.get_line_coverage_report:231 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for cjson_wo_exist_b8371_l8917 with regex ensure[0m
+15:57:43 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+15:57:54 - llm_interface.llm_client._generate_node:91 - WARNING - LLM response empty on attempt 1. Retrying... 0 seconds, raw response: content='' additional_kwargs={} response_metadata={'is_blocked': False, 'safety_ratings': [], 'usage_metadata': {'prompt_token_count': 12433, 'total_token_count': 12433, 'prompt_tokens_details': [{'modality': 1, 'token_count': 12433}], 'candidates_token_count': 0, 'thoughts_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-pro'} id='run--e9927211-a33d-4037-8132-66e64250eb54-0' usage_metadata={'input_tokens': 12433, 'output_tokens': 0, 'total_tokens': 12433}[0m
+NoneType: None
+15:58:12 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex cJSON_SetValuestring[0m
+15:58:12 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+15:58:35 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+15:58:35 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+15:58:35 - llm_interface.tools.get_line_coverage_report:231 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for cjson_wo_exist_b8371_l8917 with regex cJSON_SetValuestring[0m
+15:58:35 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+15:59:05 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex cJSON_AddRawToObject[0m
+15:59:05 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
