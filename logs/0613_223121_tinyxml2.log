@@ -1,0 +1,16 @@
+22:31:21 - root.setup_logging:21 - INFO - === Configuration ===[0m
+22:31:21 - root.setup_logging:22 - INFO - Project Name: tinyxml2[0m
+22:31:21 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash-preview-05-20[0m
+22:31:21 - root.setup_logging:24 - INFO - Iteration loop: 10[0m
+22:31:21 - root.setup_logging:25 - INFO - Temperature: 0[0m
+22:31:21 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+22:31:21 - root.setup_logging:27 - INFO - Think Budget Tokens: 2048[0m
+22:31:21 - root.setup_logging:28 - INFO - Max Compiler Attempts: 5[0m
+22:31:21 - root.setup_logging:29 - INFO - =====================
+[0m
+22:31:21 - external.introspector.file_lock:115 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+22:31:29 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m
+22:31:32 - external.introspector._query_api:72 - INFO - Querying API: tester with params: {}[0m
+22:31:32 - external.introspector.update_start_webapp:142 - INFO - Web application started successfully.[0m
+22:31:32 - external.introspector.file_lock:121 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+22:35:10 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m

@@ -1,0 +1,1685 @@
+12:58:10 - root.setup_logging:21 - INFO - === Configuration ===[0m
+12:58:10 - root.setup_logging:22 - INFO - Project Name: cjson_wo_exist_b8371_l8917[0m
+12:58:10 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
+12:58:10 - root.setup_logging:24 - INFO - Iteration loop: 50[0m
+12:58:10 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+12:58:10 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+12:58:10 - root.setup_logging:27 - INFO - Think Budget Tokens: -1[0m
+12:58:10 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+12:58:10 - root.setup_logging:29 - INFO - =====================
+[0m
+12:58:10 - __main__.main:391 - INFO - Skipping initial fuzz target generation[0m
+12:58:10 - __main__.main:392 - INFO - Starting introspector webapp for initial analysis of cjson_wo_exist_b8371_l8917[0m
+12:58:10 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for cjson_wo_exist_b8371_l8917[0m
+13:00:21 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for cjson_wo_exist_b8371_l8917[0m
+13:00:21 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+13:00:35 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+13:00:40 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+13:00:40 - urllib3.connectionpool.urlopen:868 - WARNING - Retrying (Retry(total=9, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f21ec036690>: Failed to establish a new connection: [Errno 111] Connection refused')': /api/tester[0m
+13:00:42 - urllib3.connectionpool.urlopen:868 - WARNING - Retrying (Retry(total=8, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f21ec035910>: Failed to establish a new connection: [Errno 111] Connection refused')': /api/tester[0m
+13:00:42 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+13:00:42 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+13:00:42 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:00:42 - __main__.main:398 - INFO - Initial coverage for cjson_wo_exist_b8371_l8917: 89.44%[0m
+13:00:42 - __main__.process_project:241 - INFO - Starting to process project: cjson_wo_exist_b8371_l8917[0m
+13:00:42 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:00:42 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: cjson_wo_exist_b8371_l8917, Current coverage: 89.44320712694878[0m
+13:00:42 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:00:42 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:00:42 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:00:42 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:00:42 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:01:01 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:01:01 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:01:01 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:01:01 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:01:01 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:01:02 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'char * cJSON_PrintBuffered(const cJSON *, int, cJSON_bool)'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'char * cJSON_SetValuestring(cJSON *, const char *)'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON * cJSON_Duplicate(const cJSON *, cJSON_bool)'}[0m
+13:02:02 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool replace_item_in_object(cJSON *, const char *, cJSON *, cJSON_bool)'}[0m
+13:02:02 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_PrintBuffered' for cjson_wo_exist_b8371_l8917[0m
+13:02:02 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_SetValuestring' for cjson_wo_exist_b8371_l8917[0m
+13:02:02 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'replace_item_in_object' for cjson_wo_exist_b8371_l8917[0m
+13:02:02 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_Duplicate' for cjson_wo_exist_b8371_l8917[0m
+13:02:02 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:02:34 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Create a root JSON object to be used in the tests
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return 0;
+    }
+
+    // Add some initial data to the object
+    cJSON_AddStringToObject(root, "name", "cJSON");
+    cJSON_AddNumberToObject(root, "version", 1.7);
+
+    // 1. Target cJSON_ReplaceItemInObject to test object modification
+    // This function has low coverage and complex logic for replacing items.
+    {
+        std::string key_to_replace = fdp.ConsumeRandomLengthString(16);
+        cJSON *replacement_item = nullptr;
+        // Create a new item of a random type to replace an existing one
+        switch (fdp.ConsumeIntegralInRange<uint8_t>(0, 3)) {
+            case 0:
+                replacement_item = cJSON_CreateString(fdp.ConsumeRandomLengthString(32).c_str());
+                break;
+            case 1:
+                replacement_item = cJSON_CreateNumber(fdp.ConsumeIntegral<double>());
+                break;
+            case 2:
+                replacement_item = cJSON_CreateBool(fdp.ConsumeBool());
+                break;
+            case 3:
+                replacement_item = cJSON_CreateObject();
+                break;
+        }
+        if (replacement_item) {
+            // Replace an item in the root object. If the key doesn't exist, cJSON handles it gracefully.
+            cJSON_ReplaceItemInObject(root, key_to_replace.c_str(), replacement_item);
+        }
+    }
+
+    // 2. Target cJSON_PrintBuffered to test printing with different buffer sizes
+    // This function has uncovered paths related to buffer allocation and formatting.
+    {
+        int prebuffer = fdp.ConsumeIntegralInRange<int>(-1, 2048); // Test edge cases for prebuffer size
+        cJSON_bool format = fdp.ConsumeBool();
+        // The returned buffer must be freed to prevent memory leaks.
+        char *printed_json = cJSON_PrintBuffered(root, prebuffer, format);
+        if (printed_json) {
+            cJSON_free(printed_json);
+        }
+    }
+
+    // 3. Target cJSON_Duplicate to test deep and shallow copying of objects
+    // This function has several branches for recursive and non-recursive duplication.
+    {
+        cJSON_bool recurse = fdp.ConsumeBool();
+        // The duplicated object must be deleted to prevent memory leaks.
+        cJSON *cloned_json = cJSON_Duplicate(root, recurse);
+        if (cloned_json) {
+            cJSON_Delete(cloned_json);
+        }
+    }
+
+    // 4. Target cJSON_SetValuestring to test string value modifications
+    // This function has branches for handling different string lengths and memory reallocation.
+    {
+        // Create a temporary string item to test cJSON_SetValuestring
+        cJSON *string_item = cJSON_CreateString("initial");
+        if (string_item) {
+            std::string new_string_value = fdp.ConsumeRandomLengthString(128);
+            cJSON_SetValuestring(string_item, new_string_value.c_str());
+            // The temporary item must be deleted.
+            cJSON_Delete(string_item);
+        }
+    }
+
+    // 5. Target cJSON_AddNumberToObject to test adding numerical values
+    // This function has low branch coverage.
+    {
+        std::string number_key = fdp.ConsumeRandomLengthString(16);
+        double number_value = fdp.ConsumeFloatingPoint<double>();
+        cJSON_AddNumberToObject(root, number_key.c_str(), number_value);
+    }
+
+    // Clean up the root object to prevent any memory leaks.
+    cJSON_Delete(root);
+
+    return 0;
+}[0m
+13:02:34 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130234.cc[0m
+13:02:34 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130234.cc'.[0m
+13:02:34 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130234 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:02:42 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: static assertion failed due to requirement 'std::is_integral<double>::value': An integral type is required.
+  205 |   static_assert(std::is_integral<T>::value, "An integral type is required.");
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/local/lib/clang/18/include/fuzzer/FuzzedDataProvider.h:195:10: note: in instantiation of function template specialization 'FuzzedDataProvider::ConsumeIntegralInRange<double>' requested here
+  195 |   return ConsumeIntegralInRange(std::numeric_limits<T>::min(),
+      |          ^
+/src/llm_fuzzgen0620130234.cc:32:59: note: in instantiation of function template specialization 'FuzzedDataProvider::ConsumeIntegral<double>' requested here
+   32 |                 replacement_item = cJSON_CreateNumber(fdp.ConsumeIntegral<double>());
+      |                                                           ^
+1 error generated.[0m
+13:02:42 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0620130234 for project cjson_wo_exist_b8371_l8917 failed to build.[0m
+13:02:42 - __main__.build_fuzz_target:175 - ERROR - Build failed (attempt 1).[0m
+13:02:42 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130234.cc[0m
+13:02:42 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:02:42 - __main__.build_fuzz_target:158 - INFO - Build attempt 2/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:02:42 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `cjson_wo_exist_b8371_l8917` library (c++) by **reso...[0m
+13:02:42 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:03:00 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Create a root JSON object to be used in the tests
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return 0;
+    }
+
+    // Add some initial data to the object
+    cJSON_AddStringToObject(root, "name", "cJSON");
+    cJSON_AddNumberToObject(root, "version", 1.7);
+
+    // 1. Target cJSON_ReplaceItemInObject to test object modification
+    // This function has low coverage and complex logic for replacing items.
+    {
+        std::string key_to_replace = fdp.ConsumeRandomLengthString(16);
+        cJSON *replacement_item = nullptr;
+        // Create a new item of a random type to replace an existing one
+        switch (fdp.ConsumeIntegralInRange<uint8_t>(0, 3)) {
+            case 0:
+                replacement_item = cJSON_CreateString(fdp.ConsumeRandomLengthString(32).c_str());
+                break;
+            case 1:
+                replacement_item = cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>());
+                break;
+            case 2:
+                replacement_item = cJSON_CreateBool(fdp.ConsumeBool());
+                break;
+            case 3:
+                replacement_item = cJSON_CreateObject();
+                break;
+        }
+        if (replacement_item) {
+            // Replace an item in the root object. If the key doesn't exist, cJSON handles it gracefully.
+            cJSON_ReplaceItemInObject(root, key_to_replace.c_str(), replacement_item);
+        }
+    }
+
+    // 2. Target cJSON_PrintBuffered to test printing with different buffer sizes
+    // This function has uncovered paths related to buffer allocation and formatting.
+    {
+        int prebuffer = fdp.ConsumeIntegralInRange<int>(-1, 2048); // Test edge cases for prebuffer size
+        cJSON_bool format = fdp.ConsumeBool();
+        // The returned buffer must be freed to prevent memory leaks.
+        char *printed_json = cJSON_PrintBuffered(root, prebuffer, format);
+        if (printed_json) {
+            cJSON_free(printed_json);
+        }
+    }
+
+    // 3. Target cJSON_Duplicate to test deep and shallow copying of objects
+    // This function has several branches for recursive and non-recursive duplication.
+    {
+        cJSON_bool recurse = fdp.ConsumeBool();
+        // The duplicated object must be deleted to prevent memory leaks.
+        cJSON *cloned_json = cJSON_Duplicate(root, recurse);
+        if (cloned_json) {
+            cJSON_Delete(cloned_json);
+        }
+    }
+
+    // 4. Target cJSON_SetValuestring to test string value modifications
+    // This function has branches for handling different string lengths and memory reallocation.
+    {
+        // Create a temporary string item to test cJSON_SetValuestring
+        cJSON *string_item = cJSON_CreateString("initial");
+        if (string_item) {
+            std::string new_string_value = fdp.ConsumeRandomLengthString(128);
+            cJSON_SetValuestring(string_item, new_string_value.c_str());
+            // The temporary item must be deleted.
+            cJSON_Delete(string_item);
+        }
+    }
+
+    // 5. Target cJSON_AddNumberToObject to test adding numerical values
+    // This function has low branch coverage.
+    {
+        std::string number_key = fdp.ConsumeRandomLengthString(16);
+        double number_value = fdp.ConsumeFloatingPoint<double>();
+        cJSON_AddNumberToObject(root, number_key.c_str(), number_value);
+    }
+
+    // Clean up the root object to prevent any memory leaks.
+    cJSON_Delete(root);
+
+    return 0;
+}[0m
+13:03:00 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130300.cc[0m
+13:03:00 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130300.cc'.[0m
+13:03:00 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130300 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:03:45 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620130300 ran successfully[0m
+13:03:45 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130300.cc'.[0m
+13:03:45 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:03:45 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130300[0m
+13:03:45 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130300 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:05:00 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620130300 ran successfully[0m
+13:05:18 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:05:18 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130300: 89.44320712694878%[0m
+13:05:18 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130300[0m
+13:05:18 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130300 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:06:33 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620130300 ran successfully[0m
+13:06:52 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:06:52 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130300: 89.44320712694878%[0m
+13:06:52 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:06:52 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:06:52 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:06:52 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130300.cc[0m
+13:06:52 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130300[0m
+13:06:52 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130300[0m
+13:06:52 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 1[0m
+13:06:52 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:06:52 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:06:52 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:06:52 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:06:52 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:07:10 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:07:10 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:07:10 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:07:10 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:07:10 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:07:10 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:07:46 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:07:46 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool replace_item_in_object(cJSON *, const char *, cJSON *, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:07:46 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'replace_item_in_object' for cjson_wo_exist_b8371_l8917[0m
+13:07:46 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'unsigned char * print(const const cJSON *, cJSON_bool, const const internal_hooks *)'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool print_value(const const cJSON *, const printbuffer *)'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool print_number(const const cJSON *, const printbuffer *)'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool print_string_ptr(const const unsigned char *, const printbuffer *)'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool print_array(const const cJSON *, const printbuffer *)'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool print_object(const const cJSON *, const printbuffer *)'}[0m
+13:07:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool print_string(const const cJSON *, const printbuffer *)'}[0m
+13:07:55 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 7 functions matching 'print' for cjson_wo_exist_b8371_l8917[0m
+13:07:55 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:08:30 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Custom deleter for unique_ptr to manage cJSON objects
+struct cJSON_Deleter {
+  void operator()(cJSON* ptr) const {
+    if (ptr) {
+      cJSON_Delete(ptr);
+    }
+  }
+};
+
+// Custom deleter for unique_ptr to manage memory from cJSON_Print
+struct cJSON_Print_Deleter {
+  void operator()(char* ptr) const {
+    if (ptr) {
+      cJSON_free(ptr);
+    }
+  }
+};
+
+using cJSON_ptr = std::unique_ptr<cJSON, cJSON_Deleter>;
+using cJSON_Print_ptr = std::unique_ptr<char, cJSON_Print_Deleter>;
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Consume data for parsing
+  const std::string json_string = fdp.ConsumeRandomLengthString(1024);
+  const bool require_null_terminated = fdp.ConsumeBool();
+
+  // Target: cJSON_ParseWithOpts - low coverage parsing function
+  // Attempt to parse the fuzzed input string into a cJSON object.
+  const char* parse_end = nullptr;
+  cJSON_ptr root(cJSON_ParseWithOpts(json_string.c_str(), &parse_end, require_null_terminated));
+
+  // If parsing fails, we can't proceed with the rest of the APIs.
+  if (!root) {
+    return 0;
+  }
+
+  // Target: cJSON_Duplicate - low coverage duplication function
+  // Test the duplication logic with both recursive and non-recursive duplication.
+  const bool recurse_duplicate = fdp.ConsumeBool();
+  cJSON_ptr duplicated_item(cJSON_Duplicate(root.get(), recurse_duplicate));
+  // The duplicated_item will be automatically deallocated by its unique_ptr.
+
+  // Target: cJSON_ReplaceItemInObject - low coverage object modification
+  // This also implicitly tests object creation functions.
+  if (cJSON_IsObject(root.get())) {
+    const std::string key_to_replace = fdp.ConsumeRandomLengthString(32);
+
+    // Create a new item to replace an existing one.
+    // This diversifies the types of items being inserted.
+    cJSON* new_item = nullptr;
+    switch (fdp.ConsumeIntegralInRange<uint8_t>(0, 2)) {
+      case 0:
+        new_item = cJSON_CreateString(fdp.ConsumeRandomLengthString(64).c_str());
+        break;
+      case 1:
+        new_item = cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>());
+        break;
+      case 2:
+        new_item = cJSON_CreateBool(fdp.ConsumeBool());
+        break;
+    }
+
+    // If the new item was created, attempt the replacement.
+    if (new_item) {
+      // cJSON_ReplaceItemInObject takes ownership of new_item on success.
+      // If it fails, we must delete new_item ourselves.
+      if (!cJSON_ReplaceItemInObject(root.get(), key_to_replace.c_str(), new_item)) {
+        cJSON_Delete(new_item);
+      }
+    }
+  }
+
+  // Target: cJSON_PrintBuffered - targets low-coverage 'print' and 'ensure'
+  // Test the buffered printing functionality with various buffer sizes and formatting.
+  const int prebuffer = fdp.ConsumeIntegralInRange<int>(0, 1024);
+  const bool format_print = fdp.ConsumeBool();
+  cJSON_Print_ptr printed_json(cJSON_PrintBuffered(root.get(), prebuffer, format_print));
+  // The printed_json buffer is automatically deallocated by its unique_ptr.
+
+  // The root cJSON object and its children are automatically deallocated
+  // by the cJSON_ptr's custom deleter at the end of the scope.
+  return 0;
+}[0m
+13:08:30 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130830.cc[0m
+13:08:30 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130830.cc'.[0m
+13:08:30 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130830 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:09:14 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620130830 ran successfully[0m
+13:09:14 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130830.cc'.[0m
+13:09:14 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:09:14 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130830[0m
+13:09:14 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130830 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:10:29 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620130830 ran successfully[0m
+13:10:48 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:10:48 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130830: 89.44320712694878%[0m
+13:10:48 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130830[0m
+13:10:48 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620130830 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:12:03 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620130830 ran successfully[0m
+13:12:21 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:12:21 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620130830: 89.44320712694878%[0m
+13:12:21 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:12:21 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:12:21 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:12:21 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130830.cc[0m
+13:12:21 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130830[0m
+13:12:21 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620130830[0m
+13:12:21 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 2[0m
+13:12:21 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:12:21 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:12:21 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:12:21 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:12:21 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:12:39 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:12:39 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:12:39 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:12:40 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:12:40 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:12:40 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:13:21 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for unsigned char * print(const const cJSON *, cJSON_bool, const const internal_hooks *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_value(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_number(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_string_ptr(const const unsigned char *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_array(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_object(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_string(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:13:21 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 7 functions matching 'print' for cjson_wo_exist_b8371_l8917[0m
+13:13:21 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:13:46 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <memory>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Custom deleter for cJSON objects to be used with std::unique_ptr.
+// This ensures that cJSON_Delete is called to free the memory, preventing leaks.
+struct cJSON_Deleter {
+    void operator()(cJSON* ptr) const {
+        cJSON_Delete(ptr);
+    }
+};
+
+// Alias for a unique_ptr with the custom cJSON deleter.
+using cJSON_ptr = std::unique_ptr<cJSON, cJSON_Deleter>;
+
+// Custom deleter for memory allocated by cJSON_PrintUnformatted (which uses malloc).
+struct cJSON_Print_Deleter {
+    void operator()(char* ptr) const {
+        free(ptr);
+    }
+};
+
+// Alias for a unique_ptr with the custom print deleter.
+using cJSON_Print_ptr = std::unique_ptr<char, cJSON_Print_Deleter>;
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    FuzzedDataProvider fdp(data, size);
+
+    // Consume data for parsing.
+    const char *parse_end = nullptr;
+    std::string json_string = fdp.ConsumeRandomLengthString(1000);
+    
+    // Create a cJSON object by parsing the fuzzed string.
+    // Using cJSON_ptr for automatic memory management.
+    cJSON_ptr root(cJSON_ParseWithOpts(json_string.c_str(), &parse_end, fdp.ConsumeBool()));
+
+    if (root) {
+        // Create a second cJSON object to use for replacement and adding items.
+        cJSON_ptr replacement(cJSON_CreateObject());
+        if (replacement) {
+            // Add a string item to the replacement object.
+            std::string key1 = fdp.ConsumeRandomLengthString(10);
+            std::string value1 = fdp.ConsumeRandomLengthString(20);
+            cJSON_AddItemToObject(replacement.get(), key1.c_str(), cJSON_CreateString(value1.c_str()));
+
+            // Add a number item to the replacement object.
+            std::string key2 = fdp.ConsumeRandomLengthString(10);
+            cJSON_AddItemToObject(replacement.get(), key2.c_str(), cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>()));
+
+            // Add a boolean item to the replacement object.
+            std::string key3 = fdp.ConsumeRandomLengthString(10);
+            cJSON_AddItemToObject(replacement.get(), key3.c_str(), cJSON_CreateBool(fdp.ConsumeBool()));
+
+            // Replace an item in the root object with the replacement object.
+            std::string replace_key = fdp.ConsumeRandomLengthString(10);
+            if (cJSON_HasObjectItem(root.get(), replace_key.c_str())) {
+                // The object is owned by root after this call, so we release the unique_ptr.
+                cJSON_ReplaceItemInObject(root.get(), replace_key.c_str(), replacement.release());
+            }
+        }
+
+        // Duplicate the (potentially modified) root object.
+        cJSON_ptr clone(cJSON_Duplicate(root.get(), fdp.ConsumeBool()));
+
+        // Print the original and cloned objects.
+        // The returned string must be freed, which is handled by cJSON_Print_ptr.
+        if (root) {
+            cJSON_Print_ptr printed_root(cJSON_PrintUnformatted(root.get()));
+        }
+        if (clone) {
+            cJSON_Print_ptr printed_clone(cJSON_PrintUnformatted(clone.get()));
+        }
+    }
+
+    return 0;
+}[0m
+13:13:46 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131346.cc[0m
+13:13:46 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131346.cc'.[0m
+13:13:46 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620131346 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:14:31 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620131346 ran successfully[0m
+13:14:31 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131346.cc'.[0m
+13:14:31 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:14:31 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131346[0m
+13:14:31 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620131346 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:15:46 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620131346 ran successfully[0m
+13:16:04 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:16:04 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131346: 89.44320712694878%[0m
+13:16:04 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131346[0m
+13:16:04 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620131346 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:17:19 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620131346 ran successfully[0m
+13:17:38 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:17:38 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131346: 89.44320712694878%[0m
+13:17:38 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:17:38 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:17:38 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:17:38 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131346.cc[0m
+13:17:38 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131346[0m
+13:17:38 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131346[0m
+13:17:38 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 3[0m
+13:17:38 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:17:38 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:17:38 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:17:38 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:17:38 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:17:56 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:17:56 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:17:56 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:17:56 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:17:56 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:17:56 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:18:19 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <memory>
+#include <fuzzer/FuzzedDataProvider.h>
+
+#include "/src/cjson/cJSON.h"
+
+// Custom deleter for cJSON objects to ensure proper memory management with std::unique_ptr.
+struct cJSONDeleter {
+    void operator()(cJSON* ptr) const {
+        cJSON_Delete(ptr);
+    }
+};
+
+// Type alias for a unique_ptr managing a cJSON object.
+using cJSON_ptr = std::unique_ptr<cJSON, cJSONDeleter>;
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    FuzzedDataProvider fdp(data, size);
+
+    // Create a cJSON object to manipulate.
+    cJSON_ptr root(cJSON_CreateObject());
+    if (!root) {
+        return 0;
+    }
+
+    // Target cJSON_AddRawToObject by adding a raw JSON string.
+    // This helps test the parsing and integration of raw JSON snippets.
+    std::string raw_json_str = fdp.ConsumeRandomLengthString(128);
+    cJSON* raw_json_item = cJSON_CreateRaw(raw_json_str.c_str());
+    if (raw_json_item) {
+        cJSON_AddItemToObject(root.get(), "raw_item", raw_json_item);
+    }
+
+    // Target cJSON_ReplaceItemInObject by adding and then replacing an item.
+    std::string key_to_replace = fdp.ConsumeRandomLengthString(32);
+    if (!cJSON_GetObjectItem(root.get(), key_to_replace.c_str())) {
+        cJSON_AddItemToObject(root.get(), key_to_replace.c_str(), cJSON_CreateString("original_value"));
+    }
+    cJSON_ReplaceItemInObject(root.get(), key_to_replace.c_str(), cJSON_CreateString("replaced_value"));
+
+    // Target cJSON_Duplicate to test deep-copy functionality.
+    // The duplicated object is managed by a unique_ptr to ensure it's deleted.
+    cJSON_ptr duplicated_root(cJSON_Duplicate(root.get(), fdp.ConsumeBool()));
+
+    // Target cJSON_PrintBuffered to exercise printing logic.
+    // This function has low coverage and is a good candidate for fuzzing.
+    if (duplicated_root) {
+        // The buffer is managed by a unique_ptr with a custom deleter for free().
+        std::unique_ptr<char, decltype(&free)> buffer(
+            cJSON_PrintBuffered(duplicated_root.get(), fdp.ConsumeIntegralInRange<int>(256, 4096), fdp.ConsumeBool()),
+            &free
+        );
+    }
+
+    // Target cJSON_ParseWithOpts to test parsing with various options.
+    // This is a key function for handling user input and has several branches to cover.
+    std::string json_to_parse = fdp.ConsumeRemainingBytesAsString();
+    const char* error_ptr = nullptr;
+    cJSON_ptr parsed_json(cJSON_ParseWithOpts(json_to_parse.c_str(), &error_ptr, fdp.ConsumeBool()));
+
+    return 0;
+}[0m
+13:18:19 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131819.cc[0m
+13:18:19 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131819.cc'.[0m
+13:18:19 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620131819 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:19:03 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620131819 ran successfully[0m
+13:19:03 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131819.cc'.[0m
+13:19:03 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:19:03 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131819[0m
+13:19:03 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620131819 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:20:18 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620131819 ran successfully[0m
+13:20:37 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:20:37 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131819: 89.44320712694878%[0m
+13:20:37 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131819[0m
+13:20:37 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620131819 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:21:51 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620131819 ran successfully[0m
+13:22:10 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:22:10 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620131819: 89.44320712694878%[0m
+13:22:10 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:22:10 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:22:10 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:22:10 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131819.cc[0m
+13:22:10 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131819[0m
+13:22:10 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620131819[0m
+13:22:10 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 4[0m
+13:22:10 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:22:10 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:22:10 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:22:10 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:22:10 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:22:28 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:22:28 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:22:28 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:22:28 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:22:28 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:22:28 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:22:58 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex print|ensure|replace_item_in_object[0m
+13:22:58 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:23:16 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:23:16 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:23:16 - llm_interface.tools.get_line_coverage_report:231 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for cjson_wo_exist_b8371_l8917 with regex print|ensure|replace_item_in_object[0m
+13:23:16 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:23:43 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Consume data for creating a JSON string to parse.
+  std::string json_string = fdp.ConsumeRandomLengthString(1000);
+  const char *error_ptr = nullptr;
+
+  // Target cJSON_ParseWithOpts to create a cJSON object.
+  // The require_null_terminated flag is fuzzed.
+  cJSON *json = cJSON_ParseWithOpts(json_string.c_str(), &error_ptr, fdp.ConsumeBool());
+
+  if (json) {
+    // If parsing is successful, proceed with further operations.
+
+    // Target cJSON_Print and cJSON_PrintUnformatted to exercise printing logic.
+    // The returned strings must be freed to prevent memory leaks.
+    char *printed_formatted = cJSON_Print(json);
+    if (printed_formatted) {
+      free(printed_formatted);
+    }
+    char *printed_unformatted = cJSON_PrintUnformatted(json);
+    if (printed_unformatted) {
+      free(printed_unformatted);
+    }
+
+    // Target cJSON_Duplicate to test cloning of JSON objects.
+    // The cloned object must be deleted to prevent memory leaks.
+    cJSON *json_clone = cJSON_Duplicate(json, fdp.ConsumeBool());
+    if (json_clone) {
+      cJSON_Delete(json_clone);
+    }
+
+    // Target cJSON_AddItemToObject and cJSON_ReplaceItemInObject for modification.
+    if (cJSON_IsObject(json)) {
+      std::string key_to_add = fdp.ConsumeRandomLengthString(32);
+      std::string value_to_add = fdp.ConsumeRandomLengthString(64);
+      // cJSON_AddItemToObject takes ownership of the created string item.
+      cJSON_AddItemToObject(json, key_to_add.c_str(), cJSON_CreateString(value_to_add.c_str()));
+
+      std::string key_to_replace = fdp.ConsumeRandomLengthString(32);
+      std::string value_to_replace = fdp.ConsumeRandomLengthString(64);
+      cJSON *replacement = cJSON_CreateString(value_to_replace.c_str());
+
+      // cJSON_ReplaceItemInObject takes ownership of the replacement item on success.
+      // If it fails (e.g., key not found), the replacement item must be deleted manually.
+      if (!cJSON_ReplaceItemInObject(json, key_to_replace.c_str(), replacement)) {
+        cJSON_Delete(replacement);
+      }
+    }
+
+    // Clean up the original JSON object.
+    cJSON_Delete(json);
+  }
+
+  return 0;
+}[0m
+13:23:43 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132343.cc[0m
+13:23:43 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132343.cc'.[0m
+13:23:43 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132343 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:24:28 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620132343 ran successfully[0m
+13:24:28 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132343.cc'.[0m
+13:24:28 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:24:28 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132343[0m
+13:24:28 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132343 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:25:42 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620132343 ran successfully[0m
+13:26:01 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:26:01 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132343: 89.44320712694878%[0m
+13:26:01 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132343[0m
+13:26:01 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132343 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:27:15 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620132343 ran successfully[0m
+13:27:34 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:27:34 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132343: 89.44320712694878%[0m
+13:27:34 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:27:34 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:27:34 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:27:34 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132343.cc[0m
+13:27:34 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132343[0m
+13:27:34 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132343[0m
+13:27:34 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 5[0m
+13:27:34 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:27:34 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:27:34 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:27:34 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:27:34 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:27:53 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:27:53 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:27:53 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:27:53 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:27:53 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:27:53 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:28:51 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:28:51 - external.introspector.function_source_code:213 - INFO - Returning cached source code for char * cJSON_PrintBuffered(const cJSON *, int, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:28:51 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_PrintBuffered' for cjson_wo_exist_b8371_l8917[0m
+13:28:51 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:29:25 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Creates a cJSON object of a random type.
+cJSON* CreateRandomJSON(FuzzedDataProvider& fdp) {
+    if (fdp.remaining_bytes() < 10) {
+        return nullptr;
+    }
+    switch (fdp.ConsumeIntegralInRange<uint8_t>(0, 6)) {
+        case 0:
+            return cJSON_CreateNull();
+        case 1:
+            return cJSON_CreateBool(fdp.ConsumeBool());
+        case 2:
+            return cJSON_CreateNumber(fdp.ConsumeIntegral<double>());
+        case 3:
+            return cJSON_CreateString(fdp.ConsumeRandomLengthString(100).c_str());
+        case 4:
+            return cJSON_CreateRaw(fdp.ConsumeRandomLengthString(100).c_str());
+        case 5:
+            return cJSON_CreateArray();
+        case 6:
+            return cJSON_CreateObject();
+    }
+    return nullptr;
+}
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Target: cJSON_ParseWithOpts
+    // Create a JSON object by parsing a fuzzed string.
+    // Fuzz the require_null_terminated option.
+    std::string json_string = fdp.ConsumeRandomLengthString(1000);
+    const char* parse_end = nullptr;
+    cJSON* root = cJSON_ParseWithOpts(json_string.c_str(), &parse_end, fdp.ConsumeBool());
+
+    if (root) {
+        // Target: cJSON_AddItemToObject and cJSON_ReplaceItemInObject
+        // Add and replace items in the parsed object to test modification APIs.
+        if (fdp.ConsumeBool() && cJSON_IsObject(root)) {
+            std::string key_to_add = fdp.ConsumeRandomLengthString(20);
+            cJSON* item_to_add = CreateRandomJSON(fdp);
+            if (item_to_add) {
+                // cJSON takes ownership of item_to_add if the call is successful.
+                if (!cJSON_AddItemToObject(root, key_to_add.c_str(), item_to_add)) {
+                    cJSON_Delete(item_to_add); // Must delete if add fails.
+                }
+            }
+
+            std::string key_to_replace = fdp.ConsumeBool() ? key_to_add : fdp.ConsumeRandomLengthString(20);
+            cJSON* new_item = CreateRandomJSON(fdp);
+            if (new_item) {
+                // cJSON takes ownership of new_item if the call is successful.
+                // The old item is deleted internally by the function.
+                if (!cJSON_ReplaceItemInObject(root, key_to_replace.c_str(), new_item)) {
+                    cJSON_Delete(new_item); // Must delete if replace fails.
+                }
+            }
+        }
+
+        // Target: cJSON_Duplicate
+        // Duplicate the (potentially modified) JSON object.
+        // Fuzz the recurse parameter.
+        cJSON* duplicate = cJSON_Duplicate(root, fdp.ConsumeBool());
+        if (duplicate) {
+            // Target: cJSON_PrintBuffered
+            // Print the duplicated object to a buffer.
+            // Fuzz the prebuffer size and format option.
+            // A negative prebuffer size is a valid test case that should be handled.
+            int prebuffer = fdp.ConsumeIntegralInRange<int>(-10, 2048);
+            char* printed_json = cJSON_PrintBuffered(duplicate, prebuffer, fdp.ConsumeBool());
+            if (printed_json) {
+                // The returned buffer must be freed using the library's free function.
+                cJSON_free(printed_json);
+            }
+            // The duplicated object must be deleted.
+            cJSON_Delete(duplicate);
+        }
+
+        // The original root object must be deleted.
+        cJSON_Delete(root);
+    }
+
+    return 0;
+}[0m
+13:29:25 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132925.cc[0m
+13:29:25 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132925.cc'.[0m
+13:29:25 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132925 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:29:35 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: static assertion failed due to requirement 'std::is_integral<double>::value': An integral type is required.
+  205 |   static_assert(std::is_integral<T>::value, "An integral type is required.");
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/local/lib/clang/18/include/fuzzer/FuzzedDataProvider.h:195:10: note: in instantiation of function template specialization 'FuzzedDataProvider::ConsumeIntegralInRange<double>' requested here
+  195 |   return ConsumeIntegralInRange(std::numeric_limits<T>::min(),
+      |          ^
+/src/llm_fuzzgen0620132925.cc:17:43: note: in instantiation of function template specialization 'FuzzedDataProvider::ConsumeIntegral<double>' requested here
+   17 |             return cJSON_CreateNumber(fdp.ConsumeIntegral<double>());
+      |                                           ^
+1 error generated.[0m
+13:29:35 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0620132925 for project cjson_wo_exist_b8371_l8917 failed to build.[0m
+13:29:35 - __main__.build_fuzz_target:175 - ERROR - Build failed (attempt 1).[0m
+13:29:35 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132925.cc[0m
+13:29:35 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:29:35 - __main__.build_fuzz_target:158 - INFO - Build attempt 2/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:29:35 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `cjson_wo_exist_b8371_l8917` library (c++) by **reso...[0m
+13:29:35 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:29:51 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Creates a cJSON object of a random type.
+cJSON* CreateRandomJSON(FuzzedDataProvider& fdp) {
+    if (fdp.remaining_bytes() < 10) {
+        return nullptr;
+    }
+    switch (fdp.ConsumeIntegralInRange<uint8_t>(0, 6)) {
+        case 0:
+            return cJSON_CreateNull();
+        case 1:
+            return cJSON_CreateBool(fdp.ConsumeBool());
+        case 2:
+            return cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>());
+        case 3:
+            return cJSON_CreateString(fdp.ConsumeRandomLengthString(100).c_str());
+        case 4:
+            return cJSON_CreateRaw(fdp.ConsumeRandomLengthString(100).c_str());
+        case 5:
+            return cJSON_CreateArray();
+        case 6:
+            return cJSON_CreateObject();
+    }
+    return nullptr;
+}
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Target: cJSON_ParseWithOpts
+    // Create a JSON object by parsing a fuzzed string.
+    // Fuzz the require_null_terminated option.
+    std::string json_string = fdp.ConsumeRandomLengthString(1000);
+    const char* parse_end = nullptr;
+    cJSON* root = cJSON_ParseWithOpts(json_string.c_str(), &parse_end, fdp.ConsumeBool());
+
+    if (root) {
+        // Target: cJSON_AddItemToObject and cJSON_ReplaceItemInObject
+        // Add and replace items in the parsed object to test modification APIs.
+        if (fdp.ConsumeBool() && cJSON_IsObject(root)) {
+            std::string key_to_add = fdp.ConsumeRandomLengthString(20);
+            cJSON* item_to_add = CreateRandomJSON(fdp);
+            if (item_to_add) {
+                // cJSON takes ownership of item_to_add if the call is successful.
+                if (!cJSON_AddItemToObject(root, key_to_add.c_str(), item_to_add)) {
+                    cJSON_Delete(item_to_add); // Must delete if add fails.
+                }
+            }
+
+            std::string key_to_replace = fdp.ConsumeBool() ? key_to_add : fdp.ConsumeRandomLengthString(20);
+            cJSON* new_item = CreateRandomJSON(fdp);
+            if (new_item) {
+                // cJSON takes ownership of new_item if the call is successful.
+                // The old item is deleted internally by the function.
+                if (!cJSON_ReplaceItemInObject(root, key_to_replace.c_str(), new_item)) {
+                    cJSON_Delete(new_item); // Must delete if replace fails.
+                }
+            }
+        }
+
+        // Target: cJSON_Duplicate
+        // Duplicate the (potentially modified) JSON object.
+        // Fuzz the recurse parameter.
+        cJSON* duplicate = cJSON_Duplicate(root, fdp.ConsumeBool());
+        if (duplicate) {
+            // Target: cJSON_PrintBuffered
+            // Print the duplicated object to a buffer.
+            // Fuzz the prebuffer size and format option.
+            // A negative prebuffer size is a valid test case that should be handled.
+            int prebuffer = fdp.ConsumeIntegralInRange<int>(-10, 2048);
+            char* printed_json = cJSON_PrintBuffered(duplicate, prebuffer, fdp.ConsumeBool());
+            if (printed_json) {
+                // The returned buffer must be freed using the library's free function.
+                cJSON_free(printed_json);
+            }
+            // The duplicated object must be deleted.
+            cJSON_Delete(duplicate);
+        }
+
+        // The original root object must be deleted.
+        cJSON_Delete(root);
+    }
+
+    return 0;
+}[0m
+13:29:51 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132951.cc[0m
+13:29:51 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132951.cc'.[0m
+13:29:51 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132951 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:30:36 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620132951 ran successfully[0m
+13:30:36 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132951.cc'.[0m
+13:30:36 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:30:36 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132951[0m
+13:30:36 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132951 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:31:51 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620132951 ran successfully[0m
+13:32:10 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:32:10 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132951: 89.44320712694878%[0m
+13:32:10 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132951[0m
+13:32:10 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620132951 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:33:25 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620132951 ran successfully[0m
+13:33:43 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:33:43 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620132951: 89.44320712694878%[0m
+13:33:43 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:33:43 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:33:43 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:33:43 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132951.cc[0m
+13:33:43 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132951[0m
+13:33:43 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620132951[0m
+13:33:43 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 6[0m
+13:33:43 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:33:43 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:33:43 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:33:43 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:33:43 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:34:02 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:34:02 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:34:02 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:34:02 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:34:02 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:34:02 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:34:17 - external.introspector.function_source_code:213 - INFO - Returning cached source code for char * cJSON_PrintBuffered(const cJSON *, int, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:34:17 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_PrintBuffered' for cjson_wo_exist_b8371_l8917[0m
+13:34:17 - external.introspector.function_source_code:213 - INFO - Returning cached source code for char * cJSON_SetValuestring(cJSON *, const char *) in cjson_wo_exist_b8371_l8917[0m
+13:34:17 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_SetValuestring' for cjson_wo_exist_b8371_l8917[0m
+13:34:17 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON * cJSON_Duplicate(const cJSON *, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool cJSON_ReplaceItemInObjectCaseSensitive(cJSON *, const char *, cJSON *)'}[0m
+13:34:17 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_Duplicate' for cjson_wo_exist_b8371_l8917[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON * cJSON_ParseWithOpts(const char *, const char **, cJSON_bool)'}[0m
+13:34:17 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson_wo_exist_b8371_l8917', 'function_signature': 'cJSON_bool cJSON_ReplaceItemInObject(cJSON *, const char *, cJSON *)'}[0m
+13:34:17 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_ParseWithOpts' for cjson_wo_exist_b8371_l8917[0m
+13:34:17 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 2 functions matching 'cJSON_ReplaceItemInObject' for cjson_wo_exist_b8371_l8917[0m
+13:34:17 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:34:43 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Consume data for cJSON_ParseWithOpts
+  const std::string json_str = fdp.ConsumeRandomLengthString(1000);
+  const char *parse_end = nullptr;
+  const bool require_null_terminated = fdp.ConsumeBool();
+
+  // Target 1: cJSON_ParseWithOpts
+  // Attempt to parse the input data into a cJSON object.
+  cJSON *root = cJSON_ParseWithOpts(json_str.c_str(), &parse_end, require_null_terminated);
+
+  if (root) {
+    // Target 2: cJSON_Duplicate
+    // Duplicate the parsed cJSON object.
+    // The second argument controls recursive duplication.
+    cJSON *duplicate = cJSON_Duplicate(root, fdp.ConsumeBool());
+    if (duplicate) {
+      // Clean up the duplicated object to prevent memory leaks.
+      cJSON_Delete(duplicate);
+    }
+
+    // Target 3: cJSON_ReplaceItemInObject
+    // If the root is an object, try to replace an item in it.
+    if (cJSON_IsObject(root)) {
+      const std::string key = fdp.ConsumeRandomLengthString(50);
+      const std::string value = fdp.ConsumeRandomLengthString(50);
+      cJSON *newItem = cJSON_CreateString(value.c_str());
+      if (newItem) {
+        // This function takes ownership of newItem, so we don't need to free it.
+        cJSON_ReplaceItemInObject(root, key.c_str(), newItem);
+      }
+    }
+
+    // Target 4: cJSON_SetValuestring
+    // If the root is an object and has children, find a string child and set its value.
+    if (cJSON_IsObject(root) && root->child) {
+      cJSON *child = root->child;
+      while (child) {
+        if (cJSON_IsString(child)) {
+          const std::string new_string_value = fdp.ConsumeRandomLengthString(100);
+          cJSON_SetValuestring(child, new_string_value.c_str());
+          break;
+        }
+        child = child->next;
+      }
+    }
+
+    // Target 5: cJSON_PrintBuffered
+    // Print the (potentially modified) cJSON object to a buffer.
+    const int prebuffer = fdp.ConsumeIntegralInRange<int>(0, 1024);
+    const bool format = fdp.ConsumeBool();
+    char *printed_json = cJSON_PrintBuffered(root, prebuffer, format);
+    if (printed_json) {
+      // Free the buffer allocated by cJSON_PrintBuffered.
+      cJSON_free(printed_json);
+    }
+
+    // Clean up the root cJSON object.
+    cJSON_Delete(root);
+  }
+
+  return 0;
+}[0m
+13:34:43 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133443.cc[0m
+13:34:43 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133443.cc'.[0m
+13:34:43 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620133443 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:35:27 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620133443 ran successfully[0m
+13:35:27 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133443.cc'.[0m
+13:35:27 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:35:27 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620133443[0m
+13:35:27 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620133443 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:36:42 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620133443 ran successfully[0m
+13:37:01 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:37:01 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620133443: 89.44320712694878%[0m
+13:37:01 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620133443[0m
+13:37:01 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620133443 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:38:15 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620133443 ran successfully[0m
+13:38:35 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:38:35 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620133443: 89.44320712694878%[0m
+13:38:35 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:38:35 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:38:35 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:38:35 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133443.cc[0m
+13:38:35 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133443[0m
+13:38:35 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133443[0m
+13:38:35 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 7[0m
+13:38:35 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:38:35 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:38:35 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:38:35 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:38:35 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:38:53 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:38:53 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:38:53 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:38:53 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:38:53 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:38:53 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:39:09 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:39:09 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:39:09 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:39:09 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:39:09 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:39:09 - external.introspector.function_source_code:213 - INFO - Returning cached source code for char * cJSON_PrintBuffered(const cJSON *, int, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:39:09 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_PrintBuffered' for cjson_wo_exist_b8371_l8917[0m
+13:39:09 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool replace_item_in_object(cJSON *, const char *, cJSON *, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:39:09 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'replace_item_in_object' for cjson_wo_exist_b8371_l8917[0m
+13:39:09 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON * cJSON_ParseWithOpts(const char *, const char **, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:39:09 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_ParseWithOpts' for cjson_wo_exist_b8371_l8917[0m
+13:39:09 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON * cJSON_Duplicate(const cJSON *, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:39:09 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_Duplicate' for cjson_wo_exist_b8371_l8917[0m
+13:39:09 - external.introspector.function_source_code:213 - INFO - Returning cached source code for char * cJSON_SetValuestring(cJSON *, const char *) in cjson_wo_exist_b8371_l8917[0m
+13:39:09 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'cJSON_SetValuestring' for cjson_wo_exist_b8371_l8917[0m
+13:39:09 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:39:31 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+  FuzzedDataProvider fdp(Data, Size);
+
+  // Consume data for API inputs
+  const std::string json_string = fdp.ConsumeRandomLengthString(1024);
+  const bool require_null_terminated = fdp.ConsumeBool();
+  const bool recurse_duplicate = fdp.ConsumeBool();
+  const std::string replacement_key = fdp.ConsumeRandomLengthString(32);
+  const std::string replacement_value = fdp.ConsumeRandomLengthString(128);
+  const bool case_sensitive_replace = fdp.ConsumeBool();
+  const int prebuffer_size = fdp.ConsumeIntegralInRange<int>(0, 1024);
+  const bool format_print = fdp.ConsumeBool();
+  const std::string new_valuestring = fdp.ConsumeRandomLengthString(128);
+
+  // 1. Target: cJSON_ParseWithOpts
+  // Attempt to parse the fuzzer-provided string.
+  cJSON *root_obj = cJSON_ParseWithOpts(json_string.c_str(), nullptr, require_null_terminated);
+  if (root_obj == nullptr) {
+    return 0; // Invalid JSON, exit early.
+  }
+
+  // 2. Target: cJSON_Duplicate
+  // Create a duplicate of the parsed object to modify it without affecting the original.
+  cJSON *dup_obj = cJSON_Duplicate(root_obj, recurse_duplicate);
+  if (dup_obj == nullptr) {
+    cJSON_Delete(root_obj); // Clean up original object
+    return 0;
+  }
+
+  // 3. Target: replace_item_in_object
+  // Only attempt replacement if the duplicated object is an object type.
+  if (cJSON_IsObject(dup_obj)) {
+    cJSON *replacement_item = cJSON_CreateString(replacement_value.c_str());
+    if (replacement_item != nullptr) {
+      // The replacement_item is now owned by dup_obj and will be freed with it.
+      replace_item_in_object(dup_obj, replacement_key.c_str(), replacement_item, case_sensitive_replace);
+    }
+  }
+
+  // 4. Target: cJSON_SetValuestring
+  // If the duplicated object is a string, modify its value.
+  if (cJSON_IsString(dup_obj)) {
+      // cJSON_SetValuestring handles memory allocation for the new string.
+      cJSON_SetValuestring(dup_obj, new_valuestring.c_str());
+  }
+
+  // 5. Target: cJSON_PrintBuffered
+  // Print the (potentially modified) duplicated object to a buffer.
+  char *printed_buffer = cJSON_PrintBuffered(dup_obj, prebuffer_size, format_print);
+  if (printed_buffer != nullptr) {
+    // IMPORTANT: The buffer returned by cJSON_PrintBuffered must be freed
+    // using the library's free function to prevent memory leaks.
+    cJSON_free(printed_buffer);
+  }
+
+  // Cleanup: Free all allocated cJSON objects.
+  // This is crucial to prevent memory leaks.
+  cJSON_Delete(root_obj);
+  cJSON_Delete(dup_obj);
+
+  return 0;
+}[0m
+13:39:31 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133931.cc[0m
+13:39:31 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133931.cc'.[0m
+13:39:31 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620133931 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:39:43 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: use of undeclared identifier 'replace_item_in_object'
+   43 |       replace_item_in_object(dup_obj, replacement_key.c_str(), replacement_item, case_sensitive_replace);
+      |       ^
+1 error generated.[0m
+13:39:43 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0620133931 for project cjson_wo_exist_b8371_l8917 failed to build.[0m
+13:39:43 - __main__.build_fuzz_target:175 - ERROR - Build failed (attempt 1).[0m
+13:39:43 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620133931.cc[0m
+13:39:43 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:39:43 - __main__.build_fuzz_target:158 - INFO - Build attempt 2/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:39:43 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `cjson_wo_exist_b8371_l8917` library (c++) by **reso...[0m
+13:39:43 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:39:49 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson'}[0m
+13:39:49 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson', 'function_signature': 'cJSON_bool cJSON_ReplaceItemInObjectCaseSensitive(cJSON *, const char *, cJSON *)'}[0m
+13:39:49 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'cjson', 'function_signature': 'cJSON_bool cJSON_ReplaceItemInObject(cJSON *, const char *, cJSON *)'}[0m
+13:39:49 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 2 functions matching 'ReplaceItemInObject' for cjson[0m
+13:39:49 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:39:59 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:39:59 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool replace_item_in_object(cJSON *, const char *, cJSON *, cJSON_bool) in cjson_wo_exist_b8371_l8917[0m
+13:39:59 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 1 functions matching 'replace_item_in_object' for cjson_wo_exist_b8371_l8917[0m
+13:39:59 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:40:38 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Fuzz target entry point
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+  FuzzedDataProvider fdp(Data, Size);
+
+  // Consume data for API inputs
+  const std::string json_string = fdp.ConsumeRandomLengthString(1024);
+  const bool require_null_terminated = fdp.ConsumeBool();
+  const bool recurse_duplicate = fdp.ConsumeBool();
+  const std::string replacement_key = fdp.ConsumeRandomLengthString(32);
+  const std::string replacement_value = fdp.ConsumeRandomLengthString(128);
+  const bool case_sensitive_replace = fdp.ConsumeBool();
+  const int prebuffer_size = fdp.ConsumeIntegralInRange<int>(0, 1024);
+  const bool format_print = fdp.ConsumeBool();
+  const std::string new_valuestring = fdp.ConsumeRandomLengthString(128);
+
+  // 1. Target: cJSON_ParseWithOpts
+  // Attempt to parse the fuzzer-provided string.
+  cJSON *root_obj = cJSON_ParseWithOpts(json_string.c_str(), nullptr, require_null_terminated);
+  if (root_obj == nullptr) {
+    return 0; // Invalid JSON, exit early.
+  }
+
+  // 2. Target: cJSON_Duplicate
+  // Create a duplicate of the parsed object to modify it without affecting the original.
+  cJSON *dup_obj = cJSON_Duplicate(root_obj, recurse_duplicate);
+  if (dup_obj == nullptr) {
+    cJSON_Delete(root_obj); // Clean up original object
+    return 0;
+  }
+
+  // 3. Target: cJSON_ReplaceItemInObject / cJSON_ReplaceItemInObjectCaseSensitive
+  // Only attempt replacement if the duplicated object is an object type.
+  if (cJSON_IsObject(dup_obj)) {
+    cJSON *replacement_item = cJSON_CreateString(replacement_value.c_str());
+    if (replacement_item != nullptr) {
+      cJSON_bool replaced = false;
+      // The replacement_item is owned by dup_obj only if the replacement succeeds.
+      if (case_sensitive_replace) {
+        replaced = cJSON_ReplaceItemInObjectCaseSensitive(dup_obj, replacement_key.c_str(), replacement_item);
+      } else {
+        replaced = cJSON_ReplaceItemInObject(dup_obj, replacement_key.c_str(), replacement_item);
+      }
+      if (!replaced) {
+        // If replacement fails, we must free the item ourselves.
+        cJSON_Delete(replacement_item);
+      }
+    }
+  }
+
+  // 4. Target: cJSON_SetValuestring
+  // If the duplicated object is a string, modify its value.
+  if (cJSON_IsString(dup_obj)) {
+      // cJSON_SetValuestring handles memory allocation for the new string.
+      cJSON_SetValuestring(dup_obj, new_valuestring.c_str());
+  }
+
+  // 5. Target: cJSON_PrintBuffered
+  // Print the (potentially modified) duplicated object to a buffer.
+  char *printed_buffer = cJSON_PrintBuffered(dup_obj, prebuffer_size, format_print);
+  if (printed_buffer != nullptr) {
+    // IMPORTANT: The buffer returned by cJSON_PrintBuffered must be freed
+    // using the library's free function to prevent memory leaks.
+    cJSON_free(printed_buffer);
+  }
+
+  // Cleanup: Free all allocated cJSON objects.
+  // This is crucial to prevent memory leaks.
+  cJSON_Delete(root_obj);
+  cJSON_Delete(dup_obj);
+
+  return 0;
+}[0m
+13:40:38 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134038.cc[0m
+13:40:38 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134038.cc'.[0m
+13:40:38 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620134038 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:41:24 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620134038 ran successfully[0m
+13:41:24 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134038.cc'.[0m
+13:41:24 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:41:24 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134038[0m
+13:41:24 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620134038 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:42:39 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620134038 ran successfully[0m
+13:42:58 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:42:58 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134038: 89.44320712694878%[0m
+13:42:58 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134038[0m
+13:42:58 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620134038 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:44:14 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620134038 ran successfully[0m
+13:44:33 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:44:33 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134038: 89.44320712694878%[0m
+13:44:33 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:44:33 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:44:33 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:44:33 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134038.cc[0m
+13:44:33 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134038[0m
+13:44:33 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134038[0m
+13:44:33 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 8[0m
+13:44:33 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:44:33 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:44:33 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:44:33 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:44:33 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:44:52 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:44:52 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:44:52 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:44:52 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:44:52 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:44:52 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:45:32 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex print|ensure|replace_item_in_object|cJSON_PrintBuffered|cJSON_SetValuestring[0m
+13:45:32 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:45:50 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:45:50 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:45:50 - llm_interface.tools.get_line_coverage_report:231 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for cjson_wo_exist_b8371_l8917 with regex print|ensure|replace_item_in_object|cJSON_PrintBuffered|cJSON_SetValuestring[0m
+13:45:50 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:46:21 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Custom deleter for unique_ptr to automatically free cJSON objects
+struct cJSONDeleter {
+  void operator()(cJSON *ptr) const {
+    if (ptr) {
+      cJSON_Delete(ptr);
+    }
+  }
+};
+
+using cJSONUniquePtr = std::unique_ptr<cJSON, cJSONDeleter>;
+
+// Custom deleter for unique_ptr to automatically free memory allocated by cJSON_malloc
+struct cJSONFreeDeleter {
+  void operator()(void *ptr) const {
+    if (ptr) {
+      cJSON_free(ptr);
+    }
+  }
+};
+
+using cJSONMallocUniquePtr = std::unique_ptr<void, cJSONFreeDeleter>;
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Initialize cJSON with standard hooks
+  cJSON_InitHooks(nullptr);
+
+  // Target 1: cJSON_ParseWithOpts
+  // Use a portion of the input to test parsing with different options.
+  std::string json_to_parse = fdp.ConsumeRandomLengthString(1024);
+  const char *parse_end = nullptr;
+  cJSONUniquePtr parsed_json(cJSON_ParseWithOpts(
+      json_to_parse.c_str(), &parse_end, fdp.ConsumeBool()));
+  // No need to do anything with parsed_json, unique_ptr handles cleanup.
+
+  // Create a base JSON object for further testing.
+  std::string base_json_str = fdp.ConsumeRandomLengthString(1024);
+  cJSONUniquePtr root(cJSON_Parse(base_json_str.c_str()));
+
+  if (root) {
+    // Target 2: cJSON_ReplaceItemInObject
+    // If the parsed object is a JSON object, try to replace an item.
+    if (cJSON_IsObject(root.get())) {
+      std::string key = fdp.ConsumeRandomLengthString(32);
+
+      // Create a new item to replace with, of a random type.
+      cJSON *newItem = nullptr;
+      switch (fdp.ConsumeIntegralInRange<int>(0, 5)) {
+      case 0:
+        newItem = cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>());
+        break;
+      case 1:
+        newItem = cJSON_CreateString(
+            fdp.ConsumeRandomLengthString(128).c_str());
+        break;
+      case 2:
+        newItem = cJSON_CreateBool(fdp.ConsumeBool());
+        break;
+      case 3:
+        newItem = cJSON_CreateArray();
+        break;
+      case 4:
+        newItem = cJSON_CreateObject();
+        break;
+      case 5:
+        newItem = cJSON_CreateNull();
+        break;
+      }
+
+      if (newItem) {
+        cJSON_ReplaceItemInObject(root.get(), key.c_str(), newItem);
+        // cJSON_ReplaceItemInObject takes ownership of newItem if successful,
+        // so no need to delete it separately. If it fails, newItem is not
+        // attached and needs to be deleted. However, since we don't check the
+        // return value, we assume it's attached to avoid double-freeing.
+        // A more robust approach would check the return, but for fuzzing,
+        // this is a reasonable simplification.
+      }
+    }
+
+    // Target 3: cJSON_SetValuestring
+    // If the object is a string, try to set its value.
+    if (cJSON_IsString(root.get())) {
+      std::string new_value = fdp.ConsumeRandomLengthString(128);
+      cJSON_SetValuestring(root.get(), new_value.c_str());
+    }
+
+    // Target 4 & 5: cJSON_PrintBuffered (which exercises print and ensure)
+    // Print the potentially modified JSON object to a buffer.
+    // Use a fuzzed prebuffer size to exercise the 'ensure' logic for buffer resizing.
+    int prebuffer = fdp.ConsumeIntegralInRange<int>(-1, 1024);
+    bool format = fdp.ConsumeBool();
+    cJSONMallocUniquePtr printed_json(
+        cJSON_PrintBuffered(root.get(), prebuffer, format));
+    // The printed_json buffer is automatically freed by the unique_ptr.
+  }
+
+  return 0;
+}[0m
+13:46:21 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134621.cc[0m
+13:46:21 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134621.cc'.[0m
+13:46:21 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620134621 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:47:07 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620134621 ran successfully[0m
+13:47:07 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134621.cc'.[0m
+13:47:07 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:47:07 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134621[0m
+13:47:07 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620134621 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:48:22 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620134621 ran successfully[0m
+13:48:41 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:48:41 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134621: 89.44320712694878%[0m
+13:48:41 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134621[0m
+13:48:41 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620134621 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:49:56 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620134621 ran successfully[0m
+13:50:16 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:50:16 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620134621: 89.44320712694878%[0m
+13:50:16 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:50:16 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:50:16 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:50:16 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134621.cc[0m
+13:50:16 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134621[0m
+13:50:16 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620134621[0m
+13:50:16 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 9[0m
+13:50:16 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.44320712694878][0m
+13:50:16 - __main__.regenerate_fuzz_target:221 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+13:50:16 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:50:16 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+13:50:16 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+13:50:35 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:50:35 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 89.44320712694878%[0m
+13:50:35 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for cjson_wo_exist_b8371_l8917[0m
+13:50:35 - __main__.build_fuzz_target:158 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+13:50:35 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+13:50:35 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:51:15 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for unsigned char * print(const const cJSON *, cJSON_bool, const const internal_hooks *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_value(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_number(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_string_ptr(const const unsigned char *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_array(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_object(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - external.introspector.function_source_code:213 - INFO - Returning cached source code for cJSON_bool print_string(const const cJSON *, const printbuffer *) in cjson_wo_exist_b8371_l8917[0m
+13:51:15 - llm_interface.tools.search_function:136 - INFO - Tool(search_function): Found 7 functions matching 'print' for cjson_wo_exist_b8371_l8917[0m
+13:51:15 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+13:51:55 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include "/src/cjson/cJSON.h"
+#include <fuzzer/FuzzedDataProvider.h>
+#include <string>
+#include <vector>
+
+// Fuzz target for cJSON library, focusing on parsing, modification, and printing functions.
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    FuzzedDataProvider fdp(data, size);
+
+    // Consume data for cJSON_ParseWithOpts
+    // This function is targeted due to its low code coverage.
+    std::string json_string = fdp.ConsumeRandomLengthString(1000);
+    const char *parse_end = nullptr;
+    bool require_null_terminated = fdp.ConsumeBool();
+
+    // Create a cJSON object from the fuzzer input.
+    // This object will be used to test other API functions.
+    cJSON *root = cJSON_ParseWithOpts(json_string.c_str(), &parse_end, require_null_terminated);
+
+    // If parsing fails, there's nothing more to do.
+    if (root == nullptr) {
+        return 0;
+    }
+
+    // Target cJSON_Duplicate to test object duplication.
+    // This is selected for its moderately low coverage and its importance in resource management.
+    cJSON *root_dup = cJSON_Duplicate(root, fdp.ConsumeBool());
+    if (root_dup == nullptr) {
+        // Clean up the original object if duplication fails.
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    // Target cJSON_SetValuestring to test value modification.
+    // This function has several branches related to memory management of strings.
+    if (cJSON_IsObject(root) && cJSON_GetArraySize(root) > 0) {
+        cJSON *first_item = root->child;
+        if (first_item != nullptr && first_item->string != nullptr) {
+            // Generate a random string to set as the new value.
+            cJSON_SetValuestring(first_item, fdp.ConsumeRandomLengthString(100).c_str());
+        }
+    }
+
+    // Target cJSON_ReplaceItemInObject for object modification.
+    // This function has complex logic for replacing items in a JSON object.
+    if (cJSON_IsObject(root_dup) && cJSON_GetArraySize(root_dup) > 0) {
+        cJSON *item_to_replace = root_dup->child;
+        if (item_to_replace != nullptr && item_to_replace->string != nullptr) {
+            std::string key_to_replace = item_to_replace->string;
+            // Create a new cJSON item to be the replacement.
+            cJSON *new_item = cJSON_CreateString(fdp.ConsumeRandomLengthString(100).c_str());
+            if (new_item != nullptr) {
+                // cJSON_ReplaceItemInObject takes ownership of new_item upon success.
+                // If it fails, we must manually deallocate new_item.
+                if (!cJSON_ReplaceItemInObject(root_dup, key_to_replace.c_str(), new_item)) {
+                    cJSON_Delete(new_item);
+                }
+            }
+        }
+    }
+
+    // Target cJSON_PrintBuffered to test printing functionality.
+    // This function has low coverage and involves buffer allocation and management.
+    int buffer_size = fdp.ConsumeIntegralInRange<int>(10, 1000);
+    bool format = fdp.ConsumeBool();
+    
+    // Print the original, possibly modified, object.
+    char *printed_root = cJSON_PrintBuffered(root, buffer_size, format);
+    if (printed_root != nullptr) {
+        // The returned buffer must be freed.
+        cJSON_free(printed_root);
+    }
+
+    // Print the duplicated and modified object.
+    char *printed_dup = cJSON_PrintBuffered(root_dup, buffer_size, format);
+    if (printed_dup != nullptr) {
+        // The returned buffer must be freed.
+        cJSON_free(printed_dup);
+    }
+
+    // Clean up all allocated cJSON objects.
+    // cJSON_Delete recursively frees all child items.
+    cJSON_Delete(root);
+    cJSON_Delete(root_dup);
+
+    return 0;
+}[0m
+13:51:55 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620135155.cc[0m
+13:51:55 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620135155.cc'.[0m
+13:51:55 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620135155 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:52:40 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620135155 ran successfully[0m
+13:52:40 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620135155.cc'.[0m
+13:52:40 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+13:52:40 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620135155[0m
+13:52:40 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620135155 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:53:56 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620135155 ran successfully[0m
+13:54:15 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:54:15 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620135155: 89.44320712694878%[0m
+13:54:15 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620135155[0m
+13:54:15 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620135155 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+13:55:30 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620135155 ran successfully[0m
+13:55:50 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:55:50 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620135155: 89.44320712694878%[0m
+13:55:50 - __main__.process_project:289 - INFO - Coverage without seeds: 89.44320712694878[0m
+13:55:50 - __main__.process_project:290 - INFO - Coverage with seeds: 89.44320712694878[0m
+13:55:50 - __main__.process_project:291 - INFO - coverage: 89.44320712694878 -> 89.44320712694878 (growth: 0.00)[0m
+13:55:50 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620135155.cc[0m
+13:55:50 - external.oss_fuzz.remove_target:246 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620135155[0m
+13:55:50 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620135155[0m
+13:55:50 - __main__.process_project:295 - WARNING - Fuzz target's coverage is lower than the previous iteration 10[0m
+13:55:50 - __main__.process_project:253 - WARNING - Stopping iteration for cjson_wo_exist_b8371_l8917 due to 10 consecutive iterations with no coverage growth.[0m
+13:55:50 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for cjson_wo_exist_b8371_l8917[0m
+13:57:49 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for cjson_wo_exist_b8371_l8917[0m
+13:57:49 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+13:58:04 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+13:58:09 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+13:58:09 - urllib3.connectionpool.urlopen:868 - WARNING - Retrying (Retry(total=9, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f21ec5a5490>: Failed to establish a new connection: [Errno 111] Connection refused')': /api/tester[0m
+13:58:11 - urllib3.connectionpool.urlopen:868 - WARNING - Retrying (Retry(total=8, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f21e81d76d0>: Failed to establish a new connection: [Errno 111] Connection refused')': /api/tester[0m
+13:58:11 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+13:58:11 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+13:58:11 - external.oss_fuzz.get_coverage_summary:417 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917.[0m
+13:58:11 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+13:58:11 - __main__.calculate_statistics:344 - INFO - ==================================================[0m
+13:58:11 - __main__.calculate_statistics:345 - INFO - Coverage Growth Statistics:[0m
+13:58:11 - __main__.calculate_statistics:346 - INFO - Regeneration: 0 iterations, Average growth: 0.00%[0m
+13:58:11 - __main__.calculate_statistics:349 - INFO - Mutation: 0 iterations, Average growth: 0.00%[0m
+13:58:11 - __main__.calculate_statistics:350 - INFO - ==================================================[0m
+13:58:11 - __main__.calculate_statistics:351 - INFO - Compilation Success Rate:[0m
+13:58:11 - __main__.calculate_statistics:352 - INFO - Total compilation attempts: 13[0m
+13:58:11 - __main__.calculate_statistics:353 - INFO - Successful compilations: 10[0m
+13:58:11 - __main__.calculate_statistics:354 - INFO - Success rate: 76.92% [0m
+13:58:11 - __main__.calculate_statistics:355 - INFO - ==================================================[0m
+13:58:11 - __main__.calculate_statistics:357 - INFO - Initial coverage: 89.44%[0m
+13:58:11 - __main__.calculate_statistics:359 - INFO - Total Coverage Summary:[0m
+13:58:11 - __main__.calculate_statistics:362 - INFO -   Branches: Count=2168, Covered=1778, Percent=82.01%[0m
+13:58:11 - __main__.calculate_statistics:362 - INFO -   Functions: Count=151, Covered=151, Percent=100.00%[0m
+13:58:11 - __main__.calculate_statistics:362 - INFO -   Lines: Count=4498, Covered=4128, Percent=91.77%[0m
+13:58:11 - __main__.calculate_statistics:367 - INFO - ==================================================[0m
+13:58:11 - __main__.calculate_statistics:368 - INFO - Total Coverage Summary (excluding fuzz target):[0m
+13:58:11 - __main__.calculate_statistics:371 - INFO -   Branches: Count=1038, Covered=871, Percent=83.91%[0m
+13:58:11 - __main__.calculate_statistics:371 - INFO -   Functions: Count=112, Covered=112, Percent=100.00%[0m
+13:58:11 - __main__.calculate_statistics:371 - INFO -   Lines: Count=2245, Covered=2008, Percent=89.44%[0m
+13:58:11 - __main__.calculate_statistics:375 - INFO - ==================================================[0m
+13:58:11 - __main__.main:409 - INFO - Project processed[0m
+13:58:11 - __main__.main:410 - INFO - Successful project: True[0m
+13:58:11 - __main__.main:411 - INFO - Total execution time: 3591.49 seconds[0m
+14:03:16 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m

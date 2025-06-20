@@ -1,0 +1,45 @@
+01:47:43 - root.setup_logging:21 - INFO - === Configuration ===[0m
+01:47:43 - root.setup_logging:22 - INFO - Project Name: cjson_wo_exist_b8371_l8917[0m
+01:47:43 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash[0m
+01:47:43 - root.setup_logging:24 - INFO - Iteration loop: 50[0m
+01:47:43 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+01:47:43 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+01:47:43 - root.setup_logging:27 - INFO - Think Budget Tokens: -1[0m
+01:47:43 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+01:47:43 - root.setup_logging:29 - INFO - =====================
+[0m
+01:47:43 - __main__.main:385 - INFO - Skipping initial fuzz target generation[0m
+01:47:43 - __main__.main:386 - INFO - Starting introspector webapp for initial analysis of cjson_wo_exist_b8371_l8917[0m
+01:47:43 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for cjson_wo_exist_b8371_l8917[0m
+01:50:07 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for cjson_wo_exist_b8371_l8917[0m
+01:50:07 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+01:50:17 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+01:50:22 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+01:50:22 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+01:50:22 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+01:50:22 - external.oss_fuzz.get_coverage_summary:444 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+01:50:22 - __main__.main:392 - INFO - Initial coverage for cjson_wo_exist_b8371_l8917: 89.18%[0m
+01:50:22 - __main__.process_project:235 - INFO - Starting to process project: cjson_wo_exist_b8371_l8917[0m
+01:50:22 - external.oss_fuzz.get_coverage_summary:444 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+01:50:22 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: cjson_wo_exist_b8371_l8917, Current coverage: 89.1759465478842[0m
+01:50:22 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [cjson_wo_exist_b8371_l8917] Current coverage array: [89.1759465478842][0m
+01:50:22 - __main__.regenerate_fuzz_target:215 - INFO - Regenerating fuzz target for project: cjson_wo_exist_b8371_l8917[0m
+01:50:22 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+01:50:22 - external.oss_fuzz.funcov_reports:262 - INFO - Generating funcov report for cjson_wo_exist_b8371_l8917 with project[0m
+01:50:22 - external.oss_fuzz.coverage:155 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+01:50:46 - external.oss_fuzz.get_coverage_summary:444 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+01:50:46 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with None: 89.1759465478842%[0m
+01:50:46 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'cjson_wo_exist_b8371_l8917'}[0m
+01:50:46 - __main__.build_fuzz_target:151 - INFO - Build attempt 1/10 for 'cjson_wo_exist_b8371_l8917'.[0m
+01:50:46 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `cjson_wo_exist_b8371_l8917` library (c++) that **maximizes code coverage** by st...[0m
+01:50:46 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+01:51:41 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:51:49 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:52:05 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:52:12 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 8.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:52:21 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 10.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:52:33 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 10.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:52:45 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 10.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:53:04 - __main__.main:412 - INFO - Process interrupted by user[0m

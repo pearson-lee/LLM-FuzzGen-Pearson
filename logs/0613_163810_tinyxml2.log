@@ -1,0 +1,24 @@
+16:38:10 - root.setup_logging:21 - INFO - === Configuration ===[0m
+16:38:10 - root.setup_logging:22 - INFO - Project Name: tinyxml2[0m
+16:38:10 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash-preview-05-20[0m
+16:38:10 - root.setup_logging:24 - INFO - Iteration loop: 1[0m
+16:38:10 - root.setup_logging:25 - INFO - Temperature: 0[0m
+16:38:10 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+16:38:10 - root.setup_logging:27 - INFO - Think Budget Tokens: 2048[0m
+16:38:10 - root.setup_logging:28 - INFO - Max Compiler Attempts: 5[0m
+16:38:10 - root.setup_logging:29 - INFO - =====================
+[0m
+16:38:10 - __main__.main:371 - INFO - Skipping initial fuzz target generation[0m
+16:38:10 - __main__.main:372 - INFO - Starting introspector webapp for initial analysis of tinyxml2[0m
+16:38:10 - external.oss_fuzz.generate_report:188 - INFO - Creating introspector reports for tinyxml2[0m
+16:41:41 - external.oss_fuzz.generate_report:201 - INFO - Introspector reports created for tinyxml2[0m
+16:41:41 - external.introspector.file_lock:115 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+16:41:51 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m
+16:41:54 - external.introspector._query_api:72 - INFO - Querying API: tester with params: {}[0m
+16:41:54 - external.introspector.update_start_webapp:142 - INFO - Web application started successfully.[0m
+16:41:54 - external.introspector.file_lock:121 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+16:41:54 - external.introspector._query_api:72 - INFO - Querying API: project-summary with params: {'project': 'tinyxml2'}[0m
+16:41:54 - external.introspector.line_coverage:235 - INFO - Line coverage data for tinyxml2: 96.22[0m
+16:41:54 - __main__.main:378 - INFO - Initial coverage for tinyxml2: 96.22%[0m
+16:41:54 - __main__.main:396 - ERROR - Process failed with error: process_project() takes 1 positional argument but 2 were given[0m
+16:41:54 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m

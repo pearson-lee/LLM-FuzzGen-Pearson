@@ -1,0 +1,1093 @@
+18:14:32 - root.setup_logging:21 - INFO - === Configuration ===[0m
+18:14:32 - root.setup_logging:22 - INFO - Project Name: lcms[0m
+18:14:32 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro-preview-05-06[0m
+18:14:32 - root.setup_logging:24 - INFO - Iteration loop: 50[0m
+18:14:32 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+18:14:32 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+18:14:32 - root.setup_logging:27 - INFO - Think Budget Tokens: 0[0m
+18:14:32 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+18:14:32 - root.setup_logging:29 - INFO - =====================
+[0m
+18:14:32 - __main__.main:382 - INFO - Skipping initial fuzz target generation[0m
+18:14:32 - __main__.main:383 - INFO - Starting introspector webapp for initial analysis of lcms[0m
+18:14:32 - external.oss_fuzz.generate_report:182 - INFO - Creating introspector reports for lcms[0m
+18:17:54 - external.oss_fuzz.generate_report:195 - INFO - Introspector reports created for lcms[0m
+18:17:54 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+18:18:02 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+18:18:07 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+18:18:07 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+18:18:07 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+18:18:07 - external.oss_fuzz.get_coverage_summary:412 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+18:18:07 - __main__.main:389 - INFO - Initial coverage for lcms: 49.01%[0m
+18:18:07 - __main__.process_project:232 - INFO - Starting to process project: lcms[0m
+18:18:07 - external.oss_fuzz.get_coverage_summary:412 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+18:18:07 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: lcms, Current coverage: 49.00668716747206[0m
+18:18:07 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [lcms] Current coverage array: [49.00668716747206][0m
+18:18:07 - external.oss_fuzz.get_coverage_summary:414 - INFO - Successfully extracted total coverage summary for lcms.[0m
+18:18:07 - __main__.regenerate_fuzz_target:213 - INFO - Regenerating fuzz target for project: lcms[0m
+18:18:07 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+18:18:07 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'lcms'}[0m
+18:18:07 - __main__.build_fuzz_target:151 - INFO - Build attempt 1/10 for 'lcms'.[0m
+18:18:07 - llm_interface.llm_client.generate:139 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `lcms` library (c++) that **maximizes code coverage** by strategically exercising...[0m
+18:18:08 - llm_interface.llm_client._generate_node:80 - INFO - Generating prompt from messages...[0m
+18:19:59 - llm_interface.llm_client.generate:145 - INFO - 
+fuzz target: 
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h" // For _cmsDefaultICCintents
+#include <fuzzer/FuzzedDataProvider.h>
+#include <vector>
+#include <cstdint>
+#include <cstddef>
+#include <algorithm> // For std::min
+
+// Helper RAII wrapper for cmsHPROFILE
+struct ProfileWrapper {
+    cmsHPROFILE profile = nullptr;
+    ProfileWrapper(cmsHPROFILE p) : profile(p) {}
+    ~ProfileWrapper() {
+        if (profile) {
+            cmsCloseProfile(profile); // Manages memory for profiles
+        }
+    }
+    ProfileWrapper(const ProfileWrapper&) = delete;
+    ProfileWrapper& operator=(const ProfileWrapper&) = delete;
+    ProfileWrapper(ProfileWrapper&& other) noexcept : profile(other.profile) {
+        other.profile = nullptr;
+    }
+    ProfileWrapper& operator=(ProfileWrapper&& other) noexcept {
+        if (this != &other) {
+            if (profile) cmsCloseProfile(profile);
+            profile = other.profile;
+            other.profile = nullptr;
+        }
+        return *this;
+    }
+    cmsHPROFILE get() const { return profile; }
+};
+
+// Helper RAII wrapper for cmsHTRANSFORM
+struct TransformWrapper {
+    cmsHTRANSFORM transform = nullptr;
+    TransformWrapper(cmsHTRANSFORM t) : transform(t) {}
+    ~TransformWrapper() {
+        if (transform) {
+            cmsDeleteTransform(transform); // Manages memory for transforms
+        }
+    }
+    TransformWrapper(const TransformWrapper&) = delete;
+    TransformWrapper& operator=(const TransformWrapper&) = delete;
+    TransformWrapper(TransformWrapper&& other) noexcept : transform(other.transform) {
+        other.transform = nullptr;
+    }
+    TransformWrapper& operator=(TransformWrapper&& other) noexcept {
+        if (this != &other) {
+            if (transform) cmsDeleteTransform(transform);
+            transform = other.transform;
+            other.transform = nullptr;
+        }
+        return *this;
+    }
+};
+
+// Helper RAII wrapper for cmsPipeline
+struct PipelineWrapper {
+    cmsPipeline* pipeline = nullptr;
+    PipelineWrapper(cmsPipeline* p) : pipeline(p) {}
+    ~PipelineWrapper() {
+        if (pipeline) {
+            cmsPipelineFree(pipeline); // Manages memory for pipelines
+        }
+    }
+    PipelineWrapper(const PipelineWrapper&) = delete;
+    PipelineWrapper& operator=(const PipelineWrapper&) = delete;
+    PipelineWrapper(PipelineWrapper&& other) noexcept : pipeline(other.pipeline) {
+        other.pipeline = nullptr;
+    }
+    PipelineWrapper& operator=(PipelineWrapper&& other) noexcept {
+        if (this != &other) {
+            if (pipeline) cmsPipelineFree(pipeline);
+            pipeline = other.pipeline;
+            other.pipeline = nullptr;
+        }
+        return *this;
+    }
+};
+
+// Helper RAII wrapper for cmsToneCurve
+struct ToneCurveWrapper {
+    cmsToneCurve* curve = nullptr;
+    ToneCurveWrapper(cmsToneCurve* c) : curve(c) {}
+    ~ToneCurveWrapper() {
+        if (curve) {
+            cmsFreeToneCurve(curve); // Manages memory for tone curves
+        }
+    }
+    ToneCurveWrapper(const ToneCurveWrapper&) = delete;
+    ToneCurveWrapper& operator=(const ToneCurveWrapper&) = delete;
+    ToneCurveWrapper(ToneCurveWrapper&& other) noexcept : curve(other.curve) {
+        other.curve = nullptr;
+    }
+    ToneCurveWrapper& operator=(ToneCurveWrapper&& other) noexcept {
+        if (this != &other) {
+            if (curve) cmsFreeToneCurve(curve);
+            curve = other.curve;
+            other.curve = nullptr;
+        }
+        return *this;
+    }
+    cmsToneCurve* get() const { return curve; }
+};
+
+// Helper RAII wrapper for cmsIOHANDLER
+struct IOHandlerWrapper {
+    cmsIOHANDLER* io = nullptr;
+    IOHandlerWrapper(cmsIOHANDLER* i) : io(i) {}
+    ~IOHandlerWrapper() {
+        if (io) {
+            cmsCloseIOhandler(io); // Manages memory for IO handlers
+        }
+    }
+    IOHandlerWrapper(const IOHandlerWrapper&) = delete;
+    IOHandlerWrapper& operator=(const IOHandlerWrapper&) = delete;
+    IOHandlerWrapper(IOHandlerWrapper&& other) noexcept : io(other.io) {
+        other.io = nullptr;
+    }
+    IOHandlerWrapper& operator=(IOHandlerWrapper&& other) noexcept {
+        if (this != &other) {
+            if (io) cmsCloseIOhandler(io);
+            io = other.io;
+            other.io = nullptr;
+        }
+        return *this;
+    }
+    cmsIOHANDLER* get() const { return io; }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Create a base context. Using nullptr for userData for simplicity.
+    cmsContext baseContext = cmsCreateContext(nullptr, nullptr);
+    if (!baseContext) {
+        return 0; // Cannot proceed without a context
+    }
+
+    cmsContext duplicatedContext = nullptr;
+    cmsContext ctxToUse = baseContext;
+
+    // 1. Fuzz cmsDupContext
+    if (fdp.ConsumeBool()) {
+        // The second argument to cmsDupContext is user data for the new context's plugins.
+        // Passing nullptr is fine if not specifically testing plugin user data interactions.
+        duplicatedContext = cmsDupContext(baseContext, nullptr);
+        if (duplicatedContext) {
+            ctxToUse = duplicatedContext; // Use the duplicated context for subsequent operations
+        }
+    }
+
+    std::vector<ProfileWrapper> profiles; // Store created profiles
+
+    // 2. Fuzz cmsOpenProfileFromIOhandler2THR
+    if (fdp.ConsumeBool()) {
+        // Consume data for the profile content. Min size 10 for some basic fuzzing.
+        size_t profileDataSize = fdp.ConsumeIntegralInRange<size_t>(10, fdp.remaining_bytes() / 3);
+        if (profileDataSize > 0 && fdp.remaining_bytes() >= profileDataSize) {
+            std::vector<uint8_t> profileDataVec = fdp.ConsumeBytes<uint8_t>(profileDataSize);
+            
+            // cmsOpenIOhandlerFromMem requires a non-const buffer pointer for its internal state,
+            // but does not modify the content if opened in read mode 'r'.
+            // The buffer (profileDataVec.data()) must remain valid for the lifetime of the IOhandler.
+            IOHandlerWrapper io(cmsOpenIOhandlerFromMem(ctxToUse, profileDataVec.data(), profileDataVec.size(), 'r'));
+            if (io.get()) {
+                // The third argument to cmsOpenProfileFromIOhandler2THR is a cmsBool (used as a flag).
+                cmsBool useAsIs = fdp.ConsumeBool();
+                cmsHPROFILE hProfile = cmsOpenProfileFromIOhandler2THR(ctxToUse, io.get(), useAsIs);
+                if (hProfile) {
+                    profiles.emplace_back(hProfile); // ProfileWrapper takes ownership
+                }
+            }
+            // IOHandlerWrapper and profileDataVec are destructed here, which is correct as
+            // cmsOpenProfileFromIOhandler2THR should have read data synchronously.
+        }
+    }
+
+    // 3. Fuzz cmsCreateRGBProfileTHR
+    if (fdp.ConsumeBool()) {
+        cmsCIExyY whitePoint;
+        whitePoint.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        whitePoint.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        whitePoint.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+
+        cmsCIExyYTRIPLE primaries;
+        primaries.Red.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Red.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Red.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+
+        std::vector<ToneCurveWrapper> toneCurves; // RAII for tone curves
+        const cmsToneCurve* gamutTable[3] = {nullptr, nullptr, nullptr};
+
+        for (int i = 0; i < 3; ++i) {
+            if (fdp.ConsumeBool()) { // Decide whether to create this curve
+                if (fdp.ConsumeBool()) { // Choose between gamma or tabulated curve
+                    double gamma = fdp.ConsumeFloatingPointInRange<double>(0.1, 4.0);
+                    toneCurves.emplace_back(cmsBuildGamma(ctxToUse, gamma));
+                } else {
+                    cmsUInt32Number nEntries = fdp.ConsumeIntegralInRange<cmsUInt32Number>(2, 64); // Smaller max for performance
+                    std::vector<cmsFloat32Number> table(nEntries);
+                    for (cmsUInt32Number j = 0; j < nEntries; ++j) {
+                        table[j] = fdp.ConsumeFloatingPointInRange<float>(0.0f, 1.0f);
+                    }
+                    toneCurves.emplace_back(cmsBuildTabulatedToneCurve(ctxToUse, nEntries, table.data()));
+                }
+                if (!toneCurves.empty() && toneCurves.back().get()) {
+                    gamutTable[i] = toneCurves.back().get();
+                }
+            }
+        }
+        
+        cmsHPROFILE hProfile = cmsCreateRGBProfileTHR(ctxToUse, &whitePoint, &primaries, gamutTable);
+        if (hProfile) {
+            profiles.emplace_back(hProfile); // ProfileWrapper takes ownership
+        }
+        // toneCurves vector and its ToneCurveWrappers are destructed here, freeing curves.
+        // cmsCreateRGBProfileTHR duplicates curves internally if needed.
+    }
+    
+    // Ensure there's at least one profile for subsequent APIs
+    if (profiles.empty()) {
+        cmsHPROFILE srgbProfile = cmsCreate_sRGBProfileTHR(ctxToUse);
+        if (srgbProfile) {
+            profiles.emplace_back(srgbProfile);
+        }
+    }
+
+    if (profiles.empty()) { // If still no profiles, cannot test dependent APIs
+        if (duplicatedContext) cmsDeleteContext(duplicatedContext);
+        cmsDeleteContext(baseContext);
+        return 0;
+    }
+
+    // 4. Fuzz cmsCreateProofingTransformTHR
+    if (fdp.ConsumeBool()) {
+        cmsHPROFILE hInput = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+        cmsHPROFILE hOutput = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+        cmsHPROFILE hProofing = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+
+        cmsUInt32Number inputFormat = fdp.ConsumeIntegral<cmsUInt32Number>();
+        cmsUInt32Number outputFormat = fdp.ConsumeIntegral<cmsUInt32Number>();
+        // Intents are typically 0-3. Fuzzing with wider range might be useful.
+        cmsUInt32Number intent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10); 
+        cmsUInt32Number proofingIntent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10);
+        cmsUInt32Number dwFlags = fdp.ConsumeIntegral<cmsUInt32Number>();
+
+        TransformWrapper transform(cmsCreateProofingTransformTHR(ctxToUse, hInput, inputFormat, hOutput, outputFormat, hProofing, intent, proofingIntent, dwFlags));
+        // TransformWrapper manages the transform's lifecycle.
+    }
+
+    // 5. Fuzz _cmsDefaultICCintents
+    if (fdp.ConsumeBool()) {
+        cmsUInt32Number nProfilesForIntent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(1, std::min((size_t)5, profiles.size()));
+        
+        std::vector<cmsUInt32Number> intentsArr(nProfilesForIntent);
+        std::vector<cmsHPROFILE> hProfilesArr(nProfilesForIntent);
+        std::vector<cmsBool> bpcArr(nProfilesForIntent);
+        std::vector<cmsFloat64Number> adaptationStatesArr(nProfilesForIntent);
+
+        for (cmsUInt32Number i = 0; i < nProfilesForIntent; ++i) {
+            intentsArr[i] = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10); // Intents 0-3 are standard
+            hProfilesArr[i] = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+            bpcArr[i] = fdp.ConsumeBool();
+            adaptationStatesArr[i] = fdp.ConsumeFloatingPointInRange<cmsFloat64Number>(0.0, 1.0);
+        }
+        cmsUInt32Number dwFlagsIntent = fdp.ConsumeIntegral<cmsUInt32Number>();
+
+        PipelineWrapper pipeline(_cmsDefaultICCintents(ctxToUse, nProfilesForIntent, intentsArr.data(), hProfilesArr.data(), bpcArr.data(), adaptationStatesArr.data(), dwFlagsIntent));
+        // PipelineWrapper manages the pipeline's lifecycle.
+    }
+
+    // Cleanup:
+    // ProfileWrappers in 'profiles' vector will be destructed, closing profiles.
+    // Other wrappers (TransformWrapper, PipelineWrapper, ToneCurveWrapper, IOHandlerWrapper) handle their resources.
+    if (duplicatedContext) {
+        cmsDeleteContext(duplicatedContext); // Manages memory for duplicated context
+    }
+    cmsDeleteContext(baseContext); // Manages memory for base context
+
+    return 0;
+}[0m
+18:19:59 - external.oss_fuzz.save_target:224 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617181959.cc[0m
+18:19:59 - __main__.build_fuzz_target:159 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617181959.cc'.[0m
+18:19:59 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0617181959 for 30 seconds for project lcms[0m
+18:20:07 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno matching function for call to 'cmsOpenIOhandlerFromMem'[0m
+  166 |             IOHandlerWrapper io(cmsOpenIOhandlerFromMem(ctxToUse, profileDataVec.data(), profileDataVec.size(), 'r'));[0m
+      | [0;1;32m                                ^~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1604:36: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'char' to 'const char *' for 4th argument[0m
+ 1604 | CMSAPI cmsIOHANDLER*     CMSEXPORT cmsOpenIOhandlerFromMem(cmsContext ContextID, void *Buffer, cmsUInt32Number size, const char* AccessMode);[0m
+      | [0;1;32m                                   ^                                                                                 ~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0617181959.cc:212:45: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'cmsBuildTabulatedToneCurve'; did you mean 'cmsBuildTabulatedToneCurve16'?[0m
+  212 |                     toneCurves.emplace_back(cmsBuildTabulatedToneCurve(ctxToUse, nEntries, table.data()));[0m
+      | [0;1;32m                                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m      | [0;32m                                            cmsBuildTabulatedToneCurve16
+[0m[1m/src/lcms/include/lcms2.h:1227:36: [0m[0;1;36mnote: [0m'cmsBuildTabulatedToneCurve16' declared here[0m
+ 1227 | CMSAPI cmsToneCurve*     CMSEXPORT cmsBuildTabulatedToneCurve16(cmsContext ContextID, cmsUInt32Number nEntries, const cmsUInt16Number values[]);[0m
+      | [0;1;32m                                   ^
+[0m[1m/src/llm_fuzzgen0617181959.cc:212:92: [0m[0;1;31merror: [0m[1mcannot initialize a parameter of type 'const cmsUInt16Number *' (aka 'const unsigned short *') with an rvalue of type 'value_type *' (aka 'float *')[0m
+  212 |                     toneCurves.emplace_back(cmsBuildTabulatedToneCurve(ctxToUse, nEntries, table.data()));[0m
+      | [0;1;32m                                                                                           ^~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1227:135: [0m[0;1;36mnote: [0mpassing argument to parameter 'values' here[0m
+ 1227 | CMSAPI cmsToneCurve*     CMSEXPORT cmsBuildTabulatedToneCurve16(cmsContext ContextID, cmsUInt32Number nEntries, const cmsUInt16Number values[]);[0m
+      | [0;1;32m                                                                                                                                      ^
+[0m[1m/src/llm_fuzzgen0617181959.cc:220:32: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsCreateRGBProfileTHR'[0m
+  220 |         cmsHPROFILE hProfile = cmsCreateRGBProfileTHR(ctxToUse, &whitePoint, &primaries, gamutTable);[0m
+      | [0;1;32m                               ^~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1632:35: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'const cmsToneCurve *[3]' (aka 'const _cms_curve_struct *[3]') to 'cmsToneCurve *const *' (aka '_cms_curve_struct *const *') for 4th argument[0m
+ 1632 | CMSAPI cmsHPROFILE      CMSEXPORT cmsCreateRGBProfileTHR(cmsContext ContextID,[0m
+      | [0;1;32m                                  ^
+[0m 1633 |                                                    const cmsCIExyY* WhitePoint,[0m
+ 1634 |                                                    const cmsCIExyYTRIPLE* Primaries,[0m
+ 1635 |                                                    cmsToneCurve* const TransferFunction[3]);[0m
+      | [0;1;32m                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m4 errors generated.[0m
+18:20:07 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0617181959 for project lcms failed to build.[0m
+18:20:07 - __main__.build_fuzz_target:167 - ERROR - Build failed (attempt 1).[0m
+18:20:07 - external.oss_fuzz.remove_target:233 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617181959.cc[0m
+18:20:07 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for lcms[0m
+18:20:07 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+18:20:07 - __main__.build_fuzz_target:151 - INFO - Build attempt 2/10 for 'lcms'.[0m
+18:20:07 - llm_interface.llm_client.generate:139 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `lcms` library (c++) by **resolving all specified bu...[0m
+18:20:07 - llm_interface.llm_client._generate_node:80 - INFO - Generating prompt from messages...[0m
+18:21:01 - llm_interface.llm_client.generate:145 - INFO - 
+fuzz target: 
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h" // For _cmsDefaultICCintents
+#include <fuzzer/FuzzedDataProvider.h>
+#include <vector>
+#include <cstdint>
+#include <cstddef>
+#include <algorithm> // For std::min
+
+// Helper RAII wrapper for cmsHPROFILE
+struct ProfileWrapper {
+    cmsHPROFILE profile = nullptr;
+    ProfileWrapper(cmsHPROFILE p) : profile(p) {}
+    ~ProfileWrapper() {
+        if (profile) {
+            cmsCloseProfile(profile); // Manages memory for profiles
+        }
+    }
+    ProfileWrapper(const ProfileWrapper&) = delete;
+    ProfileWrapper& operator=(const ProfileWrapper&) = delete;
+    ProfileWrapper(ProfileWrapper&& other) noexcept : profile(other.profile) {
+        other.profile = nullptr;
+    }
+    ProfileWrapper& operator=(ProfileWrapper&& other) noexcept {
+        if (this != &other) {
+            if (profile) cmsCloseProfile(profile);
+            profile = other.profile;
+            other.profile = nullptr;
+        }
+        return *this;
+    }
+    cmsHPROFILE get() const { return profile; }
+};
+
+// Helper RAII wrapper for cmsHTRANSFORM
+struct TransformWrapper {
+    cmsHTRANSFORM transform = nullptr;
+    TransformWrapper(cmsHTRANSFORM t) : transform(t) {}
+    ~TransformWrapper() {
+        if (transform) {
+            cmsDeleteTransform(transform); // Manages memory for transforms
+        }
+    }
+    TransformWrapper(const TransformWrapper&) = delete;
+    TransformWrapper& operator=(const TransformWrapper&) = delete;
+    TransformWrapper(TransformWrapper&& other) noexcept : transform(other.transform) {
+        other.transform = nullptr;
+    }
+    TransformWrapper& operator=(TransformWrapper&& other) noexcept {
+        if (this != &other) {
+            if (transform) cmsDeleteTransform(transform);
+            transform = other.transform;
+            other.transform = nullptr;
+        }
+        return *this;
+    }
+};
+
+// Helper RAII wrapper for cmsPipeline
+struct PipelineWrapper {
+    cmsPipeline* pipeline = nullptr;
+    PipelineWrapper(cmsPipeline* p) : pipeline(p) {}
+    ~PipelineWrapper() {
+        if (pipeline) {
+            cmsPipelineFree(pipeline); // Manages memory for pipelines
+        }
+    }
+    PipelineWrapper(const PipelineWrapper&) = delete;
+    PipelineWrapper& operator=(const PipelineWrapper&) = delete;
+    PipelineWrapper(PipelineWrapper&& other) noexcept : pipeline(other.pipeline) {
+        other.pipeline = nullptr;
+    }
+    PipelineWrapper& operator=(PipelineWrapper&& other) noexcept {
+        if (this != &other) {
+            if (pipeline) cmsPipelineFree(pipeline);
+            pipeline = other.pipeline;
+            other.pipeline = nullptr;
+        }
+        return *this;
+    }
+};
+
+// Helper RAII wrapper for cmsToneCurve
+struct ToneCurveWrapper {
+    cmsToneCurve* curve = nullptr;
+    ToneCurveWrapper(cmsToneCurve* c) : curve(c) {}
+    ~ToneCurveWrapper() {
+        if (curve) {
+            cmsFreeToneCurve(curve); // Manages memory for tone curves
+        }
+    }
+    ToneCurveWrapper(const ToneCurveWrapper&) = delete;
+    ToneCurveWrapper& operator=(const ToneCurveWrapper&) = delete;
+    ToneCurveWrapper(ToneCurveWrapper&& other) noexcept : curve(other.curve) {
+        other.curve = nullptr;
+    }
+    ToneCurveWrapper& operator=(ToneCurveWrapper&& other) noexcept {
+        if (this != &other) {
+            if (curve) cmsFreeToneCurve(curve);
+            curve = other.curve;
+            other.curve = nullptr;
+        }
+        return *this;
+    }
+    cmsToneCurve* get() const { return curve; }
+};
+
+// Helper RAII wrapper for cmsIOHANDLER
+struct IOHandlerWrapper {
+    cmsIOHANDLER* io = nullptr;
+    IOHandlerWrapper(cmsIOHANDLER* i) : io(i) {}
+    ~IOHandlerWrapper() {
+        if (io) {
+            cmsCloseIOhandler(io); // Manages memory for IO handlers
+        }
+    }
+    IOHandlerWrapper(const IOHandlerWrapper&) = delete;
+    IOHandlerWrapper& operator=(const IOHandlerWrapper&) = delete;
+    IOHandlerWrapper(IOHandlerWrapper&& other) noexcept : io(other.io) {
+        other.io = nullptr;
+    }
+    IOHandlerWrapper& operator=(IOHandlerWrapper&& other) noexcept {
+        if (this != &other) {
+            if (io) cmsCloseIOhandler(io);
+            io = other.io;
+            other.io = nullptr;
+        }
+        return *this;
+    }
+    cmsIOHANDLER* get() const { return io; }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Create a base context. Using nullptr for userData for simplicity.
+    cmsContext baseContext = cmsCreateContext(nullptr, nullptr);
+    if (!baseContext) {
+        return 0; // Cannot proceed without a context
+    }
+
+    cmsContext duplicatedContext = nullptr;
+    cmsContext ctxToUse = baseContext;
+
+    // 1. Fuzz cmsDupContext
+    if (fdp.ConsumeBool()) {
+        // The second argument to cmsDupContext is user data for the new context's plugins.
+        // Passing nullptr is fine if not specifically testing plugin user data interactions.
+        duplicatedContext = cmsDupContext(baseContext, nullptr);
+        if (duplicatedContext) {
+            ctxToUse = duplicatedContext; // Use the duplicated context for subsequent operations
+        }
+    }
+
+    std::vector<ProfileWrapper> profiles; // Store created profiles
+
+    // 2. Fuzz cmsOpenProfileFromIOhandler2THR
+    if (fdp.ConsumeBool()) {
+        // Consume data for the profile content. Min size 10 for some basic fuzzing.
+        size_t profileDataSize = fdp.ConsumeIntegralInRange<size_t>(10, fdp.remaining_bytes() / 3);
+        if (profileDataSize > 0 && fdp.remaining_bytes() >= profileDataSize) {
+            std::vector<uint8_t> profileDataVec = fdp.ConsumeBytes<uint8_t>(profileDataSize);
+            
+            // cmsOpenIOhandlerFromMem requires a non-const buffer pointer for its internal state,
+            // but does not modify the content if opened in read mode 'r'.
+            // The buffer (profileDataVec.data()) must remain valid for the lifetime of the IOhandler.
+            IOHandlerWrapper io(cmsOpenIOhandlerFromMem(ctxToUse, profileDataVec.data(), profileDataVec.size(), "r"));
+            if (io.get()) {
+                // The third argument to cmsOpenProfileFromIOhandler2THR is a cmsBool (used as a flag).
+                cmsBool useAsIs = fdp.ConsumeBool();
+                cmsHPROFILE hProfile = cmsOpenProfileFromIOhandler2THR(ctxToUse, io.get(), useAsIs);
+                if (hProfile) {
+                    profiles.emplace_back(hProfile); // ProfileWrapper takes ownership
+                }
+            }
+            // IOHandlerWrapper and profileDataVec are destructed here, which is correct as
+            // cmsOpenProfileFromIOhandler2THR should have read data synchronously.
+        }
+    }
+
+    // 3. Fuzz cmsCreateRGBProfileTHR
+    if (fdp.ConsumeBool()) {
+        cmsCIExyY whitePoint;
+        whitePoint.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        whitePoint.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        whitePoint.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+
+        cmsCIExyYTRIPLE primaries;
+        primaries.Red.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Red.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Red.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+
+        std::vector<ToneCurveWrapper> toneCurves; // RAII for tone curves
+        cmsToneCurve* gamutTable[3] = {nullptr, nullptr, nullptr};
+
+        for (int i = 0; i < 3; ++i) {
+            if (fdp.ConsumeBool()) { // Decide whether to create this curve
+                if (fdp.ConsumeBool()) { // Choose between gamma or tabulated curve
+                    double gamma = fdp.ConsumeFloatingPointInRange<double>(0.1, 4.0);
+                    toneCurves.emplace_back(cmsBuildGamma(ctxToUse, gamma));
+                } else {
+                    cmsUInt32Number nEntries = fdp.ConsumeIntegralInRange<cmsUInt32Number>(2, 64); // Smaller max for performance
+                    std::vector<cmsUInt16Number> table(nEntries);
+                    for (cmsUInt32Number j = 0; j < nEntries; ++j) {
+                        table[j] = fdp.ConsumeIntegralInRange<cmsUInt16Number>(0, 65535);
+                    }
+                    toneCurves.emplace_back(cmsBuildTabulatedToneCurve16(ctxToUse, nEntries, table.data()));
+                }
+                if (!toneCurves.empty() && toneCurves.back().get()) {
+                    gamutTable[i] = toneCurves.back().get();
+                }
+            }
+        }
+        
+        cmsHPROFILE hProfile = cmsCreateRGBProfileTHR(ctxToUse, &whitePoint, &primaries, gamutTable);
+        if (hProfile) {
+            profiles.emplace_back(hProfile); // ProfileWrapper takes ownership
+        }
+        // toneCurves vector and its ToneCurveWrappers are destructed here, freeing curves.
+        // cmsCreateRGBProfileTHR duplicates curves internally if needed.
+    }
+    
+    // Ensure there's at least one profile for subsequent APIs
+    if (profiles.empty()) {
+        cmsHPROFILE srgbProfile = cmsCreate_sRGBProfileTHR(ctxToUse);
+        if (srgbProfile) {
+            profiles.emplace_back(srgbProfile);
+        }
+    }
+
+    if (profiles.empty()) { // If still no profiles, cannot test dependent APIs
+        if (duplicatedContext) cmsDeleteContext(duplicatedContext);
+        cmsDeleteContext(baseContext);
+        return 0;
+    }
+
+    // 4. Fuzz cmsCreateProofingTransformTHR
+    if (fdp.ConsumeBool()) {
+        cmsHPROFILE hInput = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+        cmsHPROFILE hOutput = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+        cmsHPROFILE hProofing = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+
+        cmsUInt32Number inputFormat = fdp.ConsumeIntegral<cmsUInt32Number>();
+        cmsUInt32Number outputFormat = fdp.ConsumeIntegral<cmsUInt32Number>();
+        // Intents are typically 0-3. Fuzzing with wider range might be useful.
+        cmsUInt32Number intent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10); 
+        cmsUInt32Number proofingIntent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10);
+        cmsUInt32Number dwFlags = fdp.ConsumeIntegral<cmsUInt32Number>();
+
+        TransformWrapper transform(cmsCreateProofingTransformTHR(ctxToUse, hInput, inputFormat, hOutput, outputFormat, hProofing, intent, proofingIntent, dwFlags));
+        // TransformWrapper manages the transform's lifecycle.
+    }
+
+    // 5. Fuzz _cmsDefaultICCintents
+    if (fdp.ConsumeBool()) {
+        cmsUInt32Number nProfilesForIntent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(1, std::min((size_t)5, profiles.size()));
+        if (nProfilesForIntent == 0 && profiles.size() > 0) { // Ensure nProfilesForIntent is at least 1 if profiles exist
+             nProfilesForIntent = 1;
+        }
+        if (nProfilesForIntent > 0) { // Proceed only if we can form a valid array
+            std::vector<cmsUInt32Number> intentsArr(nProfilesForIntent);
+            std::vector<cmsHPROFILE> hProfilesArr(nProfilesForIntent);
+            std::vector<cmsBool> bpcArr(nProfilesForIntent);
+            std::vector<cmsFloat64Number> adaptationStatesArr(nProfilesForIntent);
+
+            for (cmsUInt32Number i = 0; i < nProfilesForIntent; ++i) {
+                intentsArr[i] = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10); // Intents 0-3 are standard
+                hProfilesArr[i] = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+                bpcArr[i] = fdp.ConsumeBool();
+                adaptationStatesArr[i] = fdp.ConsumeFloatingPointInRange<cmsFloat64Number>(0.0, 1.0);
+            }
+            cmsUInt32Number dwFlagsIntent = fdp.ConsumeIntegral<cmsUInt32Number>();
+
+            PipelineWrapper pipeline(_cmsDefaultICCintents(ctxToUse, nProfilesForIntent, intentsArr.data(), hProfilesArr.data(), bpcArr.data(), adaptationStatesArr.data(), dwFlagsIntent));
+            // PipelineWrapper manages the pipeline's lifecycle.
+        }
+    }
+
+    // Cleanup:
+    // ProfileWrappers in 'profiles' vector will be destructed, closing profiles.
+    // Other wrappers (TransformWrapper, PipelineWrapper, ToneCurveWrapper, IOHandlerWrapper) handle their resources.
+    if (duplicatedContext) {
+        cmsDeleteContext(duplicatedContext); // Manages memory for duplicated context
+    }
+    cmsDeleteContext(baseContext); // Manages memory for base context
+
+    return 0;
+}[0m
+18:21:01 - external.oss_fuzz.save_target:224 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617182101.cc[0m
+18:21:01 - __main__.build_fuzz_target:159 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617182101.cc'.[0m
+18:21:01 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0617182101 for 30 seconds for project lcms[0m
+18:21:10 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0617182101: 
+ ERROR: AddressSanitizer: ABRT on unknown address 0x00000000000f (pc 0x7f540d88f00b bp 0x7ffc1fdd3d60 sp 0x7ffc1fdd39d0 T0)
+[1m[0mSCARINESS: 10 (signal)
+    #0 0x7f540d88f00b in raise (/lib/x86_64-linux-gnu/libc.so.6+0x4300b) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #1 0x7f540d86e858 in abort (/lib/x86_64-linux-gnu/libc.so.6+0x22858) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #2 0x55a31347b03c in ConsumeIntegralInRange<unsigned long> /usr/local/lib/clang/18/include/fuzzer/FuzzedDataProvider.h:209:5
+    #3 0x55a31347b03c in LLVMFuzzerTestOneInput /src/llm_fuzzgen0617182101.cc:159:38
+    #4 0x55a31332c430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #5 0x55a31332bc55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #6 0x55a31332d435 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #7 0x55a31332e1c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #8 0x55a31331d00b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #9 0x55a3133483e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7f540d870082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #11 0x55a31330f88d in _start (/out/llm_fuzzgen0617182101+0x9288d)
+
+DEDUP_TOKEN: raise--abort--ConsumeIntegralInRange<unsigned long>
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: ABRT (/lib/x86_64-linux-gnu/libc.so.6+0x4300b) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d) in raise
+==15==ABORTING
+MS: 2 ChangeByte-CrossOver-; base unit: adc83b19e793491b1c6ea0fd8b46cd9f32e592fc
+0x1,0x23,
+\001#
+artifact_prefix='llm_fuzzgen0617182101_'; Test unit written to llm_fuzzgen0617182101_crash-be6b04f799ce8f512d548ffb087dce1ea9d083ff
+Base64: ASM=
+INFO:[0m
+18:21:10 - __main__.build_fuzz_target:167 - ERROR - Build failed (attempt 2).[0m
+18:21:10 - external.oss_fuzz.remove_target:233 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617182101.cc[0m
+18:21:10 - external.oss_fuzz.remove_corpus:445 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/lcms/llm_fuzzgen0617182101[0m
+18:21:10 - __main__.build_fuzz_target:151 - INFO - Build attempt 3/10 for 'lcms'.[0m
+18:21:10 - llm_interface.llm_client.generate:139 - INFO - Generating response for prompt: ERROR: AddressSanitizer: ABRT on unknown address 0x00000000000f (pc 0x7f540d88f00b bp 0x7ffc1fdd3d60 sp 0x7ffc1fdd39d0 T0)
+[1m[0mSCARINESS: 10 (signal)
+    #0 0x7f540d88f00b in raise (/lib/x86_64-linux-gnu/libc.so.6+0x4300b) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #1 0x7f540d86e858...[0m
+18:21:10 - llm_interface.llm_client._generate_node:80 - INFO - Generating prompt from messages...[0m
+18:23:34 - llm_interface.llm_client.generate:145 - INFO - 
+fuzz target: 
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h" // For _cmsDefaultICCintents
+#include <fuzzer/FuzzedDataProvider.h>
+#include <vector>
+#include <cstdint>
+#include <cstddef>
+#include <algorithm> // For std::min
+
+// Helper RAII wrapper for cmsHPROFILE
+struct ProfileWrapper {
+    cmsHPROFILE profile = nullptr;
+    ProfileWrapper(cmsHPROFILE p) : profile(p) {}
+    ~ProfileWrapper() {
+        if (profile) {
+            cmsCloseProfile(profile); // Manages memory for profiles
+        }
+    }
+    ProfileWrapper(const ProfileWrapper&) = delete;
+    ProfileWrapper& operator=(const ProfileWrapper&) = delete;
+    ProfileWrapper(ProfileWrapper&& other) noexcept : profile(other.profile) {
+        other.profile = nullptr;
+    }
+    ProfileWrapper& operator=(ProfileWrapper&& other) noexcept {
+        if (this != &other) {
+            if (profile) cmsCloseProfile(profile);
+            profile = other.profile;
+            other.profile = nullptr;
+        }
+        return *this;
+    }
+    cmsHPROFILE get() const { return profile; }
+};
+
+// Helper RAII wrapper for cmsHTRANSFORM
+struct TransformWrapper {
+    cmsHTRANSFORM transform = nullptr;
+    TransformWrapper(cmsHTRANSFORM t) : transform(t) {}
+    ~TransformWrapper() {
+        if (transform) {
+            cmsDeleteTransform(transform); // Manages memory for transforms
+        }
+    }
+    TransformWrapper(const TransformWrapper&) = delete;
+    TransformWrapper& operator=(const TransformWrapper&) = delete;
+    TransformWrapper(TransformWrapper&& other) noexcept : transform(other.transform) {
+        other.transform = nullptr;
+    }
+    TransformWrapper& operator=(TransformWrapper&& other) noexcept {
+        if (this != &other) {
+            if (transform) cmsDeleteTransform(transform);
+            transform = other.transform;
+            other.transform = nullptr;
+        }
+        return *this;
+    }
+};
+
+// Helper RAII wrapper for cmsPipeline
+struct PipelineWrapper {
+    cmsPipeline* pipeline = nullptr;
+    PipelineWrapper(cmsPipeline* p) : pipeline(p) {}
+    ~PipelineWrapper() {
+        if (pipeline) {
+            cmsPipelineFree(pipeline); // Manages memory for pipelines
+        }
+    }
+    PipelineWrapper(const PipelineWrapper&) = delete;
+    PipelineWrapper& operator=(const PipelineWrapper&) = delete;
+    PipelineWrapper(PipelineWrapper&& other) noexcept : pipeline(other.pipeline) {
+        other.pipeline = nullptr;
+    }
+    PipelineWrapper& operator=(PipelineWrapper&& other) noexcept {
+        if (this != &other) {
+            if (pipeline) cmsPipelineFree(pipeline);
+            pipeline = other.pipeline;
+            other.pipeline = nullptr;
+        }
+        return *this;
+    }
+};
+
+// Helper RAII wrapper for cmsToneCurve
+struct ToneCurveWrapper {
+    cmsToneCurve* curve = nullptr;
+    ToneCurveWrapper(cmsToneCurve* c) : curve(c) {}
+    ~ToneCurveWrapper() {
+        if (curve) {
+            cmsFreeToneCurve(curve); // Manages memory for tone curves
+        }
+    }
+    ToneCurveWrapper(const ToneCurveWrapper&) = delete;
+    ToneCurveWrapper& operator=(const ToneCurveWrapper&) = delete;
+    ToneCurveWrapper(ToneCurveWrapper&& other) noexcept : curve(other.curve) {
+        other.curve = nullptr;
+    }
+    ToneCurveWrapper& operator=(ToneCurveWrapper&& other) noexcept {
+        if (this != &other) {
+            if (curve) cmsFreeToneCurve(curve);
+            curve = other.curve;
+            other.curve = nullptr;
+        }
+        return *this;
+    }
+    cmsToneCurve* get() const { return curve; }
+};
+
+// Helper RAII wrapper for cmsIOHANDLER
+struct IOHandlerWrapper {
+    cmsIOHANDLER* io = nullptr;
+    IOHandlerWrapper(cmsIOHANDLER* i) : io(i) {}
+    ~IOHandlerWrapper() {
+        if (io) {
+            cmsCloseIOhandler(io); // Manages memory for IO handlers
+        }
+    }
+    IOHandlerWrapper(const IOHandlerWrapper&) = delete;
+    IOHandlerWrapper& operator=(const IOHandlerWrapper&) = delete;
+    IOHandlerWrapper(IOHandlerWrapper&& other) noexcept : io(other.io) {
+        other.io = nullptr;
+    }
+    IOHandlerWrapper& operator=(IOHandlerWrapper&& other) noexcept {
+        if (this != &other) {
+            if (io) cmsCloseIOhandler(io);
+            io = other.io;
+            other.io = nullptr;
+        }
+        return *this;
+    }
+    cmsIOHANDLER* get() const { return io; }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    cmsContext baseContext = cmsCreateContext(nullptr, nullptr);
+    if (!baseContext) {
+        return 0;
+    }
+
+    cmsContext duplicatedContext = nullptr;
+    cmsContext ctxToUse = baseContext;
+
+    if (fdp.ConsumeBool()) {
+        duplicatedContext = cmsDupContext(baseContext, nullptr);
+        if (duplicatedContext) {
+            ctxToUse = duplicatedContext;
+        }
+    }
+
+    std::vector<ProfileWrapper> profiles;
+
+    if (fdp.ConsumeBool()) {
+        size_t max_profile_size_candidate = fdp.remaining_bytes() / 3;
+        if (max_profile_size_candidate >= 10) { // Min size for profile is 10
+            size_t profileDataSize = fdp.ConsumeIntegralInRange<size_t>(10, max_profile_size_candidate);
+            std::vector<uint8_t> profileDataVec = fdp.ConsumeBytes<uint8_t>(profileDataSize);
+            
+            if (!profileDataVec.empty()) {
+                IOHandlerWrapper io(cmsOpenIOhandlerFromMem(ctxToUse, profileDataVec.data(), profileDataVec.size(), "r"));
+                if (io.get()) {
+                    cmsBool useAsIs = fdp.ConsumeBool();
+                    cmsHPROFILE hProfile = cmsOpenProfileFromIOhandler2THR(ctxToUse, io.get(), useAsIs);
+                    if (hProfile) {
+                        profiles.emplace_back(hProfile);
+                    }
+                }
+            }
+        }
+    }
+
+    if (fdp.ConsumeBool()) {
+        cmsCIExyY whitePoint;
+        whitePoint.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        whitePoint.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        whitePoint.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+
+        cmsCIExyYTRIPLE primaries;
+        primaries.Red.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Red.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Red.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Green.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.x = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+        primaries.Blue.Y = fdp.ConsumeFloatingPoint<cmsFloat64Number>();
+
+        std::vector<ToneCurveWrapper> toneCurves;
+        cmsToneCurve* gamutTable[3] = {nullptr, nullptr, nullptr};
+
+        for (int i = 0; i < 3; ++i) {
+            if (fdp.ConsumeBool()) {
+                if (fdp.ConsumeBool()) {
+                    double gamma = fdp.ConsumeFloatingPointInRange<double>(0.1, 4.0);
+                    toneCurves.emplace_back(cmsBuildGamma(ctxToUse, gamma));
+                } else {
+                    cmsUInt32Number nEntries = fdp.ConsumeIntegralInRange<cmsUInt32Number>(2, 64);
+                    std::vector<cmsUInt16Number> table(nEntries);
+                    for (cmsUInt32Number j = 0; j < nEntries; ++j) {
+                        table[j] = fdp.ConsumeIntegralInRange<cmsUInt16Number>(0, 65535);
+                    }
+                    toneCurves.emplace_back(cmsBuildTabulatedToneCurve16(ctxToUse, nEntries, table.data()));
+                }
+                if (!toneCurves.empty() && toneCurves.back().get()) {
+                    gamutTable[i] = toneCurves.back().get();
+                }
+            }
+        }
+        
+        cmsHPROFILE hProfile = cmsCreateRGBProfileTHR(ctxToUse, &whitePoint, &primaries, gamutTable);
+        if (hProfile) {
+            profiles.emplace_back(hProfile);
+        }
+    }
+    
+    if (profiles.empty()) {
+        cmsHPROFILE srgbProfile = cmsCreate_sRGBProfileTHR(ctxToUse);
+        if (srgbProfile) {
+            profiles.emplace_back(srgbProfile);
+        }
+    }
+
+    if (profiles.empty()) {
+        if (duplicatedContext) cmsDeleteContext(duplicatedContext);
+        cmsDeleteContext(baseContext);
+        return 0;
+    }
+
+    if (fdp.ConsumeBool()) {
+        cmsHPROFILE hInput = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+        cmsHPROFILE hOutput = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+        cmsHPROFILE hProofing = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+
+        cmsUInt32Number inputFormat = fdp.ConsumeIntegral<cmsUInt32Number>();
+        cmsUInt32Number outputFormat = fdp.ConsumeIntegral<cmsUInt32Number>();
+        cmsUInt32Number intent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10); 
+        cmsUInt32Number proofingIntent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10);
+        cmsUInt32Number dwFlags = fdp.ConsumeIntegral<cmsUInt32Number>();
+
+        TransformWrapper transform(cmsCreateProofingTransformTHR(ctxToUse, hInput, inputFormat, hOutput, outputFormat, hProofing, intent, proofingIntent, dwFlags));
+    }
+
+    if (fdp.ConsumeBool()) {
+        size_t max_num_profiles = std::min((size_t)5, profiles.size()); 
+        cmsUInt32Number nProfilesForIntent = fdp.ConsumeIntegralInRange<cmsUInt32Number>(1, max_num_profiles);
+
+        std::vector<cmsUInt32Number> intentsArr(nProfilesForIntent);
+        std::vector<cmsHPROFILE> hProfilesArr(nProfilesForIntent);
+        std::vector<cmsBool> bpcArr(nProfilesForIntent);
+        std::vector<cmsFloat64Number> adaptationStatesArr(nProfilesForIntent);
+
+        for (cmsUInt32Number i = 0; i < nProfilesForIntent; ++i) {
+            intentsArr[i] = fdp.ConsumeIntegralInRange<cmsUInt32Number>(0, 10);
+            hProfilesArr[i] = profiles[fdp.ConsumeIntegralInRange<size_t>(0, profiles.size() - 1)].get();
+            bpcArr[i] = fdp.ConsumeBool();
+            adaptationStatesArr[i] = fdp.ConsumeFloatingPointInRange<cmsFloat64Number>(0.0, 1.0);
+        }
+        cmsUInt32Number dwFlagsIntent = fdp.ConsumeIntegral<cmsUInt32Number>();
+
+        PipelineWrapper pipeline(_cmsDefaultICCintents(ctxToUse, nProfilesForIntent, intentsArr.data(), hProfilesArr.data(), bpcArr.data(), adaptationStatesArr.data(), dwFlagsIntent));
+    }
+
+    if (duplicatedContext) {
+        cmsDeleteContext(duplicatedContext);
+    }
+    cmsDeleteContext(baseContext);
+
+    return 0;
+}[0m
+18:23:34 - external.oss_fuzz.save_target:224 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617182334.cc[0m
+18:23:34 - __main__.build_fuzz_target:159 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617182334.cc'.[0m
+18:23:34 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0617182334 for 30 seconds for project lcms[0m
+18:23:57 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0617182334: 
+ ERROR: AddressSanitizer: heap-use-after-free on address 0x512000007558 at pc 0x557432b6a65a bp 0x7ffd482240d0 sp 0x7ffd48223890
+[1m[0m[1m[34mREAD of size 1 at 0x512000007558 thread T0[1m[0m
+SCARINESS: 40 (1-byte-read-heap-use-after-free)
+    #0 0x557432b6a659 in fopen /src/llvm-project/compiler-rt/lib/asan/../sanitizer_common/sanitizer_common_interceptors.inc:6076:13
+    #1 0x557432c10b17 in cmsOpenIOhandlerFromFile /src/lcms/src/cmsio0.c:445:14
+    #2 0x557432c146ae in cmsSaveProfileToFile /src/lcms/src/cmsio0.c:1505:24
+    #3 0x557432c146ae in cmsCloseProfile /src/lcms/src/cmsio0.c:1594:15
+    #4 0x557432be92c0 in ~ProfileWrapper /src/llm_fuzzgen0617182334.cc:15:13
+    #5 0x557432be92c0 in destroy /usr/local/bin/../include/c++/v1/__memory/allocator.h:176:87
+    #6 0x557432be92c0 in destroy<ProfileWrapper, void> /usr/local/bin/../include/c++/v1/__memory/allocator_traits.h:311:9
+    #7 0x557432be92c0 in __base_destruct_at_end /usr/local/bin/../include/c++/v1/vector:926:7
+    #8 0x557432be92c0 in __clear /usr/local/bin/../include/c++/v1/vector:920:5
+    #9 0x557432be92c0 in std::__1::vector<ProfileWrapper, std::__1::allocator<ProfileWrapper>>::__destroy_vector::operator()[abi:ne180100]() /usr/local/bin/../include/c++/v1/vector:490:16
+    #10 0x557432be8126 in ~vector /usr/local/bin/../include/c++/v1/vector:501:67
+    #11 0x557432be8126 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0617182334.cc:269:1
+    #12 0x557432a99430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #13 0x557432a98c55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #14 0x557432a9a435 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #15 0x557432a9b1c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #16 0x557432a8a00b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #17 0x557432ab53e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #18 0x7f278bd31082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #19 0x557432a7c88d in _start (/out/llm_fuzzgen0617182334+0x9288d)
+
+DEDUP_TOKEN: ___interceptor_fopen--cmsOpenIOhandlerFromFile--cmsSaveProfileToFile
+[1m[32m0x512000007558 is located 24 bytes inside of 320-byte region [0x512000007540,0x512000007680)
+[1m[0m[1m[35mfreed by thread T0 here:[1m[0m
+    #0 0x557432ba4f66 in free /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:52:3
+    #1 0x557432c104a1 in MemoryClose /src/lcms/src/cmsio0.c:230:5
+    #2 0x557432be50a7 in ~IOHandlerWrapper /src/llm_fuzzgen0617182334.cc:113:13
+    #3 0x557432be50a7 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0617182334.cc:167:13
+    #4 0x557432a99430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #5 0x557432a98c55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #6 0x557432a9a435 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #7 0x557432a9b1c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #8 0x557432a8a00b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #9 0x557432ab53e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7f278bd31082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_free--MemoryClose--~IOHandlerWrapper
+[1m[35mpreviously allocated by thread T0 here:[1m[0m
+    #0 0x557432ba51ff in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x557432bf1bd5 in _cmsMalloc /src/lcms/src/cmserr.c:268:12
+    #2 0x557432bf1bd5 in _cmsMallocZeroDefaultFn /src/lcms/src/cmserr.c:107:16
+    #3 0x557432c0fc56 in cmsOpenIOhandlerFromMem /src/lcms/src/cmsio0.c:245:33
+    #4 0x557432be4ee0 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0617182334.cc:159:37
+    #5 0x557432a99430 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #6 0x557432a98c55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #7 0x557432a9a435 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #8 0x557432a9b1c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #9 0x557432a8a00b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #10 0x557432ab53e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #11 0x7f278bd31082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--_cmsMalloc--_cmsMallocZeroDefaultFn
+SUMMARY: AddressSanitizer: heap-use-after-free /src/lcms/src/cmsio0.c:445:14 in cmsOpenIOhandlerFromFile
+Shadow bytes around the buggy address:
+  0x512000007280: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x512000007300: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x512000007380: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x512000007400: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x512000007480: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+=>0x512000007500: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m[[1m[35mfd[1m[0m][1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x512000007580: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x512000007600: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x512000007680: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x512000007700: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x512000007780: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           [1m[0m00[1m[0m
+  Partially addressable: [1m[0m01[1m[0m [1m[0m02[1m[0m [1m[0m03[1m[0m [1m[0m04[1m[0m [1m[0m05[1m[0m [1m[0m06[1m[0m [1m[0m07[1m[0m 
+  Heap left redzone:       [1m[31mfa[1m[0m
+  Freed heap region:       [1m[35mfd[1m[0m
+  Stack left redzone:      [1m[31mf1[1m[0m
+  Stack mid redzone:       [1m[31mf2[1m[0m
+  Stack right redzone:     [1m[31mf3[1m[0m
+  Stack after return:      [1m[35mf5[1m[0m
+  Stack use after scope:   [1m[35mf8[1m[0m
+  Global redzone:          [1m[31mf9[1m[0m
+  Global init order:       [1m[36mf6[1m[0m
+  Poisoned by user:        [1m[34mf7[1m[0m
+  Container overflow:      [1m[34mfc[1m[0m
+  Array cookie:            [1m[31mac[1m[0m
+  Intra object redzone:    [1m[33mbb[1m[0m
+  ASan internal:           [1m[33mfe[1m[0m
+  Left alloca redzone:     [1m[34mca[1m[0m
+  Right alloca redzone:    [1m[34mcb[1m[0m
+==15==ABORTING
+MS: 4 EraseBytes-CrossOver-CrossOver-PersAutoDict- DE: "\377\377\377\015"-; base unit: f312dcff905006be95362dfea8ba00452f8e84c6
+0xfb,0x32,0x1d,0xff,0xff,0xff,0x4,0x0,0x1,0xcc,0xcd,0xf7,0x1,0x0,0xff,0xff,0xff,0xd,0xff,0xff,0xff,0xff,0xe,0xf7,0xff,0x8,0xe,0xf7,0x59,0x78,0x79,0xff,0x75,
+\3732\035\377\377\377\004\000\001\314\315\367\001\000\377\377\377\015\377\377\377\377\016\367\377\010\016\367Yxy\377u
+artifact_prefix='llm_fuzzgen0617182334_'; Test unit written to llm_fuzzgen0617182334_crash-78f91166347b4bb0dc7e511e45d87d94b53e56ef
+Base64: +zId////BAABzM33AQD///8N/////w73/wgO91l4ef91
+INFO:[0m
+18:23:57 - __main__.build_fuzz_target:167 - ERROR - Build failed (attempt 3).[0m
+18:23:57 - external.oss_fuzz.remove_target:233 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0617182334.cc[0m
+18:23:57 - external.oss_fuzz.remove_corpus:445 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/lcms/llm_fuzzgen0617182334[0m
+18:23:57 - __main__.build_fuzz_target:151 - INFO - Build attempt 4/10 for 'lcms'.[0m
+18:23:57 - llm_interface.llm_client.generate:139 - INFO - Generating response for prompt: ERROR: AddressSanitizer: heap-use-after-free on address 0x512000007558 at pc 0x557432b6a65a bp 0x7ffd482240d0 sp 0x7ffd48223890
+[1m[0m[1m[34mREAD of size 1 at 0x512000007558 thread T0[1m[0m
+SCARINESS: 40 (1-byte-read-heap-use-after-free)
+    #0 0x557432b6a659 in fopen /src/llvm-project/compile...[0m
+18:23:57 - llm_interface.llm_client._generate_node:80 - INFO - Generating prompt from messages...[0m
+18:23:58 - llm_interface.llm_client._generate_node:89 - WARNING - LLM response empty on attempt 1. Retrying... 0 seconds, raw response: content='' additional_kwargs={} response_metadata={'usage_metadata': {'prompt_token_count': 26370, 'total_token_count': 26370, 'prompt_tokens_details': [{'modality': 1, 'token_count': 26370}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'model_name': 'gemini-2.5-pro-preview-05-06'} id='run--33e7802e-3671-4346-a11a-8f7018b0a19f-0' usage_metadata={'input_tokens': 26370, 'output_tokens': 0, 'total_tokens': 26370}[0m
+NoneType: None
+18:23:59 - llm_interface.llm_client._generate_node:89 - WARNING - LLM response empty on attempt 2. Retrying... 30 seconds, raw response: content='' additional_kwargs={} response_metadata={'usage_metadata': {'prompt_token_count': 26370, 'total_token_count': 26370, 'prompt_tokens_details': [{'modality': 1, 'token_count': 26370}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'model_name': 'gemini-2.5-pro-preview-05-06'} id='run--47789d4d-13c9-440b-aef8-b1a5b24fc236-0' usage_metadata={'input_tokens': 26370, 'output_tokens': 0, 'total_tokens': 26370}[0m
+NoneType: None
+18:24:33 - llm_interface.llm_client._generate_node:89 - WARNING - LLM response empty on attempt 3. Retrying... 60 seconds, raw response: content='' additional_kwargs={} response_metadata={'usage_metadata': {'prompt_token_count': 26370, 'total_token_count': 26370, 'prompt_tokens_details': [{'modality': 1, 'token_count': 26370}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'model_name': 'gemini-2.5-pro-preview-05-06'} id='run--4bec0951-de6c-4f70-9990-5599584a3ce2-0' usage_metadata={'input_tokens': 26370, 'output_tokens': 0, 'total_tokens': 26370}[0m
+NoneType: None
+18:25:40 - llm_interface.llm_client._generate_node:89 - WARNING - LLM response empty on attempt 4. Retrying... 90 seconds, raw response: content='' additional_kwargs={} response_metadata={'usage_metadata': {'prompt_token_count': 26370, 'total_token_count': 26370, 'prompt_tokens_details': [{'modality': 1, 'token_count': 26370}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'model_name': 'gemini-2.5-pro-preview-05-06'} id='run--70e64182-b230-4a67-ae53-ec1f70d66ec0-0' usage_metadata={'input_tokens': 26370, 'output_tokens': 0, 'total_tokens': 26370}[0m
+NoneType: None
+18:27:21 - llm_interface.llm_client._generate_node:89 - WARNING - LLM response empty on attempt 5. Retrying... 120 seconds, raw response: content='' additional_kwargs={} response_metadata={'usage_metadata': {'prompt_token_count': 26370, 'total_token_count': 26370, 'prompt_tokens_details': [{'modality': 1, 'token_count': 26370}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'model_name': 'gemini-2.5-pro-preview-05-06'} id='run--7241a0e4-62c6-4a63-94c3-6b26c30defa7-0' usage_metadata={'input_tokens': 26370, 'output_tokens': 0, 'total_tokens': 26370}[0m
+NoneType: None
+18:29:35 - llm_interface.llm_client._generate_node:89 - WARNING - LLM response empty on attempt 6. Retrying... 150 seconds, raw response: content='' additional_kwargs={} response_metadata={'usage_metadata': {'prompt_token_count': 26370, 'total_token_count': 26370, 'prompt_tokens_details': [{'modality': 1, 'token_count': 26370}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'model_name': 'gemini-2.5-pro-preview-05-06'} id='run--0ae073d0-1247-458d-aedd-bff55020a78c-0' usage_metadata={'input_tokens': 26370, 'output_tokens': 0, 'total_tokens': 26370}[0m
+NoneType: None
+18:29:58 - __main__.main:407 - INFO - Process interrupted by user[0m
+18:29:58 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m

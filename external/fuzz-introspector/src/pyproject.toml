@@ -1,0 +1,63 @@
+[build-system]
+requires = [
+  "setuptools>=65.0",
+  "setuptools-scm>=8.0"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fuzz-introspector"
+version = "0.1.10"
+authors = [
+  { name="David Korczynski", email="david@adalogics.com" },
+]
+description = "Package for analyzing Fuzzing set ups."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+"beautifulsoup4==4.10.0",
+"cxxfilt==0.3.0",
+"lxml==4.9.1",
+"matplotlib==3.10.0",
+"PyYAML==6.0.1",
+"soupsieve==2.2.1",
+"yapf==0.40.1",
+"flake8",
+"pep8",
+"mypy",
+"psutil",
+"toml",
+"pytest",
+"sphinx==6.0.0",
+"sphinx_rtd_theme",
+"configparser",
+"coverage",
+"atheris",
+"setuptools>=65.5.1",
+"tqdm",
+"rust-demangler",
+"matplotlib",
+"numpy==2.1.0",
+"tree-sitter==0.23.2",
+"tree-sitter-python==0.23.6",
+"networkx",
+"tree-sitter-languages==1.10.2",
+"tree-sitter-c==0.23.4",
+"tree-sitter-cpp==0.23.4",
+"tree-sitter-go==0.23.4",
+"tree-sitter-java==0.23.5",
+"tree-sitter-rust==0.23.2"
+]
+
+[project.scripts]
+fuzz-introspector = "fuzz_introspector.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/ossf/fuzz-introspector"
+"Bug Tracker" = "https://github.com/ossf/fuzz-introspector/issues"

@@ -1,0 +1,70 @@
+14:38:15 - root.setup_logging:21 - INFO - === Configuration ===[0m
+14:38:15 - root.setup_logging:22 - INFO - Project Name: lcms[0m
+14:38:15 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
+14:38:15 - root.setup_logging:24 - INFO - Iteration loop: 50[0m
+14:38:15 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+14:38:15 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+14:38:15 - root.setup_logging:27 - INFO - Think Budget Tokens: -1[0m
+14:38:15 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+14:38:15 - root.setup_logging:29 - INFO - =====================
+[0m
+14:38:15 - __main__.main:385 - INFO - Skipping initial fuzz target generation[0m
+14:38:15 - __main__.main:386 - INFO - Starting introspector webapp for initial analysis of lcms[0m
+14:38:15 - external.oss_fuzz.generate_report:189 - INFO - Creating introspector reports for lcms[0m
+14:47:03 - external.oss_fuzz.generate_report:202 - INFO - Introspector reports created for lcms[0m
+14:47:03 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+14:47:13 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+14:47:18 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+14:47:18 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+14:47:18 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+14:47:18 - external.oss_fuzz.get_coverage_summary:443 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:47:18 - __main__.main:392 - INFO - Initial coverage for lcms: 49.79%[0m
+14:47:18 - __main__.process_project:235 - INFO - Starting to process project: lcms[0m
+14:47:18 - external.oss_fuzz.get_coverage_summary:443 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:47:18 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: lcms, Current coverage: 49.78674293742787[0m
+14:47:18 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [lcms] Current coverage array: [49.78674293742787][0m
+14:47:18 - __main__.regenerate_fuzz_target:215 - INFO - Regenerating fuzz target for project: lcms[0m
+14:47:18 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+14:47:18 - external.oss_fuzz.funcov_reports:261 - INFO - Generating funcov report for lcms with project[0m
+14:47:18 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for lcms with existing corpus[0m
+14:48:13 - external.oss_fuzz.get_coverage_summary:443 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:48:13 - external.oss_fuzz.coverage:181 - INFO - Coverage for lcms with None: 49.80179637713884%[0m
+14:48:13 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'lcms'}[0m
+14:48:13 - __main__.process_project:316 - ERROR - Failed to process project lcms: tuple index out of range[0m
+Traceback (most recent call last):
+  File "/home/jack/LLM-FuzzGen/./main.py", line 265, in process_project
+    new_target = regenerate_fuzz_target(project_name)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/LLM-FuzzGen/./main.py", line 217, in regenerate_fuzz_target
+    prompt = prompt_generator.regeneration_prompt(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/LLM-FuzzGen/prompts/prompt_generator.py", line 146, in regeneration_prompt
+    return _load_and_format_template(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/LLM-FuzzGen/prompts/prompt_generator.py", line 65, in _load_and_format_template
+    return prompt_template.format(**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/LLM-FuzzGen/.venv/lib/python3.11/site-packages/langchain_core/prompts/prompt.py", line 186, in format
+    return DEFAULT_FORMATTER_MAPPING[self.template_format](self.template, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/string.py", line 190, in format
+    return self.vformat(format_string, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/LLM-FuzzGen/.venv/lib/python3.11/site-packages/langchain_core/utils/formatting.py", line 33, in vformat
+    return super().vformat(format_string, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/string.py", line 194, in vformat
+    result, _ = self._vformat(format_string, args, kwargs, used_args, 2)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/string.py", line 234, in _vformat
+    obj, arg_used = self.get_field(field_name, args, kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/string.py", line 299, in get_field
+    obj = self.get_value(first, args, kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/string.py", line 254, in get_value
+    return args[key]
+           ~~~~^^^^^
+IndexError: tuple index out of range
+14:48:13 - external.oss_fuzz.generate_report:189 - INFO - Creating introspector reports for lcms[0m
+14:48:29 - __main__.main:412 - INFO - Process interrupted by user[0m

@@ -2,50 +2,31 @@
 
 You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `{proj}` library ({lang}) that **maximizes code coverage** by strategically exercising **up to 5 diverse API function(s)** detailed in the API Information.
 
-**API Selection and Prioritization Strategy**:
-- **Coverage-Guided Selection**: Prioritize functions with low **line coverage** and/or **branch coverage** as identified in the **Function-Level Coverage Report**. These functions have significant untested code paths and are high-priority targets.
-- **High-Impact Functions**: APIs with complex logic, extensive branching, or error handling. Low branch coverage often points to these.
-- **Synergistic API Combinations**: Functions that work together or share data structures
-- **Input Processing APIs**: Functions handling external data, parsing, validation, or format conversion
-- **Resource Management Functions**: APIs involving allocation, deallocation, or lifecycle management
-- **Parameter-Rich APIs**: Functions with multiple parameters, optional arguments, or configuration options
-- **Functional Diversity**: After identifying low-coverage candidates, select a diverse set from different functional areas. This avoids redundant testing of similar logic and explores a wider range of the library's functionality.
+# Core Principles
 
-**Comprehensive Coverage Approach**: Design the fuzz target to:
-- Exercise diverse input patterns and edge cases for each selected API
-- Test various parameter combinations and boundary conditions
-- Explore both successful execution paths and error handling scenarios
-- Utilize different input generation strategies to maximize code path exploration
-- Implement thorough API calling sequences that respect dependencies and ordering
+- **Memory Safety First**: All code must be meticulously memory-safe. All allocations must be freed. Prefer RAII/smart pointers in C++.
+- **Preserve Intent**: When enhancing or fixing, modify the minimum amount of code necessary. Do not alter the original fuzzing logic unless required to fix an error or improve coverage.
+- **Determinism & Simplicity**: Ensure the fuzzer is deterministic. Avoid global state, threads, or unnecessary complexity.
+- **Structured Input (C++)**: Utilize `<fuzzer/FuzzedDataProvider.h>` for structured, type-aware input generation where beneficial.
+- **Correctness**: Ensure all code is syntactically correct for the target language ({lang}) and follows project-specific conventions (e.g., `extern "C"` for C++).
 
-The generated fuzz target must compile, be completely memory-safe, and demonstrate comprehensive coverage of the selected APIs through varied and systematic testing approaches.
+# Task-Specific Strategy: Comprehensive Fuzzer Generation
 
-**Systematic Design Process**:
-1. **Coverage and API Analysis**: Start by reviewing the **Function-Level Coverage Report** to identify functions with low **line coverage** and **branch coverage**. These are your primary candidates. If you only have function names, use `search_function` to get the full signatures and complete source code information. Then, for a deeper analysis, use `get_line_coverage_report` to investigate detailed line-by-line coverage and identify specific un-tested code paths within those functions. Finally, use `search_function` and `function_cross_references` to fully understand their logic, parameters, and dependencies.
-2. **Input Strategy**: Design comprehensive input generation patterns using FuzzedDataProvider (C++ only) to target the identified uncovered code paths.
-3. **Test Scenarios**: Plan both positive and negative test cases for each selected API, ensuring to trigger edge cases and error conditions found in the source code.
-4. **Integration Design**: Structure API calls in logical sequences that maximize coverage, paying attention to any required setup or teardown.
-5. **Safety Verification**: Ensure proper resource management and memory safety throughout the fuzz target.
+## 1. API Selection and Prioritization
+- **Coverage-Guided Selection**: Prioritize functions with low **line coverage** and/or **branch coverage** as identified in the **Function-Level Coverage Report**. These are high-priority targets.
+- **Functional Diversity**: After identifying low-coverage candidates, select a diverse set of **up to 10 APIs** from different functional areas to avoid redundant testing and explore a wider range of the library's functionality.
+- **Other Considerations**: Also consider high-impact functions (complex logic), synergistic combinations, and APIs for input processing or resource management.
 
-Do not include any copyright or license headers in the generated fuzz target code.
-
-# Guiding Principles (Adhere to these during generation)
-
-The new fuzz target must be well-designed and adhere to these best practices:
-
-- **Strategic API Selection**: Apply the prioritization strategy defined above to select up to 5 APIs that offer the highest coverage potential and bug-finding opportunities.
-- **Prioritize functional diversity over simply choosing the lowest coverage APIs** select functions from different modules, functional areas, or with different parameter types to maximize exploration of varied code paths.
-- **API Dependencies and Call Order**: Actively investigate and correctly handle any dependencies or required calling sequences between the target APIs. Use available tools to understand API relationships, data flow, and required setup/teardown sequences.
-- **Determinism**: Consistent behavior for the same input. Avoid non-deterministic functions unless seeded by input.
-- **Input Tolerance**: Handle all inputs gracefully without crashing or exiting (unless uncovering a bug in `{proj}`).
-- **Global State**: Minimize modifications to global state.
-- **Initialization**: Use static initialization for one-time setup if needed.
-- **Thread Usage**: Avoid unnecessary threads; join any created threads.
-- **Input Size**: Optionally limit input size if appropriate for the target API(s).
-- **Coverage Discoverability**: Structure the target to effectively explore the code paths within the target API(s).
-- **Memory Management**: Ensure meticulous memory management. All allocated resources (e.g., via `malloc()`, `new`) MUST be deallocated correctly (e.g., via `free()`, `delete`) to prevent any memory leaks. For C++, strongly prefer RAII patterns and smart pointers (e.g., `std::unique_ptr`, `std::shared_ptr`) to manage resource lifetimes automatically and robustly.
-- **Split Fuzzing Input**: Utilize `<fuzzer/FuzzedDataProvider.h>` (C++ only) to generate appropriate arguments for the target API(s) from the raw fuzzer input.
-- **Language-Specific Syntax**: Ensure correct language-specific syntax is used. For example, C++ fuzz targets should declare `LLVMFuzzerTestOneInput` within an `extern "C" {{}}` block, while this is not needed in C.
+## 2. Systematic Design Process
+1.  **Coverage and API Analysis (The Core Loop)**: This is the most critical step.
+    a. **Find Leads**: Start by reviewing the **Function-Level Coverage Report**. Identify functions with low **line coverage** and/or **branch coverage**. These are your primary candidates.
+    b. **Deep Dive**: For each candidate, you **must** use `get_line_coverage_report` to investigate the detailed line-by-line coverage. Your goal is to find specific untested code paths, especially branches that are never taken (e.g., `Branch: [True: 0, ...]` or `Branch: [False: 0, ...]` ).
+    c. **Recursive Root Cause Analysis (Deep Dive)**: If an uncovered branch (e.g., `[True: 21.5k, False: 0]`) depends on the return value of a nested function, like in `if (add_item_to_object(...))`, **do not guess**. You must investigate the nested function. Use `get_line_coverage_report` and `project_source_code` to analyze `add_item_to_object` itself to understand *why* it isn't returning the value needed to enter the uncovered branch. This deep dive is often the key to solving the puzzle.
+    d. **Understand Context**: Use `search_function` and `function_cross_references` to fully understand the function's logic, parameters, and how to trigger the uncovered paths.
+2.  **Input Strategy**: Design comprehensive input generation to specifically target the uncovered code paths you just identified. For example, if an error-handling branch is missed, generate input that triggers that error.
+3.  **Test Scenarios**: Plan both positive (normal execution) and negative (error conditions, edge cases) test cases for each selected API.
+4.  **Integration Design**: Structure API calls in logical sequences that maximize coverage, paying attention to any required setup or teardown.
+5.  **Safety Verification**: Ensure proper resource management and memory safety throughout the fuzz target.
 
 # Available Tools
 
@@ -70,6 +51,25 @@ Use these tools strategically to gather information about the target APIs and th
 ```
 {fun_coverage_report}
 ```
+
+- **Case Study: How to Analyze Coverage to Write Effective Fuzzers**
+  This example shows the required thinking process.
+
+  1.  **Lead**: From the `Function-Level Coverage Report`, you see `cJSON_ParseWithOpts` has low branch coverage.
+  2.  **Investigation**: You **must** use `get_line_coverage_report` to find out why:
+      `get_line_coverage_report(project_name='cJSON', function_name_pattern='cJSON_ParseWithOpts')`
+  3.  **Evidence**: The tool returns:
+      ```
+       1092|   243k|    if (NULL == value)
+        ------------------
+        |  Branch (1092:9): [True: 0, False: 243k]
+        ------------------
+       1093|      0|    {{
+       1094|      0|        return NULL;
+       1095|      0|    }}
+      ```
+  4.  **Analysis**: The `if` condition at line 1092 is never `true`. The fuzzer needs to test the `value == NULL` case.
+  5.  **Action**: When designing your new fuzzer, you will create logic that sometimes calls `cJSON_ParseWithOpts` with a `NULL` pointer to ensure this branch is covered.
 - **All Headers**: `{headers}`
   - Always emit `#include` with the full project-relative path in quotes. (e.g. #include "/src/tinyxml2/tinyxml2.h"), do NOT use bare angle-bracket includes like `<tinyxml2.h>` without the path.
 

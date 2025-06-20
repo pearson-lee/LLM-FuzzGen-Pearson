@@ -1,0 +1,434 @@
+{% extends "base.html" %}                                                       
+{% block content %}   
+
+<!-- end header -->
+    <!-- main content -->
+    <main class="functions__profile">
+      <section class="project__profile">
+        <div class="container">
+          <div class="project__profile-wrapper">
+            <div class="pr__profile-header">
+              <h2>Project: <a href="{{project_url}}"> {{ project.name }}</a></h2>
+            </div>
+              <table class="profile__table" style="max-width: 450px">
+                <tbody>
+                  <tr>
+                    <td>Language</td>
+                    <td> {{ project.language }}
+                  </tr>
+                  <tr>
+                    <td>{{page_main_name}} project</td>
+                    <td><a href="{{project_url}}">link</a></td>
+                  </tr>
+                  {% if project_repo %}
+                  <tr>
+                    <td>Project repository</td>
+                    <td><a href="{{project_repo}}">link</a></td>
+                  </tr>
+                  {% endif %}
+                  <tr>
+                    <td>Build status: Fuzzers</td>
+                    <td>
+                    {% if project_build_status.fuzz_build_status == false %}
+                      failing:
+                    {% else %}
+                      succeeding:
+                    {% endif %}
+                    <a href="{{project_build_status.fuzz_build_log}}">Build log</a>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Build status: Code coverage</td>
+                    <td>
+                      {% if project_build_status.coverage_build_status == false %}
+                        failing:
+                      {% else %}
+                        succeeding:
+                      {% endif %}
+                      <a href="{{project_build_status.coverage_build_log}}">Build log</a>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Build status: Fuzz Introspector</td>
+                    <td>
+                      {% if project_build_status.introspector_build_status == false %}
+                        failing:
+                      {% else %}
+                        succeeding:
+                      {% endif %}
+                      <a href="{{project_build_status.introspector_build_log}}">Build log</a></td>
+                  </tr>                                    
+                  <tr>
+                    <td>Fuzzer count</td>
+                    {% if latest_statistics != None %}
+                      <td> {{latest_statistics.fuzzer_count }}</td>
+                    {% else %}
+                    <td> 0 </td>
+                    {% endif %}
+                  </tr>
+                  <tr>
+                    <td>Lines of code</td>
+                    <td>
+                      {% if project.coverage_data is not none %} 
+                        {{ project.coverage_data.line_coverage.count }}
+                      {% elif latest_statistics != None and latest_statistics.coverage_data != None %}
+                        {{ latest_statistics.coverage_data.line_coverage.count }}
+                      {% else %}
+                        N/A
+                      {% endif %} 
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Lines covered</td>
+                    <td>
+                      {% if project.coverage_data is not none %}
+                        {{ project.coverage_data.line_coverage.covered }}
+                      {% elif latest_statistics != None and latest_statistics.coverage_data != None %}
+                        {{ latest_statistics.coverage_data.line_coverage.covered }}
+                      {% else %}
+                        N/A
+                      {% endif %} 
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Code coverage</td>
+                    <td>
+                    {% if has_project_details and project.coverage_data != None %}
+                      {{ '%0.2f' % project.coverage_data.line_coverage.percent |float}}%
+                    {% elif latest_statistics != None and latest_statistics.coverage_data != None %}
+                        {{ latest_statistics.coverage_data.line_coverage.percent }}%
+                    {% else %}
+                      N/A
+                    {% endif %}
+                  </td>
+                  </tr>
+                  <tr>
+                    <td>Code coverage report</td>
+                      {% if has_project_details %}
+                        <td><a href="{{ project.coverage_data.coverage_url }}">Report link</a></td>
+                      {% elif latest_coverage_report != None %}
+                      <td>(Latest report from {{coverage_date}}) <a href="{{ latest_coverage_report }}">Report link</a></td>
+                      {% else %}
+                        <td>N/A</td>
+                      {% endif %}
+                  </tr>
+                  <tr>
+                    <td>Static reachability</td>
+                    {% if project.has_introspector() %}
+                      <td> {{ '%0.2f' % project.introspector_data.static_reachability |float }}% </td>
+                    {% else %}
+                      <td>N/A</td>
+                    {% endif %}
+                  </tr>
+                  <tr>
+                    <td>Fuzz Introspector report</td>
+                    {% if (latest_fuzz_introspector_report and latest_fuzz_introspector_report != "N/A") %}
+                    <td><a href="{{ latest_fuzz_introspector_report }}">Report link (from {{ latest_introspector_datestr }})</a></td>
+                    {% else %}
+                      <td>N/A</td>
+                    {% endif %}
+                  </tr> 
+                </tbody>
+              </table>
+
+              {% if project.has_recent_results() %}
+              <div style="max-height: 30rem; overflow: auto; margin-top: 1.5rem">
+                <table class="profile__table" style="max-width: 80%;">
+                  <thead>
+                    <th>Fuzzer</th>
+                    <th>Code coverage (lines)</th>
+                    <th>Latest Report</th>
+                    <th>Comments</th>
+                  </thead>
+                  <tbody>
+                    {% for fuzzer, fuzzer_data in project.recent_results.items()
+                      |sort(attribute='0')
+                      |sort(reverse=true, attribute='1.got_lost,1.has_degraded')
+                      if not fuzzer_data['got_lost']
+                    %}
+                      <tr
+                        {% if fuzzer_data['got_lost'] or fuzzer_data['has_degraded'] %}
+                          class="alert alert-danger" role="alert"
+                        {% endif %}
+                      >
+                        <td>
+                          {{ fuzzer }}
+                        </td>
+                        <td>
+                          <code style="color: unset; white-space: nowrap;">
+                            {{ fuzzer_data['current'] }}% (avg: {{ fuzzer_data['avg'] }}%, max: {{ fuzzer_data['max'] }}%)
+                          </code>
+                        </td>
+                        <td>
+                          <a href="{{fuzzer_data['report_url']}}">{{ fuzzer_data['report_date'] }}</a>
+                        </td>
+                        <td>
+                          {% if fuzzer_data['got_lost'] %}
+                            Fuzzer no longer available!
+                          {% endif %}
+                          {% if fuzzer_data['has_degraded'] %}
+                            Coverage has degraded!
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {%endfor%}
+                  </tbody>
+                </table>
+              </div>
+              {% endif %}
+
+            </div>
+          </div>
+          <!-- project profile table -->
+          <div class="project__progress">
+            <h2>Historical Progression</h2>
+            <div class="progress__graph">
+              <!-- single graph -->
+              <div class="single__graph">
+                <div class="graph__chart">
+                    <div id="codeCoverageLinesOverTimePlot" style="width:100%;max-width:500px"></div>
+                </div>
+              </div>
+              <!-- single graph -->
+              <div class="single__graph">
+                <div class="graph__chart">
+                    <div id="fuzzerCountOverTimePlot" style="width:100%;max-width:500px"></div>
+                </div>
+              </div>
+              <!-- single graph -->
+              {% if project.has_introspector() %}
+              <div class="single__graph">
+                <div class="graph__chart">
+                    <div id="codeCoverageFunctionsOverTimePlot" style="width:100%;max-width:500px"></div>
+                </div>
+              </div>
+              <!-- single graph -->
+              <div class="single__graph">
+                <div class="graph__chart">
+                    <div id="staticReachabilityOverTimePlot" style="width:100%;max-width:500px"></div>
+                </div>
+              </div>
+            </div>
+              {% else %}
+            </div>
+            <p>
+              <h4>Missing Introspector data</h4>
+              <p>Some graphs are not shown as there is no Fuzz Introspector data available. Please see indexing page for the relevant build logs. Once the build is working additionals graphs will be displayed.
+              </p>
+            </p>
+          {% endif %}
+          </div> <!-- project historical progress -->
+        </div>
+
+        {% if project.has_recent_results() %}
+        <div class="project__progress">
+          <h2>Per Fuzzer Progression</h2>
+          <div id="progress_graphs" class="progress__graph">
+          </div>
+        </div>
+        {% endif %}
+      </section>
+
+      <!-- Functions of interest forthe given project -->
+      {% if project.has_introspector() %}
+      <div class="container">
+        <div class="search__hero-wrapper">
+          <h1 class="section__title">
+            Functions of interest to fuzz
+          </h1>
+          <p>
+            This section outlines functions that may be of interest to fuzz.
+            They are based on ranking functions that have a lot of complexity but currently
+            exhibit low code coverage. The complexity is calculated based on the function itself
+            as well as the functions called by the given function, i.e. the tree of code
+            that the function triggers.
+          </p>
+          <br>
+          <p>
+            This is only a minor amount of introspection information available for this project. Please
+            consult the <a href="{{ project.introspector_data.introspector_report_url }}">Fuzz Introspector</a> report
+            for more information, e.g. the introspection table of all functions in the target
+            project <a href="{{ project.introspector_data.introspector_report_url }}#Project-functions-overview">available here</a>.
+          </p>
+        </div>
+        <div class="database overviewBody">
+  
+          <div class="database__body">
+            <div>
+              <table id="functionOfInterestTable">
+                <thead>
+                  <tr>
+                    <td>Function name</td>
+                    <td>Function source file</td>
+                    <td>Accumulated cyclomatic complexity</td>
+                    <td>Code coverage</td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for func_of_interest in functions_of_interest %}
+                    <tr>
+                        <td>  <a href="{{base_cov_url}}{{func_of_interest.code_coverage_url}}">{{func_of_interest.function_name}}</a></td>
+                      <td>  {{func_of_interest.source_file}}</td>
+                      <td>  {{func_of_interest.complexity}}</td>
+                      <td>  {{func_of_interest.code_coverage}}%</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      <!-- End functions of interest -->
+
+    </main>
+    <!-- end main content -->
+    <!-- footer -->
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+    <!-- end main content -->
+    {% if project.has_introspector() %}
+ <script>
+  $( document ).ready(function() {
+    $('#functionOfInterestTable').dataTable({'pageLength': 1000})
+  });
+ </script>
+ {% endif %}
+
+
+
+
+
+<script>
+{% if has_project_stats %}
+// Plot for code coverage in terms of lines over time
+const code_coverage_lines_x = [];
+const code_coverage_lines_y = [];
+const code_coverage_functions_y = [];
+const code_reachability_y = [];
+const fuzzer_count_y = [];
+max_fuzzer_count = 0;
+
+
+{% for project_timestamp in project_statistics %}
+  {% if project_timestamp.coverage_data != None %}
+    code_coverage_lines_x.push('{{project_timestamp.date}}');
+    code_coverage_lines_y.push({{project_timestamp.coverage_data.line_coverage.percent}});
+    fuzzer_count_y.push({{project_timestamp.fuzzer_count}});
+    max_fuzzer_count = Math.max(max_fuzzer_count, {{project_timestamp.fuzzer_count}});
+
+    // Stats dependending on fuzz introspector
+    {% if project.has_introspector() %}
+      code_coverage_functions_y.push({{project_timestamp.introspector_data.functions_covered_estimate}});
+      code_reachability_y.push({{project_timestamp.introspector_data.static_reachability}});
+    {% endif %}
+  {% endif %}
+{%endfor%}
+
+// Plot for code coverage in terms of lines over time
+const code_coverage_lines_data = [{
+  x: code_coverage_lines_x,
+  y: code_coverage_lines_y,
+  mode:'lines'
+}];
+const code_coverage_lines_layout = {
+  xaxis: {title: 'Date'},
+  yaxis: {title: 'Coverage', range: [0.0, 100.0]},  
+  title: 'Code Coverage (lines) %',
+  type: 'scatter'
+};
+Plotly.newPlot('codeCoverageLinesOverTimePlot', code_coverage_lines_data, code_coverage_lines_layout);
+
+// Plot for fuzzer counter over time
+const fuzzer_count_data = [{
+  x: code_coverage_lines_x,
+  y: fuzzer_count_y,
+  mode:'lines'
+}];
+const fuzzer_count_layout = {
+  xaxis: {title: 'Date'},
+  yaxis: {title: 'Fuzzers', range: [0.0, max_fuzzer_count + 5]},
+  title: 'Fuzzer count',
+  type: 'scatter'
+};
+Plotly.newPlot('fuzzerCountOverTimePlot', fuzzer_count_data, fuzzer_count_layout);
+
+{% endif %} // has_project_stats
+
+{% if project.has_recent_results() %}
+const fuzzers = new Map();
+  {% for fuzzer, fuzzer_data in project.recent_results.items() %}
+    fuzzers.set('{{fuzzer}}', {x: {{fuzzer_data['coverages_dates']|tojson}}, y: {{fuzzer_data['coverages_values']|tojson}}});
+  {% endfor %}
+
+const progress_graph_div = document.getElementById('progress_graphs')
+for (const [fuzzer_name, coverage_percentage] of fuzzers) {
+  const per_fuzzer_id = 'perFuzzerCoverageLinesOverTimePlot' + fuzzer_name;
+
+  const sg_div = document.createElement('div');
+  sg_div.classList.add('single__graph');
+  progress_graph_div.appendChild(sg_div);
+
+  const gc_div = document.createElement('div');
+  gc_div.classList.add('graph__chart')
+  sg_div.appendChild(gc_div);
+
+  const the_div = document.createElement('div')
+  the_div.id = per_fuzzer_id
+  the_div.style = 'width:100%;max-width:500px'
+  gc_div.appendChild(the_div);
+
+  // Plot for fuzzer counter over time
+  const per_fuzzer_code_coverage_lines_data = [{
+    x: coverage_percentage.x,
+    y: coverage_percentage.y,
+    mode:'lines'
+  }];
+  const per_fuzzer_code_coverage_lines_layout = {
+    xaxis: {title: 'Date'},
+    yaxis: {title: 'Coverage', range: [0.0, 100.0]},
+    title: 'Code Coverage (lines) %<br>' + fuzzer_name,
+    type: 'scatter'
+  };
+  Plotly.newPlot(per_fuzzer_id, per_fuzzer_code_coverage_lines_data, per_fuzzer_code_coverage_lines_layout);
+}
+{% endif %} // has_recent_results
+
+{% if project.has_introspector() %}
+// Plots dependend on Fuzz Introspector
+// Plot for code coverage in terms of functions over time
+const code_coverage_functions_data = [{
+  x: code_coverage_lines_x,
+  y: code_coverage_functions_y,
+  mode:'lines'
+}];
+const code_coverage_functions_layout = {
+  xaxis: {title: 'Date'},
+  yaxis: {title: 'Coverage', range: [0.0, 100.0]},  
+  title: 'Code Coverage (functions) %',
+  type: 'scatter'
+};
+Plotly.newPlot('codeCoverageFunctionsOverTimePlot', code_coverage_functions_data, code_coverage_functions_layout);
+
+
+// Plot for static rachability over time
+const code_reachability_data = [{
+  x: code_coverage_lines_x,
+  y: code_reachability_y,
+  mode:'lines'
+}];
+const code_reachability_layout = {
+  xaxis: {title: 'Date'},
+  yaxis: {title: 'Reachability', range: [0.0, 100.0]},  
+  title: 'Static reachability %',
+  type: 'scatter'
+};
+Plotly.newPlot('staticReachabilityOverTimePlot', code_reachability_data, code_reachability_layout);
+{% endif %}
+
+
+</script>
+
+{% endblock %}

@@ -1,0 +1,12 @@
+homepage: "https://github.com/DaveGamble/cJSON"
+language: c++
+primary_contact: "max@maxbruckner.de"
+auto_ccs:
+  - "randy440088@gmail.com"
+  - "wp_scut@163.com"
+sanitizers:
+  - address
+  - undefined
+  - memory
+main_repo: 'https://github.com/DaveGamble/cJSON.git'
+commit_hash: '76be8fcf15677ca7f6db7c770f5ae6bf8b41d78f'

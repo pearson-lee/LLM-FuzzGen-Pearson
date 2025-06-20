@@ -1,0 +1,3226 @@
+21:32:34 - root.setup_logging:21 - INFO - === Configuration ===[0m
+21:32:34 - root.setup_logging:22 - INFO - Project Name: lcms[0m
+21:32:34 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
+21:32:34 - root.setup_logging:24 - INFO - Iteration loop: 50[0m
+21:32:34 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+21:32:34 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+21:32:34 - root.setup_logging:27 - INFO - Think Budget Tokens: -1[0m
+21:32:34 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+21:32:34 - root.setup_logging:29 - INFO - =====================
+[0m
+21:32:34 - __main__.main:385 - INFO - Skipping initial fuzz target generation[0m
+21:32:34 - __main__.main:386 - INFO - Starting introspector webapp for initial analysis of lcms[0m
+21:32:34 - external.oss_fuzz.generate_report:189 - INFO - Creating introspector reports for lcms[0m
+21:39:18 - external.oss_fuzz.generate_report:202 - INFO - Introspector reports created for lcms[0m
+21:39:18 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+21:39:28 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+21:39:33 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+21:39:33 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+21:39:33 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+21:39:33 - external.oss_fuzz.get_coverage_summary:440 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+21:39:33 - __main__.main:392 - INFO - Initial coverage for lcms: 61.71%[0m
+21:39:33 - __main__.process_project:235 - INFO - Starting to process project: lcms[0m
+21:39:33 - external.oss_fuzz.get_coverage_summary:440 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+21:39:33 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: lcms, Current coverage: 61.71230536437741[0m
+21:39:33 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [lcms] Current coverage array: [61.71230536437741][0m
+21:39:33 - __main__.regenerate_fuzz_target:215 - INFO - Regenerating fuzz target for project: lcms[0m
+21:39:33 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:39:33 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for lcms with existing corpus[0m
+21:40:12 - external.oss_fuzz.get_coverage_summary:440 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+21:40:12 - external.oss_fuzz.coverage:181 - INFO - Coverage for lcms with None: 61.71230536437741%[0m
+21:40:12 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'lcms'}[0m
+21:40:12 - __main__.build_fuzz_target:151 - INFO - Build attempt 1/10 for 'lcms'.[0m
+21:40:12 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `lcms` library (c++) that **maximizes code coverage** by strategically exercising...[0m
+21:40:12 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:41:26 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'lcms', 'function_signature': 'void * Type_Dictionary_Read(struct _cms_typehandler_struct *, cmsIOHANDLER *, cmsUInt32Number *, cmsUInt32Number)'}[0m
+21:41:26 - llm_interface.tools.function_source_code:132 - INFO - Tool(function_source_code): Retrieved source code for void * Type_Dictionary_Read(struct _cms_typehandler_struct *, cmsIOHANDLER *, cmsUInt32Number *, cmsUInt32Number)[0m
+21:41:26 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:41:55 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'lcms', 'function_signature': 'cmsBool Type_Dictionary_Write(struct _cms_typehandler_struct *, cmsIOHANDLER *, void *, cmsUInt32Number)'}[0m
+21:41:55 - llm_interface.tools.function_source_code:132 - INFO - Tool(function_source_code): Retrieved source code for cmsBool Type_Dictionary_Write(struct _cms_typehandler_struct *, cmsIOHANDLER *, void *, cmsUInt32Number)[0m
+21:41:55 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:42:13 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "lcms2.h"
+#include "lcms2_plugin.h"
+#include "lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictionaryType);
+  if (!dict_handler) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  cmsUInt32Number items_read;
+  std::unique_ptr<void, DictDeleter> dict_read(
+      dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));
+
+  // Fuzz Type_Dictionary_Write
+  std::unique_ptr<void, DictDeleter> dict_to_write(
+      cmsDictAlloc(context.get()));
+  if (dict_to_write) {
+    // Add some entries to the dictionary with fuzzed data.
+    int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+    for (int i = 0; i < num_entries; ++i) {
+      std::wstring name = fdp.ConsumeRandomLengthString(100);
+      std::wstring value = fdp.ConsumeRandomLengthString(100);
+      cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                      nullptr, nullptr);
+    }
+    // Create a write IO handler.
+    std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+    std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+        cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+    if (write_iohandler) {
+      dict_handler->Write(dict_handler, write_iohandler.get(),
+                          dict_to_write.get(), 1);
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->Write(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:42:13 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214213.cc[0m
+21:42:13 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214213.cc'.[0m
+21:42:13 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618214213 for 30 seconds for project lcms[0m
+21:42:20 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1m'lcms2_internal.h' file not found[0m
+    9 | #include "lcms2_internal.h"[0m
+      | [0;1;32m         ^~~~~~~~~~~~~~~~~~
+[0m1 error generated.[0m
+21:42:20 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618214213 for project lcms failed to build.[0m
+21:42:20 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 1).[0m
+21:42:20 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214213.cc[0m
+21:42:20 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for lcms[0m
+21:42:20 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:42:20 - __main__.build_fuzz_target:151 - INFO - Build attempt 2/10 for 'lcms'.[0m
+21:42:20 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `lcms` library (c++) by **resolving all specified bu...[0m
+21:42:20 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:42:50 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictionaryType);
+  if (!dict_handler) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  cmsUInt32Number items_read;
+  std::unique_ptr<void, DictDeleter> dict_read(
+      dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));
+
+  // Fuzz Type_Dictionary_Write
+  std::unique_ptr<void, DictDeleter> dict_to_write(
+      cmsDictAlloc(context.get()));
+  if (dict_to_write) {
+    // Add some entries to the dictionary with fuzzed data.
+    int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+    for (int i = 0; i < num_entries; ++i) {
+      std::wstring name = fdp.ConsumeRandomLengthString(100);
+      std::wstring value = fdp.ConsumeRandomLengthString(100);
+      cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                      nullptr, nullptr);
+    }
+    // Create a write IO handler.
+    std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+    std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+        cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+    if (write_iohandler) {
+      dict_handler->Write(dict_handler, write_iohandler.get(),
+                          dict_to_write.get(), 1);
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->Write(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:42:50 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214250.cc[0m
+21:42:50 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214250.cc'.[0m
+21:42:50 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618214250 for 30 seconds for project lcms[0m
+21:43:10 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1munknown type name 'cmsContext_struct'; did you mean '_cmsContext_struct'?[0m
+   76 |   std::unique_ptr<cmsContext_struct, ContextDeleter> context([0m
+      | [0;1;32m                  ^~~~~~~~~~~~~~~~~
+[0m      | [0;32m                  _cmsContext_struct
+[0m[1m/src/lcms/src/lcms2_internal.h:516:8: [0m[0;1;36mnote: [0m'_cmsContext_struct' declared here[0m
+  516 | struct _cmsContext_struct {[0m
+      | [0;1;32m       ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:92:44: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'cmsSigDictionaryType'; did you mean 'cmsSigDictType'?[0m
+   92 |       _cmsGetTagTypeHandler(context.get(), cmsSigDictionaryType);[0m
+      | [0;1;32m                                           ^~~~~~~~~~~~~~~~~~~~
+[0m      | [0;32m                                           cmsSigDictType
+[0m[1m/src/lcms/include/lcms2.h:305:5: [0m[0;1;36mnote: [0m'cmsSigDictType' declared here[0m
+  305 |     cmsSigDictType                          = 0x64696374,  // 'dict'[0m
+      | [0;1;32m    ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:100:21: [0m[0;1;31merror: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+  100 |       dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m      ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:109:20: [0m[0;1;31merror: [0m[1mno viable conversion from 'basic_string<[0;1;36mchar[0m[1m>' to 'basic_string<[0;1;36mwchar_t[0m[1m>'[0m
+  109 |       std::wstring name = fdp.ConsumeRandomLengthString(100);[0m
+      | [0;1;32m                   ^      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:896:71: [0m[0;1;36mnote: [0mcandidate constructor not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'const wstring &' for 1st argument[0m
+  896 |   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS basic_string(const basic_string& __str)[0m
+      | [0;1;32m                                                                      ^            ~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:916:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'wstring &&' for 1st argument[0m
+  916 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(basic_string&& __str)[0m
+      | [0;1;32m                                                      ^            ~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:951:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'const wchar_t *' for 1st argument[0m
+  951 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s)[0m
+      | [0;1;32m                                                      ^            ~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:1091:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'initializer_list<wchar_t>' for 1st argument[0m
+ 1091 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(initializer_list<_CharT> __il)[0m
+      | [0;1;32m                                                      ^            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:886:64: [0m[0;1;36mnote: [0mexplicit constructor is not a candidate[0m
+  886 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const allocator_type& __a)[0m
+      | [0;1;32m                                                               ^
+[0m[1m/usr/local/bin/../include/c++/v1/string:1047:93: [0m[0;1;36mnote: [0mexplicit constructor is not a candidate[0m
+ 1047 |   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const _Tp& __t)[0m
+      | [0;1;32m                                                                                            ^
+[0m[1m/usr/local/bin/../include/c++/v1/string:1108:55: [0m[0;1;36mnote: [0mcandidate function[0m
+ 1108 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 operator __self_view() const _NOEXCEPT {[0m
+      | [0;1;32m                                                      ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:110:20: [0m[0;1;31merror: [0m[1mno viable conversion from 'basic_string<[0;1;36mchar[0m[1m>' to 'basic_string<[0;1;36mwchar_t[0m[1m>'[0m
+  110 |       std::wstring value = fdp.ConsumeRandomLengthString(100);[0m
+      | [0;1;32m                   ^       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:896:71: [0m[0;1;36mnote: [0mcandidate constructor not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'const wstring &' for 1st argument[0m
+  896 |   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS basic_string(const basic_string& __str)[0m
+      | [0;1;32m                                                                      ^            ~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:916:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'wstring &&' for 1st argument[0m
+  916 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(basic_string&& __str)[0m
+      | [0;1;32m                                                      ^            ~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:951:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'const wchar_t *' for 1st argument[0m
+  951 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s)[0m
+      | [0;1;32m                                                      ^            ~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:1091:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: no known conversion from 'std::string' (aka 'basic_string<char>') to 'initializer_list<wchar_t>' for 1st argument[0m
+ 1091 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(initializer_list<_CharT> __il)[0m
+      | [0;1;32m                                                      ^            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/string:886:64: [0m[0;1;36mnote: [0mexplicit constructor is not a candidate[0m
+  886 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const allocator_type& __a)[0m
+      | [0;1;32m                                                               ^
+[0m[1m/usr/local/bin/../include/c++/v1/string:1047:93: [0m[0;1;36mnote: [0mexplicit constructor is not a candidate[0m
+ 1047 |   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const _Tp& __t)[0m
+      | [0;1;32m                                                                                            ^
+[0m[1m/usr/local/bin/../include/c++/v1/string:1108:55: [0m[0;1;36mnote: [0mcandidate function[0m
+ 1108 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 operator __self_view() const _NOEXCEPT {[0m
+      | [0;1;32m                                                      ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:119:21: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  119 |       dict_handler->Write(dict_handler, write_iohandler.get(),[0m
+      | [0;1;32m      ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:131:22: [0m[0;1;31merror: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+  131 |         seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214250.cc:142:22: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  142 |         seq_handler->Write(seq_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m8 errors generated.[0m
+21:43:10 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618214250 for project lcms failed to build.[0m
+21:43:10 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 2).[0m
+21:43:10 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214250.cc[0m
+21:43:10 - __main__.build_fuzz_target:151 - INFO - Build attempt 3/10 for 'lcms'.[0m
+21:43:10 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1munknown type name 'cmsContext_struct'; did you mean '_cmsContext_struct'?[0m
+   76 |   std::unique_ptr<cmsContext_struct, ContextDeleter> context([0m
+      | [0;1;32m                  ^~~~~~~~~~~~~~~~~
+[0m      | [0;32m                  _cmsContext_struct
+[0m[1m/src/lcms/src/lc...[0m
+21:43:10 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:44:40 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:44:40 - llm_interface.tools.search_function:105 - INFO - Tool(search_function): Found 1 functions matching 'cmsDictAddEntry' for lcms[0m
+21:44:40 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:45:02 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<_cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (!dict_handler) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  cmsUInt32Number items_read;
+  std::unique_ptr<void, DictDeleter> dict_read(
+      dict_handler->read(dict_handler, iohandler.get(), &items_read, size));
+
+  // Fuzz Type_Dictionary_Write
+  std::unique_ptr<void, DictDeleter> dict_to_write(
+      cmsDictAlloc(context.get()));
+  if (dict_to_write) {
+    // Add some entries to the dictionary with fuzzed data.
+    int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+    for (int i = 0; i < num_entries; ++i) {
+      std::string name_str = fdp.ConsumeRandomLengthString(100);
+      std::wstring name(name_str.begin(), name_str.end());
+      std::string value_str = fdp.ConsumeRandomLengthString(100);
+      std::wstring value(value_str.begin(), value_str.end());
+      cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                      nullptr, nullptr);
+    }
+    // Create a write IO handler.
+    std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+    std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+        cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+    if (write_iohandler) {
+      dict_handler->write(dict_handler, write_iohandler.get(),
+                          dict_to_write.get(), 1);
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->read(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->write(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:45:02 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214502.cc[0m
+21:45:02 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214502.cc'.[0m
+21:45:02 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618214502 for 30 seconds for project lcms[0m
+21:45:21 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno member named 'read' in '_cms_typehandler_struct'[0m
+  100 |       dict_handler->read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m      ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214502.cc:121:21: [0m[0;1;31merror: [0m[1mno member named 'write' in '_cms_typehandler_struct'[0m
+  121 |       dict_handler->write(dict_handler, write_iohandler.get(),[0m
+      | [0;1;32m      ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214502.cc:133:22: [0m[0;1;31merror: [0m[1mno member named 'read' in '_cms_typehandler_struct'[0m
+  133 |         seq_handler->read(seq_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214502.cc:144:22: [0m[0;1;31merror: [0m[1mno member named 'write' in '_cms_typehandler_struct'[0m
+  144 |         seq_handler->write(seq_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m4 errors generated.[0m
+21:45:21 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618214502 for project lcms failed to build.[0m
+21:45:21 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 3).[0m
+21:45:21 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214502.cc[0m
+21:45:21 - __main__.build_fuzz_target:151 - INFO - Build attempt 4/10 for 'lcms'.[0m
+21:45:21 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno member named 'read' in '_cms_typehandler_struct'[0m
+  100 |       dict_handler->read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m      ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214502.cc:121:21: [0m[0;1;31merror: [0m[1mno member named 'write' in ...[0m
+21:45:21 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:45:24 - external.introspector.get_project_source_code:320 - INFO - Getting source code for project: lcms, file: /src/lcms/src/lcms2_internal.h, lines: 1-9999[0m
+21:45:24 - external.introspector._query_api:77 - INFO - Querying API: project-source-code with params: {'project': 'lcms', 'filepath': '/src/lcms/src/lcms2_internal.h', 'begin_line': 1, 'end_line': 9999}[0m
+21:45:24 - llm_interface.tools.project_source_code:168 - INFO - Tool(project_source_code): Retrieved full source code for lcms:/src/lcms/src/lcms2_internal.h[0m
+21:45:24 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:45:54 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(_cmsContext_struct* ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<_cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (dict_handler) {
+    // Fuzz Type_Dictionary_Read
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, DictDeleter> dict_read(
+        dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_Dictionary_Write
+    std::unique_ptr<void, DictDeleter> dict_to_write(
+        cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      // Add some entries to the dictionary with fuzzed data.
+      int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+      for (int i = 0; i < num_entries; ++i) {
+        std::string name_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring name(name_str.begin(), name_str.end());
+        std::string value_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring value(value_str.begin(), value_str.end());
+        cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                        nullptr, nullptr);
+      }
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        dict_handler->Write(dict_handler, write_iohandler.get(),
+                            dict_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->Write(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:45:54 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214554.cc[0m
+21:45:54 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214554.cc'.[0m
+21:45:54 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618214554 for 30 seconds for project lcms[0m
+21:46:07 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+   97 |         dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214554.cc:118:23: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  118 |         dict_handler->Write(dict_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214554.cc:132:22: [0m[0;1;31merror: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+  132 |         seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214554.cc:143:22: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  143 |         seq_handler->Write(seq_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m4 errors generated.[0m
+21:46:07 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618214554 for project lcms failed to build.[0m
+21:46:07 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 4).[0m
+21:46:07 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214554.cc[0m
+21:46:07 - __main__.build_fuzz_target:151 - INFO - Build attempt 5/10 for 'lcms'.[0m
+21:46:07 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+   97 |         dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214554.cc:118:23: [0m[0;1;31merror: [0m[1mno member named 'Write'...[0m
+21:46:07 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:47:25 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(_cmsContext_struct* ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<_cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (dict_handler) {
+    // Fuzz Type_Dictionary_Read
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, DictDeleter> dict_read(
+        dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_Dictionary_Write
+    std::unique_ptr<void, DictDeleter> dict_to_write(
+        cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      // Add some entries to the dictionary with fuzzed data.
+      int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+      for (int i = 0; i < num_entries; ++i) {
+        std::string name_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring name(name_str.begin(), name_str.end());
+        std::string value_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring value(value_str.begin(), value_str.end());
+        cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                        nullptr, nullptr);
+      }
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        dict_handler->Write(dict_handler, write_iohandler.get(),
+                            dict_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->Write(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:47:25 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214725.cc[0m
+21:47:25 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214725.cc'.[0m
+21:47:25 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618214725 for 30 seconds for project lcms[0m
+21:47:33 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+   97 |         dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214725.cc:118:23: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  118 |         dict_handler->Write(dict_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214725.cc:132:22: [0m[0;1;31merror: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+  132 |         seq_handler->Read(seq_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214725.cc:143:22: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  143 |         seq_handler->Write(seq_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m4 errors generated.[0m
+21:47:33 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618214725 for project lcms failed to build.[0m
+21:47:33 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 5).[0m
+21:47:33 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214725.cc[0m
+21:47:33 - __main__.build_fuzz_target:151 - INFO - Build attempt 6/10 for 'lcms'.[0m
+21:47:33 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+   97 |         dict_handler->Read(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214725.cc:118:23: [0m[0;1;31merror: [0m[1mno member named 'Write'...[0m
+21:47:33 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:47:52 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(_cmsContext_struct* ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<_cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (dict_handler) {
+    // Fuzz Type_Dictionary_Read
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, DictDeleter> dict_read(
+        dict_handler->Tag.ReadPtr(dict_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_Dictionary_Write
+    std::unique_ptr<void, DictDeleter> dict_to_write(
+        cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      // Add some entries to the dictionary with fuzzed data.
+      int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+      for (int i = 0; i < num_entries; ++i) {
+        std::string name_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring name(name_str.begin(), name_str.end());
+        std::string value_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring value(value_str.begin(), value_str.end());
+        cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                        nullptr, nullptr);
+      }
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        dict_handler->Tag.WritePtr(dict_handler, write_iohandler.get(),
+                            dict_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->Tag.ReadPtr(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->Tag.WritePtr(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:47:52 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214752.cc[0m
+21:47:52 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214752.cc'.[0m
+21:47:52 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618214752 for 30 seconds for project lcms[0m
+21:48:09 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno member named 'Tag' in '_cms_typehandler_struct'[0m
+   97 |         dict_handler->Tag.ReadPtr(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214752.cc:118:23: [0m[0;1;31merror: [0m[1mno member named 'Tag' in '_cms_typehandler_struct'[0m
+  118 |         dict_handler->Tag.WritePtr(dict_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214752.cc:132:22: [0m[0;1;31merror: [0m[1mno member named 'Tag' in '_cms_typehandler_struct'[0m
+  132 |         seq_handler->Tag.ReadPtr(seq_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214752.cc:143:22: [0m[0;1;31merror: [0m[1mno member named 'Tag' in '_cms_typehandler_struct'[0m
+  143 |         seq_handler->Tag.WritePtr(seq_handler, write_iohandler.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m4 errors generated.[0m
+21:48:09 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618214752 for project lcms failed to build.[0m
+21:48:09 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 6).[0m
+21:48:09 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618214752.cc[0m
+21:48:09 - __main__.build_fuzz_target:151 - INFO - Build attempt 7/10 for 'lcms'.[0m
+21:48:09 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno member named 'Tag' in '_cms_typehandler_struct'[0m
+   97 |         dict_handler->Tag.ReadPtr(dict_handler, iohandler.get(), &items_read, size));[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618214752.cc:118:23: [0m[0;1;31merror: [0m[1mno member named '...[0m
+21:48:09 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:49:53 - external.introspector.get_project_source_code:320 - INFO - Getting source code for project: lcms, file: /src/lcms/src/cmstypes.c, lines: 1-9999[0m
+21:49:53 - external.introspector._query_api:77 - INFO - Querying API: project-source-code with params: {'project': 'lcms', 'filepath': '/src/lcms/src/cmstypes.c', 'begin_line': 1, 'end_line': 9999}[0m
+21:49:53 - llm_interface.tools.project_source_code:168 - INFO - Tool(project_source_code): Retrieved full source code for lcms:/src/lcms/src/cmstypes.c[0m
+21:49:53 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:50:11 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+typedef struct _cms_typehandler_struct
+{
+    cmsTagTypeSignature Signature;
+    _cmsTagTypeReader ReadPtr;
+    _cmsTagTypeWriter WritePtr;
+    _cmsTagTypeDuplicator DupPtr;
+    _cmsTagTypeFreer FreePtr;
+    // ...
+} cmsTagTypeHandler;[0m
+21:50:11 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215011.cc[0m
+21:50:11 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215011.cc'.[0m
+21:50:11 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215011 for 30 seconds for project lcms[0m
+21:50:29 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1munknown type name 'cmsTagTypeSignature'[0m
+    3 |     cmsTagTypeSignature Signature;[0m
+      | [0;1;32m    ^
+[0m[1m/src/llm_fuzzgen0618215011.cc:4:5: [0m[0;1;31merror: [0m[1munknown type name '_cmsTagTypeReader'[0m
+    4 |     _cmsTagTypeReader ReadPtr;[0m
+      | [0;1;32m    ^
+[0m[1m/src/llm_fuzzgen0618215011.cc:5:5: [0m[0;1;31merror: [0m[1munknown type name '_cmsTagTypeWriter'[0m
+    5 |     _cmsTagTypeWriter WritePtr;[0m
+      | [0;1;32m    ^
+[0m[1m/src/llm_fuzzgen0618215011.cc:6:5: [0m[0;1;31merror: [0m[1munknown type name '_cmsTagTypeDuplicator'[0m
+    6 |     _cmsTagTypeDuplicator DupPtr;[0m
+      | [0;1;32m    ^
+[0m[1m/src/llm_fuzzgen0618215011.cc:7:5: [0m[0;1;31merror: [0m[1munknown type name '_cmsTagTypeFreer'[0m
+    7 |     _cmsTagTypeFreer FreePtr;[0m
+      | [0;1;32m    ^
+[0m5 errors generated.[0m
+21:50:29 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215011 for project lcms failed to build.[0m
+21:50:29 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 7).[0m
+21:50:29 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215011.cc[0m
+21:50:29 - __main__.build_fuzz_target:151 - INFO - Build attempt 8/10 for 'lcms'.[0m
+21:50:29 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1munknown type name 'cmsTagTypeSignature'[0m
+    3 |     cmsTagTypeSignature Signature;[0m
+      | [0;1;32m    ^
+[0m[1m/src/llm_fuzzgen0618215011.cc:4:5: [0m[0;1;31merror: [0m[1munknown type name '_cmsTagTypeReader'[0m
+    4 |     _cmsTagTypeReader ReadPtr;[0m
+      | [0;1;3...[0m
+21:50:29 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:50:54 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(_cmsContext_struct* ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<_cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (dict_handler && dict_handler->ReadPtr && dict_handler->WritePtr) {
+    // Fuzz Type_Dictionary_Read
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, DictDeleter> dict_read(
+        dict_handler->ReadPtr(dict_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_Dictionary_Write
+    std::unique_ptr<void, DictDeleter> dict_to_write(
+        cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      // Add some entries to the dictionary with fuzzed data.
+      int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+      for (int i = 0; i < num_entries; ++i) {
+        std::string name_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring name(name_str.begin(), name_str.end());
+        std::string value_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring value(value_str.begin(), value_str.end());
+        cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                        nullptr, nullptr);
+      }
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        dict_handler->WritePtr(dict_handler, write_iohandler.get(),
+                            dict_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler && seq_handler->ReadPtr && seq_handler->WritePtr) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, SeqDeleter> seq_read(
+        seq_handler->ReadPtr(seq_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->WritePtr(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:50:54 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215054.cc[0m
+21:50:54 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215054.cc'.[0m
+21:50:54 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215054 for 30 seconds for project lcms[0m
+21:51:03 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno matching function for call to object of type 'SeqDeleter'[0m
+  266 |       __ptr_.second()(__tmp);[0m
+      | [0;1;32m      ^~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:236:71: [0m[0;1;36mnote: [0min instantiation of member function 'std::unique_ptr<void, SeqDeleter>::reset' requested here[0m
+  236 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 ~unique_ptr() { reset(); }[0m
+      | [0;1;32m                                                                      ^
+[0m[1m/src/llm_fuzzgen0618215054.cc:131:39: [0m[0;1;36mnote: [0min instantiation of member function 'std::unique_ptr<void, SeqDeleter>::~unique_ptr' requested here[0m
+  131 |     std::unique_ptr<void, SeqDeleter> seq_read([0m
+      | [0;1;32m                                      ^
+[0m[1m/src/llm_fuzzgen0618215054.cc:56:8: [0m[0;1;36mnote: [0mcandidate function not viable: cannot convert argument of incomplete type 'pointer' (aka 'void *') to 'cmsSEQ *' for 1st argument[0m
+   56 |   void operator()(cmsSEQ* seq) const {[0m
+      | [0;1;32m       ^          ~~~~~~~~~~~
+[0m1 error generated.[0m
+21:51:03 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215054 for project lcms failed to build.[0m
+21:51:03 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 8).[0m
+21:51:03 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215054.cc[0m
+21:51:03 - __main__.build_fuzz_target:151 - INFO - Build attempt 9/10 for 'lcms'.[0m
+21:51:03 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno matching function for call to object of type 'SeqDeleter'[0m
+  266 |       __ptr_.second()(__tmp);[0m
+      | [0;1;32m      ^~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:236:71: [0m[0;1;36mnote: [0min instantiation of member function 'std::uni...[0m
+21:51:03 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:51:36 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(_cmsContext_struct* ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER* iohandler) const {
+    if (iohandler) {
+      iohandler->Close(iohandler);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage* stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+// --- Helper Function to Create a Type Handler ---
+
+static cmsBool _cmsRegisterTestTag(cmsContext ContextID) {
+  return _cmsRegisterTagTypePlugin(ContextID, nullptr) &&
+         _cmsRegisterTagPlugin(ContextID, nullptr);
+}
+
+// --- Fuzz Target ---
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a test tag registered.
+  std::unique_ptr<_cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  _cmsRegisterTestTag(context.get());
+
+  // Create a memory-based IO handler from the fuzzer input.
+  std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> iohandler(
+      cmsOpenIOhandlerFromMem(context.get(), const_cast<uint8_t*>(data), size, "r"));
+  if (!iohandler) {
+    return 0;
+  }
+
+  // Get a type handler for the dictionary type.
+  cmsTagTypeHandler* dict_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (dict_handler && dict_handler->ReadPtr && dict_handler->WritePtr) {
+    // Fuzz Type_Dictionary_Read
+    cmsUInt32Number items_read;
+    std::unique_ptr<void, DictDeleter> dict_read(
+        dict_handler->ReadPtr(dict_handler, iohandler.get(), &items_read, size));
+
+    // Fuzz Type_Dictionary_Write
+    std::unique_ptr<void, DictDeleter> dict_to_write(
+        cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      // Add some entries to the dictionary with fuzzed data.
+      int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+      for (int i = 0; i < num_entries; ++i) {
+        std::string name_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring name(name_str.begin(), name_str.end());
+        std::string value_str = fdp.ConsumeRandomLengthString(100);
+        std::wstring value(value_str.begin(), value_str.end());
+        cmsDictAddEntry(dict_to_write.get(), name.c_str(), value.c_str(),
+                        nullptr, nullptr);
+      }
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        dict_handler->WritePtr(dict_handler, write_iohandler.get(),
+                            dict_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Get a type handler for the profile sequence ID type.
+  cmsTagTypeHandler* seq_handler =
+      _cmsGetTagTypeHandler(context.get(), cmsSigProfileSequenceIdType);
+  if (seq_handler && seq_handler->ReadPtr && seq_handler->WritePtr) {
+    // Fuzz Type_ProfileSequenceId_Read
+    iohandler->Seek(iohandler.get(), 0);
+    cmsUInt32Number items_read;
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_read(
+        static_cast<cmsSEQ*>(seq_handler->ReadPtr(seq_handler, iohandler.get(), &items_read, size)));
+
+    // Fuzz Type_ProfileSequenceId_Write
+    std::unique_ptr<cmsSEQ, SeqDeleter> seq_to_write(
+        cmsAllocProfileSequenceDescription(context.get(), 1));
+    if (seq_to_write) {
+      // Create a write IO handler.
+      std::vector<uint8_t> write_buffer(fdp.ConsumeIntegralInRange<size_t>(1024, 4096));
+      std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter> write_iohandler(
+          cmsOpenIOhandlerFromMem(context.get(), write_buffer.data(), write_buffer.size(), "w"));
+      if (write_iohandler) {
+        seq_handler->WritePtr(seq_handler, write_iohandler.get(),
+                           seq_to_write.get(), 1);
+      }
+    }
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  std::unique_ptr<cmsStage, StageDeleter> stage(
+      _cmsStageAllocLabPrelin(context.get()));
+
+  return 0;
+}[0m
+21:51:36 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215136.cc[0m
+21:51:36 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215136.cc'.[0m
+21:51:36 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215136 for 30 seconds for project lcms[0m
+21:51:53 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: invalid or unhandled FORM value: 0x25
+/tmp/llm_fuzzgen0618215136-61aeb8.o: in function `LLVMFuzzerTestOneInput':
+llm_fuzzgen0618215136.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x12c): undefined reference to `_cmsRegisterTagTypePlugin(_cmsContext_struct*, _cmsPluginBaseStruct*)'
+/usr/bin/ld: llm_fuzzgen0618215136.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x14d): undefined reference to `_cmsRegisterTagPlugin(_cmsContext_struct*, _cmsPluginBaseStruct*)'
+/usr/bin/ld: llm_fuzzgen0618215136.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x1a2): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+/usr/bin/ld: llm_fuzzgen0618215136.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0xded): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+/usr/bin/ld: llm_fuzzgen0618215136.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x11ae): undefined reference to `_cmsStageAllocLabPrelin(_cmsContext_struct*)'
+clang++: [0;1;31merror: [0m[1mlinker command failed with exit code 1 (use -v to see invocation)[0m
+INFO:__main__:Running: docker build -t gcr.io/oss-fuzz/lcms --file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/Dockerfile /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms.
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.55kB done
+#1 WARN: WorkdirRelativePath: Relative workdir "lcms" can have unexpected results if the base image changes (line 36)
+#1 DONE 0.0s
+
+#2 [internal] load metadata for gcr.io/oss-fuzz-base/base-builder:latest
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/7] FROM gcr.io/oss-fuzz-base/base-builder:latest
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 6.46kB done
+#5 DONE 0.0s
+
+#6 [3/7] RUN git clone --depth 1 https://github.com/mm2/Little-CMS.git lcms
+#6 CACHED
+
+#7 [5/7] WORKDIR lcms
+#7 CACHED
+
+#8 [2/7] RUN apt-get update && apt-get install -y make autoconf automake libtool
+#8 CACHED
+
+#9 [4/7] RUN mkdir /src/seeds &&     cd seeds &&     cp /src/lcms/testbed/bad.icc . &&     cp /src/lcms/testbed/toosmall.icc . &&     cp /src/lcms/testbed/test1.icc . &&     cp /src/lcms/testbed/crayons.icc . &&     cp /src/lcms/testbed/ibm-t61.icc . &&     cp /src/lcms/testbed/bad_mpe.icc . &&     cp /src/lcms/testbed/new.icc . &&     cp /src/lcms/testbed/test2.icc . &&     cp /src/lcms/testbed/test3.icc . &&     cp /src/lcms/testbed/test4.icc . &&     cp /src/lcms/testbed/test5.icc . &&     zip -rj /src/seed_corpus.zip /src/seeds/*
+#9 CACHED
+
+#10 [6/7] COPY build.sh *.c *.options *.dict /src/
+#10 CACHED
+
+#11 [7/7] COPY llm_fuzzgen* /src/
+#11 DONE 0.0s
+
+#12 exporting to image
+#12 exporting layers 0.0s done
+#12 writing image sha256:60ecc04a5ca2ad2804252652a56c8947ac2d49f8f6cc43b514ca8ed72481ebb3 done
+#12 naming to gcr.io/oss-fuzz/lcms done
+#12 DONE 0.0s
+
+ [33m1 warning found (use docker --debug to expand):
+[0m - WorkdirRelativePath: Relative workdir "lcms" can have unexpected results if the base image changes (line 36)
+INFO:__main__:Keeping existing build artifacts as-is (if any).
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e FUZZING_ENGINE=libfuzzer -e SANITIZER=address -e ARCHITECTURE=x86_64 -e PROJECT_NAME=lcms -e HELPER=True -e FUZZING_LANGUAGE=c++ -v /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/lcms/:/out -v /home/jack/LLM-FuzzGen/external/oss-fuzz/build/work/lcms:/work -t gcr.io/oss-fuzz/lcms.
+ERROR:__main__:Building fuzzers failed.[0m
+21:51:53 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215136 for project lcms failed to build.[0m
+21:51:53 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 9).[0m
+21:51:53 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215136.cc[0m
+21:51:53 - __main__.build_fuzz_target:151 - INFO - Build attempt 10/10 for 'lcms'.[0m
+21:51:53 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: invalid or unhandled FORM value: 0x25
+/tmp/llm_fuzzgen0618215136-61aeb8.o: in function `LLVMFuzzerTestOneInput':
+llm_fuzzgen0618215136.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x12c): undefined reference to `_cmsRegisterTagTypePlugin(_cmsContext_struct*, _cmsPluginBaseStruct*)...[0m
+21:51:53 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:52:54 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+// --- Custom Deleters for RAII ---
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const {
+    if (ctx) {
+      cmsDeleteContext(ctx);
+    }
+  }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const {
+    if (profile) {
+      cmsCloseProfile(profile);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct SeqDeleter {
+  void operator()(cmsSEQ* seq) const {
+    if (seq) {
+      cmsFreeProfileSequenceDescription(seq);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  std::unique_ptr<struct _cmsContext_struct, ContextDeleter> context(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+
+  // --- Fuzz Read Path ---
+  // Treat the input data as a profile and try to open it.
+  // This will exercise the "Read" functions of the tag type handlers.
+  std::unique_ptr<struct _cms_iccprofile_struct, ProfileDeleter> profile_read(
+      cmsOpenProfileFromMem(data, size));
+  if (profile_read) {
+    // If the profile is valid, we can try to read specific tags
+    // to further exercise their handlers. The returned pointers are managed
+    // by the profile and should not be freed.
+    cmsReadTag(profile_read.get(), cmsSigMetaTag);
+    cmsReadTag(profile_read.get(), cmsSigProfileSequenceIdTag);
+  }
+
+
+  // --- Fuzz Write Path ---
+  std::unique_ptr<struct _cms_iccprofile_struct, ProfileDeleter> profile_write(
+      cmsCreateProfilePlaceholder(context.get()));
+  if (!profile_write) {
+    return 0;
+  }
+
+  // Fuzz Dictionary writing
+  std::unique_ptr<void, DictDeleter> dict(cmsDictAlloc(context.get()));
+  if (dict) {
+    int num_entries = fdp.ConsumeIntegralInRange<int>(0, 10);
+    for (int i = 0; i < num_entries; ++i) {
+      std::string name_str = fdp.ConsumeRandomLengthString(100);
+      std::wstring name(name_str.begin(), name_str.end());
+      std::string value_str = fdp.ConsumeRandomLengthString(100);
+      std::wstring value(value_str.begin(), value_str.end());
+      cmsDictAddEntry(dict.get(), name.c_str(), value.c_str(), nullptr, nullptr);
+    }
+    cmsWriteTag(profile_write.get(), cmsSigMetaTag, dict.get());
+  }
+
+  // Fuzz Profile Sequence Description writing
+  std::unique_ptr<cmsSEQ, SeqDeleter> seq(
+      cmsAllocProfileSequenceDescription(context.get(), 1));
+  if (seq) {
+    seq->seq[0].deviceMfg = fdp.ConsumeIntegral<cmsUInt32Number>();
+    seq->seq[0].deviceModel = fdp.ConsumeIntegral<cmsUInt32Number>();
+    seq->seq[0].attributes = fdp.ConsumeIntegral<cmsUInt64Number>();
+    seq->seq[0].technology = (cmsTechnologySignature)fdp.ConsumeIntegral<cmsUInt32Number>();
+
+    std::string mfg_str = fdp.ConsumeRandomLengthString(50);
+    seq->seq[0].Manufacturer = cmsMLUalloc(context.get(), 1);
+    if (seq->seq[0].Manufacturer) {
+        cmsMLUsetASCII(seq->seq[0].Manufacturer, cmsNoLanguage, cmsNoCountry, mfg_str.c_str());
+    }
+
+    std::string model_str = fdp.ConsumeRandomLengthString(50);
+    seq->seq[0].Model = cmsMLUalloc(context.get(), 1);
+    if (seq->seq[0].Model) {
+        cmsMLUsetASCII(seq->seq[0].Model, cmsNoLanguage, cmsNoCountry, model_str.c_str());
+    }
+    
+    cmsWriteTag(profile_write.get(), cmsSigProfileSequenceIdTag, seq.get());
+  }
+
+  // After writing tags, save the profile to memory to complete the write cycle.
+  char* buffer = nullptr;
+  cmsUInt32Number bytes_written = 0;
+  if (cmsSaveProfileToMem(profile_write.get(), nullptr, &bytes_written)) {
+      buffer = (char*)malloc(bytes_written);
+      if (buffer) {
+          cmsSaveProfileToMem(profile_write.get(), buffer, &bytes_written);
+          free(buffer);
+      }
+  }
+
+  return 0;
+}[0m
+21:52:54 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215254.cc[0m
+21:52:54 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215254.cc'.[0m
+21:52:54 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215254 for 30 seconds for project lcms[0m
+21:53:04 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno matching constructor for initialization of 'std::unique_ptr<struct _cms_iccprofile_struct, ProfileDeleter>'[0m
+   58 |   std::unique_ptr<struct _cms_iccprofile_struct, ProfileDeleter> profile_read([0m
+      | [0;1;32m                                                                 ^
+[0m   59 |       cmsOpenProfileFromMem(data, size));[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:124:59: [0m[0;1;36mnote: [0mcandidate constructor (the implicit copy constructor) not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'const unique_ptr<_cms_iccprofile_struct, ProfileDeleter>' for 1st argument[0m
+  124 | class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr {[0m
+      | [0;1;32m                                                          ^~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:170:43: [0m[0;1;36mnote: [0mcandidate constructor template not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'nullptr_t' (aka 'std::nullptr_t') for 1st argument[0m
+  170 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT[0m
+      | [0;1;32m                                          ^          ~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:174:64: [0m[0;1;36mnote: [0mcandidate constructor template not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'pointer' (aka '_cms_iccprofile_struct *') for 1st argument[0m
+  174 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(pointer __p) _NOEXCEPT[0m
+      | [0;1;32m                                                               ^          ~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:190:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'unique_ptr<_cms_iccprofile_struct, ProfileDeleter>' for 1st argument[0m
+  190 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(unique_ptr&& __u) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:197:55: [0m[0;1;36mnote: [0mcandidate template ignored: could not match 'unique_ptr<_Up, _Ep>' against 'cmsHPROFILE' (aka 'void *')[0m
+  197 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(unique_ptr<_Up, _Ep>&& __u) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:167:43: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 0 arguments, but 1 was provided[0m
+  167 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(__value_init_tag(), __value_init_tag()) {}[0m
+      | [0;1;32m                                          ^
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:178:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  178 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _LValRefType<_Dummy> __d) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:182:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  182 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _GoodRValRefType<_Dummy> __d) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:188:25: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  188 |   _LIBCPP_HIDE_FROM_ABI unique_ptr(pointer __p, _BadRValRefType<_Dummy> __d) = delete;[0m
+      | [0;1;32m                        ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618215254.cc:70:66: [0m[0;1;31merror: [0m[1mno matching constructor for initialization of 'std::unique_ptr<struct _cms_iccprofile_struct, ProfileDeleter>'[0m
+   70 |   std::unique_ptr<struct _cms_iccprofile_struct, ProfileDeleter> profile_write([0m
+      | [0;1;32m                                                                 ^
+[0m   71 |       cmsCreateProfilePlaceholder(context.get()));[0m
+      | [0;1;32m      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:124:59: [0m[0;1;36mnote: [0mcandidate constructor (the implicit copy constructor) not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'const unique_ptr<_cms_iccprofile_struct, ProfileDeleter>' for 1st argument[0m
+  124 | class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr {[0m
+      | [0;1;32m                                                          ^~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:170:43: [0m[0;1;36mnote: [0mcandidate constructor template not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'nullptr_t' (aka 'std::nullptr_t') for 1st argument[0m
+  170 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT[0m
+      | [0;1;32m                                          ^          ~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:174:64: [0m[0;1;36mnote: [0mcandidate constructor template not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'pointer' (aka '_cms_iccprofile_struct *') for 1st argument[0m
+  174 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(pointer __p) _NOEXCEPT[0m
+      | [0;1;32m                                                               ^          ~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:190:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'unique_ptr<_cms_iccprofile_struct, ProfileDeleter>' for 1st argument[0m
+  190 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(unique_ptr&& __u) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:197:55: [0m[0;1;36mnote: [0mcandidate template ignored: could not match 'unique_ptr<_Up, _Ep>' against 'cmsHPROFILE' (aka 'void *')[0m
+  197 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(unique_ptr<_Up, _Ep>&& __u) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:167:43: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 0 arguments, but 1 was provided[0m
+  167 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(__value_init_tag(), __value_init_tag()) {}[0m
+      | [0;1;32m                                          ^
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:178:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  178 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _LValRefType<_Dummy> __d) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:182:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  182 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _GoodRValRefType<_Dummy> __d) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:188:25: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  188 |   _LIBCPP_HIDE_FROM_ABI unique_ptr(pointer __p, _BadRValRefType<_Dummy> __d) = delete;[0m
+      | [0;1;32m                        ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m2 errors generated.[0m
+21:53:04 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215254 for project lcms failed to build.[0m
+21:53:04 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 10).[0m
+21:53:04 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215254.cc[0m
+21:53:04 - __main__.build_fuzz_target:190 - WARNING - All 10 attempts failed for 'lcms'.[0m
+21:53:04 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [lcms] Current coverage array: [61.71230536437741][0m
+21:53:04 - __main__.regenerate_fuzz_target:215 - INFO - Regenerating fuzz target for project: lcms[0m
+21:53:04 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:53:04 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for lcms with existing corpus[0m
+21:53:42 - external.oss_fuzz.get_coverage_summary:440 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+21:53:42 - external.oss_fuzz.coverage:181 - INFO - Coverage for lcms with None: 61.71230536437741%[0m
+21:53:42 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for lcms[0m
+21:53:42 - __main__.build_fuzz_target:151 - INFO - Build attempt 1/10 for 'lcms'.[0m
+21:53:42 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `lcms` library (c++) that **maximizes code coverage** by strategically exercising...[0m
+21:53:42 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:53:51 - external.introspector.function_source_code:213 - INFO - Returning cached source code for void * Type_Dictionary_Read(struct _cms_typehandler_struct *, cmsIOHANDLER *, cmsUInt32Number *, cmsUInt32Number) in lcms[0m
+21:53:51 - llm_interface.tools.function_source_code:132 - INFO - Tool(function_source_code): Retrieved source code for void * Type_Dictionary_Read(struct _cms_typehandler_struct *, cmsIOHANDLER *, cmsUInt32Number *, cmsUInt32Number)[0m
+21:53:51 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:53:57 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'lcms', 'function_signature': 'void * Type_vcgt_Read(struct _cms_typehandler_struct *, cmsIOHANDLER *, cmsUInt32Number *, cmsUInt32Number)'}[0m
+21:53:57 - llm_interface.tools.function_source_code:132 - INFO - Tool(function_source_code): Retrieved source code for void * Type_vcgt_Read(struct _cms_typehandler_struct *, cmsIOHANDLER *, cmsUInt32Number *, cmsUInt32Number)[0m
+21:53:57 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:54:12 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "lcms2.h"
+#include "lcms2_plugin.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER *io) const {
+    if (io) {
+      io->Close(io);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+      free(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a custom error handler to prevent crashes on invalid
+  // input.
+  auto context = std::unique_ptr<cmsContext_struct, ContextDeleter>(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(context.get(), nullptr);
+
+  // Create a memory-based IO handler from the fuzzer input.
+  auto io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+      cmsOpenIOhandlerFromMem(context.get(), (void *)data, size, "r"));
+  if (!io) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  cmsUInt32Number nItems_dict = 0;
+  auto dict = std::unique_ptr<void, DictDeleter>(Type_Dictionary_Read(
+      nullptr, io.get(), &nItems_dict, fdp.ConsumeIntegral<cmsUInt32Number>()));
+  io->Seek(io.get(), 0);
+
+  // Fuzz Type_vcgt_Read
+  cmsUInt32Number nItems_vcgt = 0;
+  auto vcgt = std::unique_ptr<cmsToneCurve *, VcgtDeleter>(
+      (cmsToneCurve **)Type_vcgt_Read(nullptr, io.get(), &nItems_vcgt,
+                                     fdp.ConsumeIntegral<cmsUInt32Number>()));
+  io->Seek(io.get(), 0);
+
+  // Fuzz _cmsStageAllocLabPrelin
+  auto stage =
+      std::unique_ptr<cmsStage, StageDeleter>(_cmsStageAllocLabPrelin(context.get()));
+
+  // Fuzz Type_LUTB2A_Write
+  auto lut_b2a = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+      cmsPipelineAlloc(context.get(), 3, 3));
+  if (lut_b2a) {
+    auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+        cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+    if (write_io) {
+      Type_LUTB2A_Write(nullptr, write_io.get(), lut_b2a.get(),
+                        fdp.ConsumeIntegral<cmsUInt32Number>());
+    }
+  }
+
+  // Fuzz Type_MPE_Write
+  auto mpe = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+      cmsPipelineAlloc(context.get(), 3, 3));
+  if (mpe) {
+    auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+        cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+    if (write_io) {
+      Type_MPE_Write(nullptr, write_io.get(), mpe.get(),
+                     fdp.ConsumeIntegral<cmsUInt32Number>());
+    }
+  }
+
+  return 0;
+}[0m
+21:54:12 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215412.cc[0m
+21:54:12 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215412.cc'.[0m
+21:54:12 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215412 for 30 seconds for project lcms[0m
+21:54:26 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1munknown type name 'cmsContext_struct'; did you mean '_cmsContext_struct'?[0m
+   65 |   auto context = std::unique_ptr<cmsContext_struct, ContextDeleter>([0m
+      | [0;1;32m                                 ^~~~~~~~~~~~~~~~~
+[0m      | [0;32m                                 _cmsContext_struct
+[0m[1minclude/lcms2.h:1089:16: [0m[0;1;36mnote: [0m'_cmsContext_struct' declared here[0m
+ 1089 | typedef struct _cmsContext_struct* cmsContext;[0m
+      | [0;1;32m               ^
+[0m[1m/src/llm_fuzzgen0618215412.cc:70:3: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsSetLogErrorHandler'[0m
+   70 |   cmsSetLogErrorHandler(context.get(), nullptr);[0m
+      | [0;1;32m  ^~~~~~~~~~~~~~~~~~~~~
+[0m[1minclude/lcms2.h:1137:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires single argument 'Fn', but 2 arguments were provided[0m
+ 1137 | CMSAPI void              CMSEXPORT cmsSetLogErrorHandler(cmsLogErrorHandlerFunction Fn);[0m
+      | [0;1;32m                                   ^                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618215412.cc:81:50: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_Dictionary_Read'[0m
+   81 |   auto dict = std::unique_ptr<void, DictDeleter>(Type_Dictionary_Read([0m
+      | [0;1;32m                                                 ^
+[0m[1m/src/llm_fuzzgen0618215412.cc:88:24: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_vcgt_Read'[0m
+   88 |       (cmsToneCurve **)Type_vcgt_Read(nullptr, io.get(), &nItems_vcgt,[0m
+      | [0;1;32m                       ^
+[0m[1m/src/llm_fuzzgen0618215412.cc:94:47: [0m[0;1;31merror: [0m[1muse of undeclared identifier '_cmsStageAllocLabPrelin'[0m
+   94 |       std::unique_ptr<cmsStage, StageDeleter>(_cmsStageAllocLabPrelin(context.get()));[0m
+      | [0;1;32m                                              ^
+[0m[1m/src/llm_fuzzgen0618215412.cc:103:7: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_LUTB2A_Write'[0m
+  103 |       Type_LUTB2A_Write(nullptr, write_io.get(), lut_b2a.get(),[0m
+      | [0;1;32m      ^
+[0m[1m/src/llm_fuzzgen0618215412.cc:115:7: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_MPE_Write'[0m
+  115 |       Type_MPE_Write(nullptr, write_io.get(), mpe.get(),[0m
+      | [0;1;32m      ^
+[0m7 errors generated.[0m
+21:54:26 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215412 for project lcms failed to build.[0m
+21:54:26 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 1).[0m
+21:54:26 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215412.cc[0m
+21:54:26 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for lcms[0m
+21:54:26 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:54:26 - __main__.build_fuzz_target:151 - INFO - Build attempt 2/10 for 'lcms'.[0m
+21:54:26 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `lcms` library (c++) by **resolving all specified bu...[0m
+21:54:26 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:55:42 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER *io) const {
+    if (io) {
+      io->Close(io);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+      free(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // Create a context with a custom error handler to prevent crashes on invalid
+  // input.
+  auto context = std::unique_ptr<_cmsContext_struct, ContextDeleter>(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  // Create a memory-based IO handler from the fuzzer input.
+  auto io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+      cmsOpenIOhandlerFromMem(context.get(), (void *)data, size, "r"));
+  if (!io) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  cmsUInt32Number nItems_dict = 0;
+  auto dict = std::unique_ptr<void, DictDeleter>(Type_Dictionary_Read(
+      nullptr, io.get(), &nItems_dict, fdp.ConsumeIntegral<cmsUInt32Number>()));
+  io->Seek(io.get(), 0);
+
+  // Fuzz Type_vcgt_Read
+  cmsUInt32Number nItems_vcgt = 0;
+  auto vcgt = std::unique_ptr<cmsToneCurve *, VcgtDeleter>(
+      (cmsToneCurve **)Type_vcgt_Read(nullptr, io.get(), &nItems_vcgt,
+                                     fdp.ConsumeIntegral<cmsUInt32Number>()));
+  io->Seek(io.get(), 0);
+
+  // Fuzz _cmsStageAllocLabPrelin
+  auto stage =
+      std::unique_ptr<cmsStage, StageDeleter>(_cmsStageAllocLabPrelin(context.get()));
+
+  // Fuzz Type_LUTB2A_Write
+  auto lut_b2a = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+      cmsPipelineAlloc(context.get(), 3, 3));
+  if (lut_b2a) {
+    auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+        cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+    if (write_io) {
+      Type_LUTB2A_Write(nullptr, write_io.get(), lut_b2a.get(),
+                        fdp.ConsumeIntegral<cmsUInt32Number>());
+    }
+  }
+
+  // Fuzz Type_MPE_Write
+  auto mpe = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+      cmsPipelineAlloc(context.get(), 3, 3));
+  if (mpe) {
+    auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+        cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+    if (write_io) {
+      Type_MPE_Write(nullptr, write_io.get(), mpe.get(),
+                     fdp.ConsumeIntegral<cmsUInt32Number>());
+    }
+  }
+
+  return 0;
+}[0m
+21:55:42 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215542.cc[0m
+21:55:42 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215542.cc'.[0m
+21:55:42 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215542 for 30 seconds for project lcms[0m
+21:55:58 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1muse of undeclared identifier 'Type_Dictionary_Read'[0m
+   82 |   auto dict = std::unique_ptr<void, DictDeleter>(Type_Dictionary_Read([0m
+      | [0;1;32m                                                 ^
+[0m[1m/src/llm_fuzzgen0618215542.cc:89:24: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_vcgt_Read'[0m
+   89 |       (cmsToneCurve **)Type_vcgt_Read(nullptr, io.get(), &nItems_vcgt,[0m
+      | [0;1;32m                       ^
+[0m[1m/src/llm_fuzzgen0618215542.cc:104:7: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_LUTB2A_Write'[0m
+  104 |       Type_LUTB2A_Write(nullptr, write_io.get(), lut_b2a.get(),[0m
+      | [0;1;32m      ^
+[0m[1m/src/llm_fuzzgen0618215542.cc:116:7: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'Type_MPE_Write'[0m
+  116 |       Type_MPE_Write(nullptr, write_io.get(), mpe.get(),[0m
+      | [0;1;32m      ^
+[0m4 errors generated.[0m
+21:55:58 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215542 for project lcms failed to build.[0m
+21:55:58 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 2).[0m
+21:55:58 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215542.cc[0m
+21:55:58 - __main__.build_fuzz_target:151 - INFO - Build attempt 3/10 for 'lcms'.[0m
+21:55:58 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1muse of undeclared identifier 'Type_Dictionary_Read'[0m
+   82 |   auto dict = std::unique_ptr<void, DictDeleter>(Type_Dictionary_Read([0m
+      | [0;1;32m                                                 ^
+[0m[1m/src/llm_fuzzgen0618215542.cc:89:24: [0m[0;1;31merror: [0m[1muse o...[0m
+21:55:58 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:56:21 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER *io) const {
+    if (io) {
+      io->Close(io);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  auto context = std::unique_ptr<_cmsContext_struct, ContextDeleter>(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  auto io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+      cmsOpenIOhandlerFromMem(context.get(), (void *)data, size, "r"));
+  if (!io) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  _cms_typehandler_struct *dict_handler = _cmsReadTypePlugin(nullptr, cmsSigDictType);
+  if (dict_handler) {
+    cmsUInt32Number nItems_dict = 0;
+    auto dict = std::unique_ptr<void, DictDeleter>(dict_handler->Read(
+        dict_handler, io.get(), &nItems_dict, fdp.ConsumeIntegral<cmsUInt32Number>()));
+    io->Seek(io.get(), 0);
+  }
+
+  // Fuzz Type_vcgt_Read
+  _cms_typehandler_struct *vcgt_handler = _cmsReadTypePlugin(nullptr, cmsSigVcgtType);
+  if (vcgt_handler) {
+    cmsUInt32Number nItems_vcgt = 0;
+    auto vcgt = std::unique_ptr<cmsToneCurve *, VcgtDeleter>(
+        (cmsToneCurve **)vcgt_handler->Read(
+            vcgt_handler, io.get(), &nItems_vcgt,
+            fdp.ConsumeIntegral<cmsUInt32Number>()));
+    io->Seek(io.get(), 0);
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  auto stage =
+      std::unique_ptr<cmsStage, StageDeleter>(_cmsStageAllocLabPrelin(context.get()));
+
+  // Fuzz Type_LUTB2A_Write
+  _cms_typehandler_struct *lutb_handler = _cmsReadTypePlugin(nullptr, cmsSigLutBToAType);
+  if (lutb_handler) {
+    auto lut_b2a = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+        cmsPipelineAlloc(context.get(), 3, 3));
+    if (lut_b2a) {
+      auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+          cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+      if (write_io) {
+        lutb_handler->Write(lutb_handler, write_io.get(), lut_b2a.get(),
+                           fdp.ConsumeIntegral<cmsUInt32Number>());
+      }
+    }
+  }
+
+  // Fuzz Type_MPE_Write
+  _cms_typehandler_struct *mpe_handler = _cmsReadTypePlugin(nullptr, cmsSigMpeType);
+  if (mpe_handler) {
+    auto mpe = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+        cmsPipelineAlloc(context.get(), 3, 3));
+    if (mpe) {
+      auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+          cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+      if (write_io) {
+        mpe_handler->Write(mpe_handler, write_io.get(), mpe.get(),
+                         fdp.ConsumeIntegral<cmsUInt32Number>());
+      }
+    }
+  }
+
+  return 0;
+}[0m
+21:56:21 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215621.cc[0m
+21:56:21 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215621.cc'.[0m
+21:56:21 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215621 for 30 seconds for project lcms[0m
+21:56:36 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1muse of undeclared identifier '_cmsReadTypePlugin'[0m
+   77 |   _cms_typehandler_struct *dict_handler = _cmsReadTypePlugin(nullptr, cmsSigDictType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:80:66: [0m[0;1;31merror: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+   80 |     auto dict = std::unique_ptr<void, DictDeleter>(dict_handler->Read([0m
+      | [0;1;32m                                                   ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:86:43: [0m[0;1;31merror: [0m[1muse of undeclared identifier '_cmsReadTypePlugin'[0m
+   86 |   _cms_typehandler_struct *vcgt_handler = _cmsReadTypePlugin(nullptr, cmsSigVcgtType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:90:40: [0m[0;1;31merror: [0m[1mno member named 'Read' in '_cms_typehandler_struct'[0m
+   90 |         (cmsToneCurve **)vcgt_handler->Read([0m
+      | [0;1;32m                         ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:101:71: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'cmsSigLutBToAType'[0m
+  101 |   _cms_typehandler_struct *lutb_handler = _cmsReadTypePlugin(nullptr, cmsSigLutBToAType);[0m
+      | [0;1;32m                                                                      ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:109:23: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  109 |         lutb_handler->Write(lutb_handler, write_io.get(), lut_b2a.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~~  ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:116:70: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'cmsSigMpeType'[0m
+  116 |   _cms_typehandler_struct *mpe_handler = _cmsReadTypePlugin(nullptr, cmsSigMpeType);[0m
+      | [0;1;32m                                                                     ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:124:22: [0m[0;1;31merror: [0m[1mno member named 'Write' in '_cms_typehandler_struct'[0m
+  124 |         mpe_handler->Write(mpe_handler, write_io.get(), mpe.get(),[0m
+      | [0;1;32m        ~~~~~~~~~~~  ^
+[0m8 errors generated.[0m
+21:56:36 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215621 for project lcms failed to build.[0m
+21:56:36 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 3).[0m
+21:56:36 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215621.cc[0m
+21:56:36 - __main__.build_fuzz_target:151 - INFO - Build attempt 4/10 for 'lcms'.[0m
+21:56:36 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1muse of undeclared identifier '_cmsReadTypePlugin'[0m
+   77 |   _cms_typehandler_struct *dict_handler = _cmsReadTypePlugin(nullptr, cmsSigDictType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/llm_fuzzgen0618215621.cc:80:66: [0m[0;1;31merror: [0m[...[0m
+21:56:36 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:57:10 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER *io) const {
+    if (io) {
+      io->Close(io);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  auto context = std::unique_ptr<_cmsContext_struct, ContextDeleter>(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  auto io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+      cmsOpenIOhandlerFromMem(context.get(), (void *)data, size, "r"));
+  if (!io) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  _cms_typehandler_struct *dict_handler = _cmsFindTagTypeHandler(cmsSigDictType);
+  if (dict_handler) {
+    cmsUInt32Number nItems_dict = 0;
+    auto dict = std::unique_ptr<void, DictDeleter>(dict_handler->ReadPtr(
+        dict_handler, io.get(), &nItems_dict, fdp.ConsumeIntegral<cmsUInt32Number>()));
+    io->Seek(io.get(), 0);
+  }
+
+  // Fuzz Type_vcgt_Read
+  _cms_typehandler_struct *vcgt_handler = _cmsFindTagTypeHandler(cmsSigVcgtType);
+  if (vcgt_handler) {
+    cmsUInt32Number nItems_vcgt = 0;
+    auto vcgt = std::unique_ptr<cmsToneCurve *, VcgtDeleter>(
+        (cmsToneCurve **)vcgt_handler->ReadPtr(
+            vcgt_handler, io.get(), &nItems_vcgt,
+            fdp.ConsumeIntegral<cmsUInt32Number>()));
+    io->Seek(io.get(), 0);
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  auto stage =
+      std::unique_ptr<cmsStage, StageDeleter>(_cmsStageAllocLabPrelin(context.get()));
+
+  // Fuzz Type_LUTB2A_Write
+  _cms_typehandler_struct *lutb_handler = _cmsFindTagTypeHandler(cmsSigLutBtoAType);
+  if (lutb_handler) {
+    auto lut_b2a = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+        cmsPipelineAlloc(context.get(), 3, 3));
+    if (lut_b2a) {
+      auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+          cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+      if (write_io) {
+        lutb_handler->WritePtr(lutb_handler, write_io.get(), lut_b2a.get(),
+                           fdp.ConsumeIntegral<cmsUInt32Number>());
+      }
+    }
+  }
+
+  // Fuzz Type_MPE_Write
+  _cms_typehandler_struct *mpe_handler = _cmsFindTagTypeHandler(cmsSigMPEType);
+  if (mpe_handler) {
+    auto mpe = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+        cmsPipelineAlloc(context.get(), 3, 3));
+    if (mpe) {
+      auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+          cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+      if (write_io) {
+        mpe_handler->WritePtr(mpe_handler, write_io.get(), mpe.get(),
+                         fdp.ConsumeIntegral<cmsUInt32Number>());
+      }
+    }
+  }
+
+  return 0;
+}[0m
+21:57:10 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215710.cc[0m
+21:57:10 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215710.cc'.[0m
+21:57:10 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215710 for 30 seconds for project lcms[0m
+21:57:29 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1muse of undeclared identifier '_cmsFindTagTypeHandler'; did you mean 'cmsTagTypeHandler'?[0m
+   77 |   _cms_typehandler_struct *dict_handler = _cmsFindTagTypeHandler(cmsSigDictType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/lcms/include/lcms2_plugin.h:416:3: [0m[0;1;36mnote: [0m'cmsTagTypeHandler' declared here[0m
+  416 | } cmsTagTypeHandler;[0m
+      | [0;1;32m  ^
+[0m[1m/src/llm_fuzzgen0618215710.cc:86:43: [0m[0;1;31merror: [0m[1muse of undeclared identifier '_cmsFindTagTypeHandler'; did you mean 'cmsTagTypeHandler'?[0m
+   86 |   _cms_typehandler_struct *vcgt_handler = _cmsFindTagTypeHandler(cmsSigVcgtType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/lcms/include/lcms2_plugin.h:416:3: [0m[0;1;36mnote: [0m'cmsTagTypeHandler' declared here[0m
+  416 | } cmsTagTypeHandler;[0m
+      | [0;1;32m  ^
+[0m[1m/src/llm_fuzzgen0618215710.cc:101:43: [0m[0;1;31merror: [0m[1muse of undeclared identifier '_cmsFindTagTypeHandler'; did you mean 'cmsTagTypeHandler'?[0m
+  101 |   _cms_typehandler_struct *lutb_handler = _cmsFindTagTypeHandler(cmsSigLutBtoAType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/lcms/include/lcms2_plugin.h:416:3: [0m[0;1;36mnote: [0m'cmsTagTypeHandler' declared here[0m
+  416 | } cmsTagTypeHandler;[0m
+      | [0;1;32m  ^
+[0m[1m/src/llm_fuzzgen0618215710.cc:116:65: [0m[0;1;31merror: [0m[1muse of undeclared identifier 'cmsSigMPEType'[0m
+  116 |   _cms_typehandler_struct *mpe_handler = _cmsFindTagTypeHandler(cmsSigMPEType);[0m
+      | [0;1;32m                                                                ^
+[0m4 errors generated.[0m
+21:57:29 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215710 for project lcms failed to build.[0m
+21:57:29 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 4).[0m
+21:57:29 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215710.cc[0m
+21:57:29 - __main__.build_fuzz_target:151 - INFO - Build attempt 5/10 for 'lcms'.[0m
+21:57:29 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1muse of undeclared identifier '_cmsFindTagTypeHandler'; did you mean 'cmsTagTypeHandler'?[0m
+   77 |   _cms_typehandler_struct *dict_handler = _cmsFindTagTypeHandler(cmsSigDictType);[0m
+      | [0;1;32m                                          ^
+[0m[1m/src/lcms/include/lcms2_plugi...[0m
+21:57:29 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:58:48 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:58:48 - llm_interface.tools.search_function:105 - INFO - Tool(search_function): Found 1 functions matching 'TagTypeHandler' for lcms[0m
+21:58:48 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+21:59:06 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct IOHandlerDeleter {
+  void operator()(cmsIOHANDLER *io) const {
+    if (io) {
+      io->Close(io);
+    }
+  }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  auto context = std::unique_ptr<_cmsContext_struct, ContextDeleter>(
+      cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  auto io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+      cmsOpenIOhandlerFromMem(context.get(), (void *)data, size, "r"));
+  if (!io) {
+    return 0;
+  }
+
+  // Fuzz Type_Dictionary_Read
+  cmsTagTypeHandler *dict_handler = _cmsGetTagTypeHandler(context.get(), cmsSigDictType);
+  if (dict_handler) {
+    cmsUInt32Number nItems_dict = 0;
+    auto dict = std::unique_ptr<void, DictDeleter>(dict_handler->ReadPtr(
+        dict_handler, io.get(), &nItems_dict, fdp.ConsumeIntegral<cmsUInt32Number>()));
+    io->Seek(io.get(), 0);
+  }
+
+  // Fuzz Type_vcgt_Read
+  cmsTagTypeHandler *vcgt_handler = _cmsGetTagTypeHandler(context.get(), cmsSigVcgtType);
+  if (vcgt_handler) {
+    cmsUInt32Number nItems_vcgt = 0;
+    auto vcgt = std::unique_ptr<cmsToneCurve *, VcgtDeleter>(
+        (cmsToneCurve **)vcgt_handler->ReadPtr(
+            vcgt_handler, io.get(), &nItems_vcgt,
+            fdp.ConsumeIntegral<cmsUInt32Number>()));
+    io->Seek(io.get(), 0);
+  }
+
+  // Fuzz _cmsStageAllocLabPrelin
+  auto stage =
+      std::unique_ptr<cmsStage, StageDeleter>(_cmsStageAllocLabPrelin(context.get()));
+
+  // Fuzz Type_LUTB2A_Write
+  cmsTagTypeHandler *lutb_handler = _cmsGetTagTypeHandler(context.get(), cmsSigLutBtoAType);
+  if (lutb_handler) {
+    auto lut_b2a = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+        cmsPipelineAlloc(context.get(), 3, 3));
+    if (lut_b2a) {
+      auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+          cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+      if (write_io) {
+        lutb_handler->WritePtr(lutb_handler, write_io.get(), lut_b2a.get(),
+                           fdp.ConsumeIntegral<cmsUInt32Number>());
+      }
+    }
+  }
+
+  // Fuzz Type_MPE_Write
+  cmsTagTypeHandler *mpe_handler = _cmsGetTagTypeHandler(context.get(), cmsSigMultiProcessElementType);
+  if (mpe_handler) {
+    auto mpe = std::unique_ptr<cmsPipeline, PipelineDeleter>(
+        cmsPipelineAlloc(context.get(), 3, 3));
+    if (mpe) {
+      auto write_io = std::unique_ptr<cmsIOHANDLER, IOHandlerDeleter>(
+          cmsOpenIOhandlerFromMem(context.get(), nullptr, 0, "w"));
+      if (write_io) {
+        mpe_handler->WritePtr(mpe_handler, write_io.get(), mpe.get(),
+                         fdp.ConsumeIntegral<cmsUInt32Number>());
+      }
+    }
+  }
+
+  return 0;
+}[0m
+21:59:06 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215906.cc[0m
+21:59:06 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215906.cc'.[0m
+21:59:06 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618215906 for 30 seconds for project lcms[0m
+21:59:25 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: invalid or unhandled FORM value: 0x25
+/tmp/llm_fuzzgen0618215906-1e74ce.o: in function `LLVMFuzzerTestOneInput':
+llm_fuzzgen0618215906.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x104): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+/usr/bin/ld: llm_fuzzgen0618215906.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x2be): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+/usr/bin/ld: llm_fuzzgen0618215906.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x44d): undefined reference to `_cmsStageAllocLabPrelin(_cmsContext_struct*)'
+/usr/bin/ld: llm_fuzzgen0618215906.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x45f): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+/usr/bin/ld: llm_fuzzgen0618215906.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x643): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+clang++: [0;1;31merror: [0m[1mlinker command failed with exit code 1 (use -v to see invocation)[0m
+INFO:__main__:Running: docker build -t gcr.io/oss-fuzz/lcms --file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/Dockerfile /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms.
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.55kB done
+#1 WARN: WorkdirRelativePath: Relative workdir "lcms" can have unexpected results if the base image changes (line 36)
+#1 DONE 0.0s
+
+#2 [internal] load metadata for gcr.io/oss-fuzz-base/base-builder:latest
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/7] FROM gcr.io/oss-fuzz-base/base-builder:latest
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 5.33kB done
+#5 DONE 0.0s
+
+#6 [3/7] RUN git clone --depth 1 https://github.com/mm2/Little-CMS.git lcms
+#6 CACHED
+
+#7 [5/7] WORKDIR lcms
+#7 CACHED
+
+#8 [4/7] RUN mkdir /src/seeds &&     cd seeds &&     cp /src/lcms/testbed/bad.icc . &&     cp /src/lcms/testbed/toosmall.icc . &&     cp /src/lcms/testbed/test1.icc . &&     cp /src/lcms/testbed/crayons.icc . &&     cp /src/lcms/testbed/ibm-t61.icc . &&     cp /src/lcms/testbed/bad_mpe.icc . &&     cp /src/lcms/testbed/new.icc . &&     cp /src/lcms/testbed/test2.icc . &&     cp /src/lcms/testbed/test3.icc . &&     cp /src/lcms/testbed/test4.icc . &&     cp /src/lcms/testbed/test5.icc . &&     zip -rj /src/seed_corpus.zip /src/seeds/*
+#8 CACHED
+
+#9 [2/7] RUN apt-get update && apt-get install -y make autoconf automake libtool
+#9 CACHED
+
+#10 [6/7] COPY build.sh *.c *.options *.dict /src/
+#10 CACHED
+
+#11 [7/7] COPY llm_fuzzgen* /src/
+#11 DONE 0.0s
+
+#12 exporting to image
+#12 exporting layers 0.0s done
+#12 writing image sha256:fa1f9afed2959282edd645a3d559bdec8025fc5d0098c0174a880a721f1355ec done
+#12 naming to gcr.io/oss-fuzz/lcms done
+#12 DONE 0.0s
+
+ [33m1 warning found (use docker --debug to expand):
+[0m - WorkdirRelativePath: Relative workdir "lcms" can have unexpected results if the base image changes (line 36)
+INFO:__main__:Keeping existing build artifacts as-is (if any).
+INFO:__main__:Running: docker run --privileged --shm-size=2g --platform linux/amd64 --rm -i -e FUZZING_ENGINE=libfuzzer -e SANITIZER=address -e ARCHITECTURE=x86_64 -e PROJECT_NAME=lcms -e HELPER=True -e FUZZING_LANGUAGE=c++ -v /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/lcms/:/out -v /home/jack/LLM-FuzzGen/external/oss-fuzz/build/work/lcms:/work -t gcr.io/oss-fuzz/lcms.
+ERROR:__main__:Building fuzzers failed.[0m
+21:59:25 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618215906 for project lcms failed to build.[0m
+21:59:25 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 5).[0m
+21:59:25 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618215906.cc[0m
+21:59:25 - __main__.build_fuzz_target:151 - INFO - Build attempt 6/10 for 'lcms'.[0m
+21:59:25 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: invalid or unhandled FORM value: 0x25
+/tmp/llm_fuzzgen0618215906-1e74ce.o: in function `LLVMFuzzerTestOneInput':
+llm_fuzzgen0618215906.cc:(.text.LLVMFuzzerTestOneInput[LLVMFuzzerTestOneInput]+0x104): undefined reference to `_cmsGetTagTypeHandler(_cmsContext_struct*, cmsTagTypeSignature)'
+/usr...[0m
+21:59:25 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+22:00:03 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  auto context =
+      std::unique_ptr<struct _cmsContext_struct, ContextDeleter>(cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  // Fuzzing the readers
+  auto read_profile = std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>(
+      cmsOpenProfileFromMem(context.get(), data, size, "r"));
+  if (read_profile) {
+    // Read Vcgt
+    auto vcgt_tag_data =
+        std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag(
+            context.get(), read_profile.get(), cmsSigVcgtType));
+
+    // Read Dictionary
+    auto dict_tag_data = std::unique_ptr<void, DictDeleter>(
+        (cmsHANDLE)cmsReadTag(context.get(), read_profile.get(), cmsSigDictType));
+  }
+
+  // Fuzzing the writers
+  auto write_profile =
+      std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>(
+          cmsCreateProfilePlaceholder(context.get()));
+  if (write_profile) {
+    // Write LUT
+    auto pipeline_to_write =
+        std::unique_ptr<cmsPipeline, PipelineDeleter>(cmsPipelineAlloc(context.get(), 3, 3));
+    if (pipeline_to_write) {
+      cmsWriteTag(context.get(), write_profile.get(), cmsSigLutBtoAType,
+                  pipeline_to_write.get());
+      cmsWriteTag(context.get(), write_profile.get(),
+                  cmsSigMultiProcessElementType, pipeline_to_write.get());
+    }
+
+    // Write Dictionary
+    auto dict_to_write =
+        std::unique_ptr<void, DictDeleter>(cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      if (fdp.ConsumeBool()) {
+        cmsDictAddEntry(context.get(), (cmsHANDLE)dict_to_write.get(), L"Test",
+                        L"Value", nullptr, nullptr);
+      }
+      cmsWriteTag(context.get(), write_profile.get(), cmsSigDictType,
+                  dict_to_write.get());
+    }
+  }
+
+  // Fuzzing pipeline allocation
+  auto pipeline =
+      std::unique_ptr<cmsPipeline, PipelineDeleter>(cmsPipelineAlloc(context.get(), 3, 3));
+  if (pipeline) {
+    auto stage = std::unique_ptr<cmsStage, StageDeleter>(cmsStageAllocToneCurves(
+        context.get(), fdp.ConsumeIntegralInRange<cmsUInt32Number>(1, 10),
+        nullptr));
+    if (stage) {
+      cmsPipelineInsertStage(context.get(), pipeline.get(), cmsAT_END,
+                             stage.get());
+    }
+  }
+
+  return 0;
+}[0m
+22:00:03 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220003.cc[0m
+22:00:03 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220003.cc'.[0m
+22:00:03 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618220003 for 30 seconds for project lcms[0m
+22:00:23 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno matching function for call to 'cmsOpenProfileFromMem'[0m
+   63 |       cmsOpenProfileFromMem(context.get(), data, size, "r"));[0m
+      | [0;1;32m      ^~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1619:35: [0m[0;1;36mnote: [0mcandidate function not viable: requires 2 arguments, but 4 were provided[0m
+ 1619 | CMSAPI cmsHPROFILE      CMSEXPORT cmsOpenProfileFromMem(const void * MemPtr, cmsUInt32Number dwSize);[0m
+      | [0;1;32m                                  ^                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220003.cc:77:7: [0m[0;1;31merror: [0m[1mno matching conversion for functional-style cast from 'cmsHPROFILE' (aka 'void *') to 'std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>'[0m
+   77 |       std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>([0m
+      | [0;1;32m      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m   78 |           cmsCreateProfilePlaceholder(context.get()));[0m
+      | [0;1;32m          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:124:59: [0m[0;1;36mnote: [0mcandidate constructor (the implicit copy constructor) not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'const unique_ptr<_cms_profile_struct, ProfileDeleter>' for 1st argument[0m
+  124 | class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr {[0m
+      | [0;1;32m                                                          ^~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:170:43: [0m[0;1;36mnote: [0mcandidate constructor template not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'nullptr_t' (aka 'std::nullptr_t') for 1st argument[0m
+  170 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unique_ptr(nullptr_t) _NOEXCEPT[0m
+      | [0;1;32m                                          ^          ~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:174:64: [0m[0;1;36mnote: [0mcandidate constructor template not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'pointer' (aka '_cms_profile_struct *') for 1st argument[0m
+  174 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 explicit unique_ptr(pointer __p) _NOEXCEPT[0m
+      | [0;1;32m                                                               ^          ~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:190:55: [0m[0;1;36mnote: [0mcandidate constructor not viable: cannot convert argument of incomplete type 'cmsHPROFILE' (aka 'void *') to 'unique_ptr<_cms_profile_struct, ProfileDeleter>' for 1st argument[0m
+  190 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(unique_ptr&& __u) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:197:55: [0m[0;1;36mnote: [0mcandidate template ignored: could not match 'unique_ptr<_Up, _Ep>' against 'cmsHPROFILE' (aka 'void *')[0m
+  197 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(unique_ptr<_Up, _Ep>&& __u) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:167:43: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 0 arguments, but 1 was provided[0m
+  167 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unique_ptr() _NOEXCEPT : __ptr_(__value_init_tag(), __value_init_tag()) {}[0m
+      | [0;1;32m                                          ^
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:178:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  178 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _LValRefType<_Dummy> __d) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:182:55: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  182 |   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 unique_ptr(pointer __p, _GoodRValRefType<_Dummy> __d) _NOEXCEPT[0m
+      | [0;1;32m                                                      ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/usr/local/bin/../include/c++/v1/__memory/unique_ptr.h:188:25: [0m[0;1;36mnote: [0mcandidate constructor template not viable: requires 2 arguments, but 1 was provided[0m
+  188 |   _LIBCPP_HIDE_FROM_ABI unique_ptr(pointer __p, _BadRValRefType<_Dummy> __d) = delete;[0m
+      | [0;1;32m                        ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220003.cc:95:9: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsDictAddEntry'[0m
+   95 |         cmsDictAddEntry(context.get(), (cmsHANDLE)dict_to_write.get(), L"Test",[0m
+      | [0;1;32m        ^~~~~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1495:38: [0m[0;1;36mnote: [0mcandidate function not viable: requires 5 arguments, but 6 were provided[0m
+ 1495 | CMSAPI cmsBool             CMSEXPORT cmsDictAddEntry(cmsHANDLE hDict, const wchar_t* Name, const wchar_t* Value, const cmsMLU *DisplayName, const cmsMLU *DisplayValue);[0m
+      | [0;1;32m                                     ^               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220003.cc:111:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsPipelineInsertStage'[0m
+  111 |       cmsPipelineInsertStage(context.get(), pipeline.get(), cmsAT_END,[0m
+      | [0;1;32m      ^~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1280:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires 3 arguments, but 4 were provided[0m
+ 1280 | CMSAPI cmsBool           CMSEXPORT cmsPipelineInsertStage(cmsPipeline* lut, cmsStageLoc loc, cmsStage* mpe);[0m
+      | [0;1;32m                                   ^                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m4 errors generated.[0m
+22:00:23 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618220003 for project lcms failed to build.[0m
+22:00:23 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 6).[0m
+22:00:23 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220003.cc[0m
+22:00:23 - __main__.build_fuzz_target:151 - INFO - Build attempt 7/10 for 'lcms'.[0m
+22:00:23 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno matching function for call to 'cmsOpenProfileFromMem'[0m
+   63 |       cmsOpenProfileFromMem(context.get(), data, size, "r"));[0m
+      | [0;1;32m      ^~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1619:35: [0m[0;1;36mnote: [0mcandidate function not viable: requires...[0m
+22:00:23 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+22:01:19 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  auto context =
+      std::unique_ptr<struct _cmsContext_struct, ContextDeleter>(cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  // Fuzzing the readers
+  auto read_profile = std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>(
+      static_cast<_cms_profile_struct *>(cmsOpenProfileFromMem(data, size)));
+  if (read_profile) {
+    // Read Vcgt
+    auto vcgt_tag_data =
+        std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag(
+            context.get(), read_profile.get(), cmsSigVcgtType));
+
+    // Read Dictionary
+    auto dict_tag_data = std::unique_ptr<void, DictDeleter>(
+        (cmsHANDLE)cmsReadTag(context.get(), read_profile.get(), cmsSigDictType));
+  }
+
+  // Fuzzing the writers
+  auto write_profile =
+      std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>(
+          static_cast<_cms_profile_struct *>(cmsCreateProfilePlaceholder(context.get())));
+  if (write_profile) {
+    // Write LUT
+    auto pipeline_to_write =
+        std::unique_ptr<cmsPipeline, PipelineDeleter>(cmsPipelineAlloc(context.get(), 3, 3));
+    if (pipeline_to_write) {
+      cmsWriteTag(context.get(), write_profile.get(), cmsSigLutBtoAType,
+                  pipeline_to_write.get());
+      cmsWriteTag(context.get(), write_profile.get(),
+                  cmsSigMultiProcessElementType, pipeline_to_write.get());
+    }
+
+    // Write Dictionary
+    auto dict_to_write =
+        std::unique_ptr<void, DictDeleter>(cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      if (fdp.ConsumeBool()) {
+        cmsDictAddEntry((cmsHANDLE)dict_to_write.get(), L"Test",
+                        L"Value", nullptr, nullptr);
+      }
+      cmsWriteTag(context.get(), write_profile.get(), cmsSigDictType,
+                  dict_to_write.get());
+    }
+  }
+
+  // Fuzzing pipeline allocation
+  auto pipeline =
+      std::unique_ptr<cmsPipeline, PipelineDeleter>(cmsPipelineAlloc(context.get(), 3, 3));
+  if (pipeline) {
+    auto stage = std::unique_ptr<cmsStage, StageDeleter>(cmsStageAllocToneCurves(
+        context.get(), fdp.ConsumeIntegralInRange<cmsUInt32Number>(1, 10),
+        nullptr));
+    if (stage) {
+      cmsPipelineInsertStage(pipeline.get(), cmsAT_END,
+                             stage.get());
+    }
+  }
+
+  return 0;
+}[0m
+22:01:19 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220119.cc[0m
+22:01:19 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220119.cc'.[0m
+22:01:19 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618220119 for 30 seconds for project lcms[0m
+22:01:32 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno matching function for call to 'cmsReadTag'[0m
+   68 |         std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag([0m
+      | [0;1;32m                                                                      ^~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1508:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires 2 arguments, but 3 were provided[0m
+ 1508 | CMSAPI void*             CMSEXPORT cmsReadTag(cmsHPROFILE hProfile, cmsTagSignature sig);[0m
+      | [0;1;32m                                   ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220119.cc:73:20: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsReadTag'[0m
+   73 |         (cmsHANDLE)cmsReadTag(context.get(), read_profile.get(), cmsSigDictType));[0m
+      | [0;1;32m                   ^~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1508:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires 2 arguments, but 3 were provided[0m
+ 1508 | CMSAPI void*             CMSEXPORT cmsReadTag(cmsHPROFILE hProfile, cmsTagSignature sig);[0m
+      | [0;1;32m                                   ^          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220119.cc:85:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsWriteTag'[0m
+   85 |       cmsWriteTag(context.get(), write_profile.get(), cmsSigLutBtoAType,[0m
+      | [0;1;32m      ^~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1509:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires 3 arguments, but 4 were provided[0m
+ 1509 | CMSAPI cmsBool           CMSEXPORT cmsWriteTag(cmsHPROFILE hProfile, cmsTagSignature sig, const void* data);[0m
+      | [0;1;32m                                   ^           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220119.cc:87:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsWriteTag'[0m
+   87 |       cmsWriteTag(context.get(), write_profile.get(),[0m
+      | [0;1;32m      ^~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1509:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires 3 arguments, but 4 were provided[0m
+ 1509 | CMSAPI cmsBool           CMSEXPORT cmsWriteTag(cmsHPROFILE hProfile, cmsTagSignature sig, const void* data);[0m
+      | [0;1;32m                                   ^           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220119.cc:99:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsWriteTag'[0m
+   99 |       cmsWriteTag(context.get(), write_profile.get(), cmsSigDictType,[0m
+      | [0;1;32m      ^~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1509:36: [0m[0;1;36mnote: [0mcandidate function not viable: requires 3 arguments, but 4 were provided[0m
+ 1509 | CMSAPI cmsBool           CMSEXPORT cmsWriteTag(cmsHPROFILE hProfile, cmsTagSignature sig, const void* data);[0m
+      | [0;1;32m                                   ^           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m5 errors generated.[0m
+22:01:32 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618220119 for project lcms failed to build.[0m
+22:01:32 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 7).[0m
+22:01:32 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220119.cc[0m
+22:01:32 - __main__.build_fuzz_target:151 - INFO - Build attempt 8/10 for 'lcms'.[0m
+22:01:32 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno matching function for call to 'cmsReadTag'[0m
+   68 |         std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag([0m
+      | [0;1;32m                                                                      ^~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1508:36: ...[0m
+22:01:32 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+22:01:56 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <vector>
+
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+
+#include <fuzzer/FuzzedDataProvider.h>
+
+struct ContextDeleter {
+  void operator()(cmsContext ctx) const { cmsDeleteContext(ctx); }
+};
+
+struct ProfileDeleter {
+  void operator()(cmsHPROFILE profile) const { cmsCloseProfile(profile); }
+};
+
+struct StageDeleter {
+  void operator()(cmsStage *stage) const {
+    if (stage) {
+      cmsStageFree(stage);
+    }
+  }
+};
+
+struct PipelineDeleter {
+  void operator()(cmsPipeline *pipeline) const {
+    if (pipeline) {
+      cmsPipelineFree(pipeline);
+    }
+  }
+};
+
+struct DictDeleter {
+  void operator()(cmsHANDLE dict) const {
+    if (dict) {
+      cmsDictFree(dict);
+    }
+  }
+};
+
+struct VcgtDeleter {
+  void operator()(cmsToneCurve **vcgt) const {
+    if (vcgt) {
+      cmsFreeToneCurveTriple(vcgt);
+    }
+  }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  auto context =
+      std::unique_ptr<struct _cmsContext_struct, ContextDeleter>(cmsCreateContext(nullptr, nullptr));
+  if (!context) {
+    return 0;
+  }
+  cmsSetLogErrorHandler(nullptr);
+
+  // Fuzzing the readers
+  auto read_profile = std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>(
+      static_cast<_cms_profile_struct *>(cmsOpenProfileFromMem(data, size)));
+  if (read_profile) {
+    // Read Vcgt
+    auto vcgt_tag_data =
+        std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag(
+            read_profile.get(), cmsSigVcgtType));
+
+    // Read Dictionary
+    auto dict_tag_data = std::unique_ptr<void, DictDeleter>(
+        (cmsHANDLE)cmsReadTag(read_profile.get(), cmsSigDictType));
+  }
+
+  // Fuzzing the writers
+  auto write_profile =
+      std::unique_ptr<struct _cms_profile_struct, ProfileDeleter>(
+          static_cast<_cms_profile_struct *>(cmsCreateProfilePlaceholder(context.get())));
+  if (write_profile) {
+    // Write LUT
+    auto pipeline_to_write =
+        std::unique_ptr<cmsPipeline, PipelineDeleter>(cmsPipelineAlloc(context.get(), 3, 3));
+    if (pipeline_to_write) {
+      cmsWriteTag(write_profile.get(), cmsSigLutBtoAType,
+                  pipeline_to_write.get());
+      cmsWriteTag(write_profile.get(),
+                  cmsSigMultiProcessElementType, pipeline_to_write.get());
+    }
+
+    // Write Dictionary
+    auto dict_to_write =
+        std::unique_ptr<void, DictDeleter>(cmsDictAlloc(context.get()));
+    if (dict_to_write) {
+      if (fdp.ConsumeBool()) {
+        cmsDictAddEntry((cmsHANDLE)dict_to_write.get(), L"Test",
+                        L"Value", nullptr, nullptr);
+      }
+      cmsWriteTag(write_profile.get(), cmsSigDictType,
+                  dict_to_write.get());
+    }
+  }
+
+  // Fuzzing pipeline allocation
+  auto pipeline =
+      std::unique_ptr<cmsPipeline, PipelineDeleter>(cmsPipelineAlloc(context.get(), 3, 3));
+  if (pipeline) {
+    auto stage = std::unique_ptr<cmsStage, StageDeleter>(cmsStageAllocToneCurves(
+        context.get(), fdp.ConsumeIntegralInRange<cmsUInt32Number>(1, 10),
+        nullptr));
+    if (stage) {
+      cmsPipelineInsertStage(pipeline.get(), cmsAT_END,
+                             stage.get());
+    }
+  }
+
+  return 0;
+}[0m
+22:01:56 - external.oss_fuzz.save_target:231 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220156.cc[0m
+22:01:56 - __main__.build_fuzz_target:160 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220156.cc'.[0m
+22:01:56 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0618220156 for 30 seconds for project lcms[0m
+22:02:13 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mno matching function for call to 'cmsReadTag'[0m
+   67 |         std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag([0m
+      | [0;1;32m                                                                      ^~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1508:36: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'cmsTagTypeSignature' to 'cmsTagSignature' for 2nd argument[0m
+ 1508 | CMSAPI void*             CMSEXPORT cmsReadTag(cmsHPROFILE hProfile, cmsTagSignature sig);[0m
+      | [0;1;32m                                   ^                                ~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220156.cc:72:20: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsReadTag'[0m
+   72 |         (cmsHANDLE)cmsReadTag(read_profile.get(), cmsSigDictType));[0m
+      | [0;1;32m                   ^~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1508:36: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'cmsTagTypeSignature' to 'cmsTagSignature' for 2nd argument[0m
+ 1508 | CMSAPI void*             CMSEXPORT cmsReadTag(cmsHPROFILE hProfile, cmsTagSignature sig);[0m
+      | [0;1;32m                                   ^                                ~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220156.cc:84:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsWriteTag'[0m
+   84 |       cmsWriteTag(write_profile.get(), cmsSigLutBtoAType,[0m
+      | [0;1;32m      ^~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1509:36: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'cmsTagTypeSignature' to 'cmsTagSignature' for 2nd argument[0m
+ 1509 | CMSAPI cmsBool           CMSEXPORT cmsWriteTag(cmsHPROFILE hProfile, cmsTagSignature sig, const void* data);[0m
+      | [0;1;32m                                   ^                                 ~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220156.cc:86:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsWriteTag'[0m
+   86 |       cmsWriteTag(write_profile.get(),[0m
+      | [0;1;32m      ^~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1509:36: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'cmsTagTypeSignature' to 'cmsTagSignature' for 2nd argument[0m
+ 1509 | CMSAPI cmsBool           CMSEXPORT cmsWriteTag(cmsHPROFILE hProfile, cmsTagSignature sig, const void* data);[0m
+      | [0;1;32m                                   ^                                 ~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0618220156.cc:98:7: [0m[0;1;31merror: [0m[1mno matching function for call to 'cmsWriteTag'[0m
+   98 |       cmsWriteTag(write_profile.get(), cmsSigDictType,[0m
+      | [0;1;32m      ^~~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1509:36: [0m[0;1;36mnote: [0mcandidate function not viable: no known conversion from 'cmsTagTypeSignature' to 'cmsTagSignature' for 2nd argument[0m
+ 1509 | CMSAPI cmsBool           CMSEXPORT cmsWriteTag(cmsHPROFILE hProfile, cmsTagSignature sig, const void* data);[0m
+      | [0;1;32m                                   ^                                 ~~~~~~~~~~~~~~~~~~~
+[0m5 errors generated.[0m
+22:02:13 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0618220156 for project lcms failed to build.[0m
+22:02:13 - __main__.build_fuzz_target:168 - ERROR - Build failed (attempt 8).[0m
+22:02:13 - external.oss_fuzz.remove_target:240 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0618220156.cc[0m
+22:02:13 - __main__.build_fuzz_target:151 - INFO - Build attempt 9/10 for 'lcms'.[0m
+22:02:13 - llm_interface.llm_client.generate:141 - INFO - Generating response for prompt: error: [0m[1mno matching function for call to 'cmsReadTag'[0m
+   67 |         std::unique_ptr<cmsToneCurve *, VcgtDeleter>((cmsToneCurve **)cmsReadTag([0m
+      | [0;1;32m                                                                      ^~~~~~~~~~
+[0m[1m/src/lcms/include/lcms2.h:1508:36: ...[0m
+22:02:13 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+22:02:21 - __main__.main:410 - INFO - Process interrupted by user[0m
+22:02:21 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m

@@ -1,0 +1,4 @@
+#RUN curl -L %s -o maven.zip && unzip maven.zip -d $SRC/maven && rm -rf maven.zip
+COPY maven.zip $SRC/maven.zip
+RUN rm -rf $SRC/maven && unzip maven.zip -d $SRC/maven && rm ./maven.zip
+ENV PATH="$SRC/maven/apache-maven-3.6.3/bin:$PATH"

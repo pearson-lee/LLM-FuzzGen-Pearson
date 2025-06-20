@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+    <!-- main content -->
+    <main>
+      <!-- hero area -->
+      <section class="hero__area">
+        <div class="container">
+          <div class="hero__wrapper">
+            <h1 class="section__title">
+              API
+            </h1>
+            <p>
+                We provide an API for accessing the data stored on this website. The primary goal is to enable
+                tool development for external parties and make it easier to query the state of open source fuzzing.
+            </p>
+            <p>
+              We are always interested in hearing ideas for new APIs to get certain data exposed and we are happy
+              to maintain a large set of APIs. In the event you have ideas or requests for certain data, then
+              please reach out on <a href="https://github.com/ossf/fuzz-introspector/issues">Fuzz Introspector's issues</a>
+              or <a href="https://github.com/google/oss-fuzz/issues">OSS-Fuzz's issues</a>.
+            </p>
+            <p>
+              The API is documented <a href="/api-doc">here</a> including examples and logic to test the API.
+            </p>
+        </div>
+      </section>
+      <!-- end hero area -->
+    </main>
+    <!-- end main content -->
+{% endblock %}

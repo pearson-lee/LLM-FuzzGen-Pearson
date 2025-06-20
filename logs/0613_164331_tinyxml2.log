@@ -1,0 +1,411 @@
+16:43:31 - root.setup_logging:21 - INFO - === Configuration ===[0m
+16:43:31 - root.setup_logging:22 - INFO - Project Name: tinyxml2[0m
+16:43:31 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash-preview-05-20[0m
+16:43:31 - root.setup_logging:24 - INFO - Iteration loop: 1[0m
+16:43:31 - root.setup_logging:25 - INFO - Temperature: 0[0m
+16:43:31 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+16:43:31 - root.setup_logging:27 - INFO - Think Budget Tokens: 2048[0m
+16:43:31 - root.setup_logging:28 - INFO - Max Compiler Attempts: 5[0m
+16:43:31 - root.setup_logging:29 - INFO - =====================
+[0m
+16:43:31 - __main__.main:371 - INFO - Skipping initial fuzz target generation[0m
+16:43:31 - __main__.main:372 - INFO - Starting introspector webapp for initial analysis of tinyxml2[0m
+16:43:31 - external.oss_fuzz.generate_report:188 - INFO - Creating introspector reports for tinyxml2[0m
+16:46:59 - external.oss_fuzz.generate_report:201 - INFO - Introspector reports created for tinyxml2[0m
+16:46:59 - external.introspector.file_lock:115 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+16:47:06 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m
+16:47:09 - external.introspector._query_api:72 - INFO - Querying API: tester with params: {}[0m
+16:47:09 - external.introspector.update_start_webapp:142 - INFO - Web application started successfully.[0m
+16:47:09 - external.introspector.file_lock:121 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+16:47:09 - external.introspector._query_api:72 - INFO - Querying API: project-summary with params: {'project': 'tinyxml2'}[0m
+16:47:09 - external.introspector.line_coverage:235 - INFO - Line coverage data for tinyxml2: 96.22[0m
+16:47:09 - __main__.main:378 - INFO - Initial coverage for tinyxml2: 96.22%[0m
+16:47:09 - __main__.process_project:231 - INFO - Starting to process project: tinyxml2[0m
+16:47:09 - llm_interface.llm_client.generate_dict:184 - INFO - Generating dict for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzzing and understanding data formats. Your objective is to **generate a libFuzzer dictionary** specifically for the `tinyxml2` library. This dictionary must contain tokens likely to uncover new code paths and trigge...[0m
+16:49:37 - llm_interface.llm_client.generate_dict:198 - WARNING - LLM response was empty.[0m
+16:49:37 - external.oss_fuzz.add_dict:365 - INFO - Added dictionary content to: /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen.dict[0m
+16:49:37 - external.introspector._query_api:72 - INFO - Querying API: project-summary with params: {'project': 'tinyxml2'}[0m
+16:49:37 - external.introspector.line_coverage:235 - INFO - Line coverage data for tinyxml2: 96.22[0m
+16:49:37 - iterator.fuzz_iterator.record_cov:22 - INFO - Project: tinyxml2, Current coverage: 96.22[0m
+16:49:37 - iterator.fuzz_iterator.should_regenerate:40 - INFO - [tinyxml2] Current coverage array: [96.22][0m
+16:49:37 - external.oss_fuzz.get_coverage_summary:406 - INFO - Successfully extracted total coverage summary for tinyxml2.[0m
+16:49:37 - __main__.regenerate_fuzz_target:212 - INFO - Regenerating fuzz target for project: tinyxml2[0m
+16:49:37 - external.introspector._query_api:72 - INFO - Querying API: all-functions with params: {'project': 'tinyxml2'}[0m
+16:49:37 - external.introspector._query_api:72 - INFO - Querying API: all-header-files with params: {'project': 'tinyxml2'}[0m
+16:49:37 - __main__.build_fuzz_target:153 - INFO - Build attempt 1/5 for 'tinyxml2'.[0m
+16:49:37 - llm_interface.llm_client.generate:133 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `tinyxml2` library (c++) that **maximizes code coverage** by strategically exerci...[0m
+16:49:37 - llm_interface.llm_client._generate_node:78 - INFO - Generating prompt from messages...[0m
+16:49:45 - external.introspector._query_api:72 - INFO - Querying API: function-source-code with params: {'project': 'tinyxml2', 'function_signature': 'void tinyxml2::XMLPrinter::Print(const char *, void)'}[0m
+16:49:45 - llm_interface.tools.function_source_code:128 - INFO - Tool(function_source_code): Retrieved source code for void tinyxml2::XMLPrinter::Print(const char *, void)[0m
+16:49:45 - llm_interface.llm_client._generate_node:78 - INFO - Generating prompt from messages...[0m
+16:49:54 - external.introspector._query_api:72 - INFO - Querying API: function-source-code with params: {'project': 'tinyxml2', 'function_signature': 'DW_TAG_enumeration_typeXMLError tinyxml2::XMLDocument::LoadFile(FILE *)'}[0m
+16:49:54 - llm_interface.tools.function_source_code:128 - INFO - Tool(function_source_code): Retrieved source code for DW_TAG_enumeration_typeXMLError tinyxml2::XMLDocument::LoadFile(FILE *)[0m
+16:49:54 - llm_interface.llm_client._generate_node:78 - INFO - Generating prompt from messages...[0m
+16:50:35 - llm_interface.llm_client.generate:139 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/tinyxml2/tinyxml2.h" // Include the main tinyxml2 header
+#include <cstdio>   // Required for FILE operations (fopen, fclose, fwrite, fseek, fflush)
+#include <vector>   // Used for dynamic buffer in UTF-8 conversion
+#include <memory>   // For std::unique_ptr (though not strictly used for tinyxml2 objects due to RAII)
+#include <unistd.h> // Required for unlink (to delete temporary files)
+
+// Define a template for temporary file paths. mkstemp will replace XXXXXX with a unique string.
+#define TEMP_FILE_TEMPLATE "/tmp/fuzz_tinyxml2_XXXXXX"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+  FuzzedDataProvider fdp(Data, Size);
+
+  // --- 1. Fuzzing tinyxml2::XMLDocument::LoadFile and SaveFile ---
+  // This section tests the core XML parsing (LoadFile) and serialization (SaveFile)
+  // functionalities of tinyxml2.
+  {
+    // Consume remaining fuzzer data as a string to be used as XML content.
+    std::string fuzzed_xml_content = fdp.ConsumeRemainingBytesAsString();
+
+    // Create a unique temporary file for XML loading.
+    char load_filename[] = TEMP_FILE_TEMPLATE;
+    // mkstemp creates and opens a unique temporary file, returning a file descriptor.
+    int fd_load = mkstemp(load_filename);
+    if (fd_load != -1) {
+      // Convert the file descriptor to a FILE* pointer for standard I/O operations.
+      FILE* fp_load = fdopen(fd_load, "w+"); // Open in read/write mode
+      if (fp_load) {
+        // Write the fuzzed XML content to the temporary file.
+        fwrite(fuzzed_xml_content.c_str(), 1, fuzzed_xml_content.size(), fp_load);
+        fflush(fp_load); // Ensure all buffered data is written to the file.
+        fseek(fp_load, 0, SEEK_SET); // Rewind the file pointer to the beginning for reading.
+
+        // Create an XMLDocument object. Its destructor will automatically clean up
+        // any allocated XML nodes and attributes, ensuring memory safety.
+        tinyxml2::XMLDocument doc;
+        // Call LoadFile to parse the content from the temporary file.
+        doc.LoadFile(fp_load);
+
+        // Create another unique temporary file for saving the XML document.
+        char save_filename[] = TEMP_FILE_TEMPLATE;
+        int fd_save = mkstemp(save_filename);
+        if (fd_save != -1) {
+          // Call SaveFile to write the (potentially modified) XML document to a file.
+          // The 'compact' parameter is fuzzed using a boolean from FuzzedDataProvider.
+          doc.SaveFile(save_filename, fdp.ConsumeBool());
+          close(fd_save); // Close the file descriptor.
+          unlink(save_filename); // Delete the temporary file from the filesystem.
+        } else {
+          // If mkstemp failed, ensure the file descriptor is closed if it was opened.
+          // (In this specific case, fd_save would be -1, so close(-1) is a no-op).
+          close(fd_save);
+        }
+
+        fclose(fp_load); // Close the FILE* pointer.
+      } else {
+        // If fdopen failed, ensure the file descriptor from mkstemp is closed.
+        close(fd_load);
+      }
+      unlink(load_filename); // Delete the temporary file from the filesystem.
+    }
+  }
+
+  // --- 2. Fuzzing tinyxml2::XMLUtil::ConvertUTF32ToUTF8 ---
+  // This section tests the utility function for character encoding conversion.
+  {
+    // Consume an unsigned long as input for a UTF-32 character.
+    unsigned long utf32_char = fdp.ConsumeIntegral<unsigned long>();
+    // Allocate a buffer for the UTF-8 output. A UTF-8 character can be up to 4 bytes,
+    // plus one for a null terminator, so 5 bytes is sufficient.
+    std::vector<char> utf8_buffer(5);
+    int length = 0; // This variable will be updated by the function with the actual length.
+
+    // Call ConvertUTF32ToUTF8. The function writes into utf8_buffer.data() and updates 'length'.
+    tinyxml2::XMLUtil::ConvertUTF32ToUTF8(utf32_char, utf8_buffer.data(), &length);
+
+    // Ensure null termination for the output string, if the length is within bounds.
+    if (length >= 0 && length < utf8_buffer.size()) {
+        utf8_buffer[length] = '\0';
+    }
+    // std::vector automatically manages its memory, ensuring no leaks.
+  }
+
+  // --- 3. Fuzzing tinyxml2::XMLElement::DeleteAttribute ---
+  // This section tests the modification of XML structure by deleting an attribute.
+  {
+    tinyxml2::XMLDocument doc; // Create an XMLDocument. Its destructor handles cleanup.
+
+    // Create a new XML element and insert it into the document.
+    tinyxml2::XMLElement* element = doc.NewElement("fuzz_element");
+    doc.InsertFirstChild(element);
+
+    // Generate fuzzed strings for the attribute name and value.
+    std::string attr_name = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 64));
+    std::string attr_value = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 128));
+
+    // Set an attribute on the element. This allocates an XMLAttribute object internally.
+    element->SetAttribute(attr_name.c_str(), attr_value.c_str());
+
+    // Find the attribute that was just set.
+    tinyxml2::XMLAttribute* attribute = element->FindAttribute(attr_name.c_str());
+    if (attribute) {
+      // If the attribute was found, call DeleteAttribute to remove it.
+      // tinyxml2 handles the deallocation of the XMLAttribute object.
+      element->DeleteAttribute(attribute);
+    }
+    // The 'doc' object's destructor will clean up 'element' and any remaining attributes.
+  }
+
+  // --- 4. Fuzzing tinyxml2::XMLPrinter::PrintString ---
+  // This section tests a simpler string printing function of the XMLPrinter.
+  {
+    // Create an XMLDocument object. While not directly used by PrintString,
+    // XMLPrinter can be associated with a document or print to an internal buffer.
+    // The default constructor of XMLPrinter uses an internal buffer.
+    tinyxml2::XMLDocument dummy_doc; // Dummy document for context if needed, though not strictly for PrintString
+    tinyxml2::XMLPrinter printer; // XMLPrinter object. Its destructor cleans up internal buffers.
+
+    // Generate a fuzzed string to be printed.
+    std::string fuzzed_print_string = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 256));
+    // Consume a boolean to determine the 'compact' printing option.
+    bool compact_print = fdp.ConsumeBool();
+
+    // Call PrintString to print the fuzzed string.
+    printer.PrintString(fuzzed_print_string.c_str(), compact_print);
+    // The 'printer' object's destructor will automatically deallocate its internal buffer.
+  }
+
+  return 0; // Fuzzer always returns 0 on successful execution.
+}[0m
+16:50:35 - external.oss_fuzz.save_target:230 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165035.cc[0m
+16:50:35 - __main__.build_fuzz_target:158 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165035.cc'.[0m
+16:50:35 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0613165035 for project tinyxml2[0m
+16:50:47 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: [0m[1mcannot initialize a variable of type 'tinyxml2::XMLAttribute *' with an rvalue of type 'const XMLAttribute *'[0m
+  104 |     tinyxml2::XMLAttribute* attribute = element->FindAttribute(attr_name.c_str());[0m
+      | [0;1;32m                            ^           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m/src/llm_fuzzgen0613165035.cc:108:16: [0m[0;1;31merror: [0m[1m'DeleteAttribute' is a private member of 'tinyxml2::XMLElement'[0m
+  108 |       element->DeleteAttribute(attribute);[0m
+      | [0;1;32m      ~~~~~~~~~^~~~~~~~~~~~~~~
+[0m[1m/src/tinyxml2/tinyxml2.h:1695:17: [0m[0;1;36mnote: [0mdeclared private here[0m
+ 1695 |     static void DeleteAttribute( XMLAttribute* attribute );[0m
+      | [0;1;32m                ^
+[0m[1m/src/llm_fuzzgen0613165035.cc:128:13: [0m[0;1;31merror: [0m[1m'PrintString' is a private member of 'tinyxml2::XMLPrinter'[0m
+  128 |     printer.PrintString(fuzzed_print_string.c_str(), compact_print);[0m
+      | [0;1;32m            ^
+[0m[1m/src/tinyxml2/tinyxml2.h:2353:10: [0m[0;1;36mnote: [0mdeclared private here[0m
+ 2353 |     void PrintString( const char*, bool restrictedEntitySet );  // prints out, after detecting entities.[0m
+      | [0;1;32m         ^
+[0m3 errors generated.[0m
+16:50:47 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0613165035 for project tinyxml2 failed to build.[0m
+16:50:47 - __main__.build_fuzz_target:166 - ERROR - Build failed (attempt 1).[0m
+16:50:47 - external.oss_fuzz.remove_target:239 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165035.cc[0m
+16:50:47 - external.introspector.get_all_header_files:400 - INFO - Returning cached header files for tinyxml2[0m
+16:50:47 - external.introspector._query_api:72 - INFO - Querying API: all-functions with params: {'project': 'tinyxml2'}[0m
+16:50:47 - __main__.build_fuzz_target:153 - INFO - Build attempt 2/5 for 'tinyxml2'.[0m
+16:50:47 - llm_interface.llm_client.generate:133 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `tinyxml2` library (c++) by **resolving all specifie...[0m
+16:50:47 - llm_interface.llm_client._generate_node:78 - INFO - Generating prompt from messages...[0m
+16:50:53 - external.introspector.get_project_source_code:323 - INFO - Getting source code for project: tinyxml2, file: /src/tinyxml2/tinyxml2.h, lines: 1695-1695[0m
+16:50:53 - external.introspector._query_api:72 - INFO - Querying API: project-source-code with params: {'project': 'tinyxml2', 'filepath': '/src/tinyxml2/tinyxml2.h', 'begin_line': 1695, 'end_line': 1695}[0m
+16:50:53 - llm_interface.tools.project_source_code:173 - INFO - Tool(project_source_code): Retrieved source code for tinyxml2:/src/tinyxml2/tinyxml2.h lines 1695-1695[0m
+16:50:53 - llm_interface.llm_client._generate_node:78 - INFO - Generating prompt from messages...[0m
+16:51:19 - llm_interface.llm_client.generate:139 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/tinyxml2/tinyxml2.h" // Include the main tinyxml2 header
+#include <cstdio>   // Required for FILE operations (fopen, fclose, fwrite, fseek, fflush)
+#include <vector>   // Used for dynamic buffer in UTF-8 conversion
+#include <memory>   // For std::unique_ptr (though not strictly used for tinyxml2 objects due to RAII)
+#include <unistd.h> // Required for unlink (to delete temporary files)
+
+// Define a template for temporary file paths. mkstemp will replace XXXXXX with a unique string.
+#define TEMP_FILE_TEMPLATE "/tmp/fuzz_tinyxml2_XXXXXX"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+  FuzzedDataProvider fdp(Data, Size);
+
+  // --- 1. Fuzzing tinyxml2::XMLDocument::LoadFile and SaveFile ---
+  // This section tests the core XML parsing (LoadFile) and serialization (SaveFile)
+  // functionalities of tinyxml2.
+  {
+    // Consume remaining fuzzer data as a string to be used as XML content.
+    std::string fuzzed_xml_content = fdp.ConsumeRemainingBytesAsString();
+
+    // Create a unique temporary file for XML loading.
+    char load_filename[] = TEMP_FILE_TEMPLATE;
+    // mkstemp creates and opens a unique temporary file, returning a file descriptor.
+    int fd_load = mkstemp(load_filename);
+    if (fd_load != -1) {
+      // Convert the file descriptor to a FILE* pointer for standard I/O operations.
+      FILE* fp_load = fdopen(fd_load, "w+"); // Open in read/write mode
+      if (fp_load) {
+        // Write the fuzzed XML content to the temporary file.
+        fwrite(fuzzed_xml_content.c_str(), 1, fuzzed_xml_content.size(), fp_load);
+        fflush(fp_load); // Ensure all buffered data is written to the file.
+        fseek(fp_load, 0, SEEK_SET); // Rewind the file pointer to the beginning for reading.
+
+        // Create an XMLDocument object. Its destructor will automatically clean up
+        // any allocated XML nodes and attributes, ensuring memory safety.
+        tinyxml2::XMLDocument doc;
+        // Call LoadFile to parse the content from the temporary file.
+        doc.LoadFile(fp_load);
+
+        // Create another unique temporary file for saving the XML document.
+        char save_filename[] = TEMP_FILE_TEMPLATE;
+        int fd_save = mkstemp(save_filename);
+        if (fd_save != -1) {
+          // Call SaveFile to write the (potentially modified) XML document to a file.
+          // The 'compact' parameter is fuzzed using a boolean from FuzzedDataProvider.
+          doc.SaveFile(save_filename, fdp.ConsumeBool());
+          close(fd_save); // Close the file descriptor.
+          unlink(save_filename); // Delete the temporary file from the filesystem.
+        } else {
+          // If mkstemp failed, ensure the file descriptor is closed if it was opened.
+          // (In this specific case, fd_save would be -1, so close(-1) is a no-op).
+          close(fd_save);
+        }
+
+        fclose(fp_load); // Close the FILE* pointer.
+      } else {
+        // If fdopen failed, ensure the file descriptor from mkstemp is closed.
+        close(fd_load);
+      }
+      unlink(load_filename); // Delete the temporary file from the filesystem.
+    }
+  }
+
+  // --- 2. Fuzzing tinyxml2::XMLUtil::ConvertUTF32ToUTF8 ---
+  // This section tests the utility function for character encoding conversion.
+  {
+    // Consume an unsigned long as input for a UTF-32 character.
+    unsigned long utf32_char = fdp.ConsumeIntegral<unsigned long>();
+    // Allocate a buffer for the UTF-8 output. A UTF-8 character can be up to 4 bytes,
+    // plus one for a null terminator, so 5 bytes is sufficient.
+    std::vector<char> utf8_buffer(5);
+    int length = 0; // This variable will be updated by the function with the actual length.
+
+    // Call ConvertUTF32ToUTF8. The function writes into utf8_buffer.data() and updates 'length'.
+    tinyxml2::XMLUtil::ConvertUTF32ToUTF8(utf32_char, utf8_buffer.data(), &length);
+
+    // Ensure null termination for the output string, if the length is within bounds.
+    if (length >= 0 && length < utf8_buffer.size()) {
+        utf8_buffer[length] = '\0';
+    }
+    // std::vector automatically manages its memory, ensuring no leaks.
+  }
+
+  // --- 3. Fuzzing tinyxml2::XMLElement::DeleteAttribute ---
+  // This section tests the modification of XML structure by deleting an attribute.
+  {
+    tinyxml2::XMLDocument doc; // Create an XMLDocument. Its destructor handles cleanup.
+
+    // Create a new XML element and insert it into the document.
+    tinyxml2::XMLElement* element = doc.NewElement("fuzz_element");
+    doc.InsertFirstChild(element);
+
+    // Generate fuzzed strings for the attribute name and value.
+    std::string attr_name = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 64));
+    std::string attr_value = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 128));
+
+    // Set an attribute on the element. This allocates an XMLAttribute object internally.
+    element->SetAttribute(attr_name.c_str(), attr_value.c_str());
+
+    // Find the attribute that was just set.
+    // Fix: FindAttribute returns const XMLAttribute*, so the pointer must be const.
+    const tinyxml2::XMLAttribute* attribute = element->FindAttribute(attr_name.c_str());
+    if (attribute) {
+      // If the attribute was found, call DeleteAttribute to remove it.
+      // Fix: tinyxml2::XMLElement::DeleteAttribute(XMLAttribute*) is private.
+      // Use the public method tinyxml2::XMLElement::DeleteAttribute(const char* name).
+      element->DeleteAttribute(attr_name.c_str());
+    }
+    // The 'doc' object's destructor will clean up 'element' and any remaining attributes.
+  }
+
+  // --- 4. Fuzzing tinyxml2::XMLPrinter::PrintString ---
+  // This section tests a simpler string printing function of the XMLPrinter.
+  {
+    tinyxml2::XMLDocument doc; // Create an XMLDocument.
+    tinyxml2::XMLElement* element = doc.NewElement("fuzz_text_element");
+    doc.InsertFirstChild(element);
+
+    // Generate a fuzzed string to be printed.
+    std::string fuzzed_print_string = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 256));
+    tinyxml2::XMLText* text_node = doc.NewText(fuzzed_print_string.c_str());
+    element->InsertEndChild(text_node);
+
+    // Consume a boolean to determine the 'compact' printing option.
+    bool compact_print = fdp.ConsumeBool();
+
+    // Fix: 'PrintString' is a private member of 'tinyxml2::XMLPrinter'.
+    // Instead, create an XML structure containing the fuzzed string and print the document
+    // using XMLPrinter, passing the compact option to the constructor.
+    tinyxml2::XMLPrinter printer(nullptr, compact_print); // Pass nullptr for file, and the compact bool.
+    doc.Print(&printer); // Print the document to the printer's internal buffer.
+    // The 'printer' object's destructor will automatically deallocate its internal buffer.
+  }
+
+  return 0; // Fuzzer always returns 0 on successful execution.
+}[0m
+16:51:19 - external.oss_fuzz.save_target:230 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165119.cc[0m
+16:51:19 - __main__.build_fuzz_target:158 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165119.cc'.[0m
+16:51:19 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0613165119 for project tinyxml2[0m
+16:51:51 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0613165119 ran successfully[0m
+16:51:51 - __main__.build_fuzz_target:163 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165119.cc'.[0m
+16:51:51 - __main__.regenerate_fuzz_target:223 - INFO - Regenerated fuzz target for tinyxml2 successfully[0m
+16:51:51 - external.oss_fuzz.coverage:148 - INFO - Computing coverage for tinyxml2 with fuzzer llm_fuzzgen0613165119[0m
+16:51:51 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0613165119 for project tinyxml2[0m
+16:53:14 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0613165119 ran successfully[0m
+16:53:51 - external.oss_fuzz.coverage:178 - INFO - Coverage for tinyxml2 with llm_fuzzgen0613165119: 96.21%[0m
+16:53:51 - fuzzing_input.generate_seeds_for_fuzzer:141 - INFO - Generating seeds for fuzzer: llm_fuzzgen0613165119[0m
+16:53:51 - llm_interface.llm_client.generate_seeds:151 - INFO - Generating seeds for prompt: You are an expert software security engineer specializing in generating effective inputs for fuzzing. Your task is to generate a set of initial seed inputs for the provided fuzz target. The goal is to create diverse inputs that might help the fuzzer explore different execution paths in the **tinyxml...[0m
+16:56:26 - llm_interface.llm_client.generate_seeds:162 - WARNING - LLM provided empty string content after strip. Response: content='' additional_kwargs={} response_metadata={'is_blocked': False, 'safety_ratings': [], 'citation_metadata': {'citations': [{'start_index': 10986, 'end_index': 11126, 'uri': 'https://github.com/leethomason/tinyxml2', 'license_': 'Zlib', 'title': ''}, {'start_index': 39717, 'end_index': 39837, 'title': 'Register of Commissioned and Warrant Officers of the United States Naval Reserve', 'publication_date': {'year': 1953, 'month': 0, 'day': 0}, 'uri': '', 'license_': ''}]}, 'usage_metadata': {'prompt_token_count': 61021, 'total_token_count': 93788, 'prompt_tokens_details': [{'modality': 1, 'token_count': 61021}], 'candidates_token_count': 0, 'cached_content_token_count': 0, 'cache_tokens_details': [], 'candidates_tokens_details': []}, 'finish_reason': 'MAX_TOKENS', 'model_name': 'gemini-2.5-flash-preview-05-20'} id='run--1e5c2b34-246c-4092-8876-35f1c217ea6e-0' usage_metadata={'input_tokens': 61021, 'output_tokens': 0, 'total_tokens': 93788}[0m
+16:56:26 - fuzzing_input.generate_seeds_for_fuzzer:154 - WARNING - No seeds generated for llm_fuzzgen0613165119[0m
+16:56:26 - external.oss_fuzz.coverage:148 - INFO - Computing coverage for tinyxml2 with fuzzer llm_fuzzgen0613165119[0m
+16:56:26 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0613165119 for project tinyxml2[0m
+16:57:53 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0613165119 ran successfully[0m
+16:58:41 - external.oss_fuzz.coverage:178 - INFO - Coverage for tinyxml2 with llm_fuzzgen0613165119: 96.21%[0m
+16:58:41 - __main__.process_project:278 - INFO - Coverage without seeds: 96.21[0m
+16:58:41 - __main__.process_project:279 - INFO - Coverage with seeds: 96.21[0m
+16:58:41 - __main__.process_project:280 - INFO - coverage: 96.22 -> 96.21 (growth: -0.01)[0m
+16:58:41 - external.oss_fuzz.remove_target:239 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0613165119.cc[0m
+16:58:41 - external.oss_fuzz.remove_target:244 - INFO - Removed binary target at /home/jack/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/llm_fuzzgen0613165119[0m
+16:58:41 - __main__.process_project:284 - WARNING - Fuzz target's coverage is lower than the previous iteration 1[0m
+16:58:41 - external.oss_fuzz.generate_report:188 - INFO - Creating introspector reports for tinyxml2[0m
+17:02:11 - external.oss_fuzz.generate_report:201 - INFO - Introspector reports created for tinyxml2[0m
+17:02:11 - external.introspector.file_lock:115 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+17:02:18 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m
+17:02:24 - external.introspector._query_api:72 - INFO - Querying API: tester with params: {}[0m
+17:02:24 - external.introspector.update_start_webapp:142 - INFO - Web application started successfully.[0m
+17:02:24 - external.introspector.file_lock:121 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+17:02:24 - external.introspector._query_api:72 - INFO - Querying API: project-summary with params: {'project': 'tinyxml2'}[0m
+17:02:24 - external.introspector.line_coverage:235 - INFO - Line coverage data for tinyxml2: 96.22[0m
+17:02:24 - external.oss_fuzz.get_coverage_summary:406 - INFO - Successfully extracted total coverage summary for tinyxml2.[0m
+17:02:24 - __main__.calculate_statistics:332 - INFO - ==================================================[0m
+17:02:24 - __main__.calculate_statistics:333 - INFO - Initial coverage: 96.22%[0m
+17:02:24 - __main__.calculate_statistics:334 - INFO - Coverage Growth Statistics:[0m
+17:02:24 - __main__.calculate_statistics:335 - INFO - Regeneration: 0 iterations, Average growth: 0.00%[0m
+17:02:24 - __main__.calculate_statistics:338 - INFO - Mutation: 0 iterations, Average growth: 0.00%[0m
+17:02:24 - __main__.calculate_statistics:339 - INFO - Project: tinyxml2 coverage: 96.22%[0m
+17:02:24 - __main__.calculate_statistics:340 - INFO - ==================================================[0m
+17:02:24 - __main__.calculate_statistics:341 - INFO - Compilation Success Rate:[0m
+17:02:24 - __main__.calculate_statistics:342 - INFO - Total compilation attempts: 2[0m
+17:02:24 - __main__.calculate_statistics:343 - INFO - Successful compilations: 1[0m
+17:02:24 - __main__.calculate_statistics:344 - INFO - Success rate: 50.00% [0m
+17:02:24 - __main__.calculate_statistics:345 - INFO - ==================================================[0m
+17:02:24 - __main__.calculate_statistics:348 - INFO - Total Coverage Summary:[0m
+17:02:24 - __main__.calculate_statistics:351 - INFO -   Branches: Count=5108, Covered=4303, Percent=84.24%[0m
+17:02:24 - __main__.calculate_statistics:351 - INFO -   Functions: Count=423, Covered=346, Percent=81.80%[0m
+17:02:24 - __main__.calculate_statistics:351 - INFO -   Lines: Count=10384, Covered=9992, Percent=96.22%[0m
+17:02:24 - __main__.calculate_statistics:355 - INFO - ==================================================[0m
+17:02:24 - __main__.main:387 - INFO - Project processed[0m
+17:02:24 - __main__.main:388 - INFO - Successful project: True[0m
+17:02:24 - __main__.main:389 - INFO - Total execution time: 1019.27 seconds[0m
+17:22:07 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m

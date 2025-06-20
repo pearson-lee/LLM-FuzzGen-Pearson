@@ -1,0 +1,98 @@
+diff --git a/infra/base-images/base-builder/Dockerfile b/infra/base-images/base-builder/Dockerfile
+index 64d11095b..34bee0c13 100644
+--- a/infra/base-images/base-builder/Dockerfile
++++ b/infra/base-images/base-builder/Dockerfile
+@@ -193,6 +193,16 @@ COPY llvmsymbol.diff $SRC
+ COPY detect_repo.py /opt/cifuzz/
+ COPY bazel.bazelrc /root/.bazelrc
+ 
++RUN rm -rf /fuzz-introspector/src
++RUN rm -rf /fuzz-introspector/frontends
++COPY src /fuzz-introspector/src
++COPY frontends /fuzz-introspector/frontends
++
++RUN rm -rf /fuzz-introspector/src
++RUN rm -rf /fuzz-introspector/frontends
++COPY src /fuzz-introspector/src
++COPY frontends /fuzz-introspector/frontends
++
+ # Set up ccache binary and cache directory.
+ # /ccache/bin will contain the compiler wrappers, and /ccache/cache will
+ # contain the actual cache, which can be saved.
+diff --git a/infra/base-images/base-clang/Dockerfile b/infra/base-images/base-clang/Dockerfile
+index 296b1f7fb..9c6b1ff55 100644
+--- a/infra/base-images/base-clang/Dockerfile
++++ b/infra/base-images/base-clang/Dockerfile
+@@ -45,6 +45,9 @@ RUN apt-get update && apt-get install -y git && \
+ COPY checkout_build_install_llvm.sh /root/
+ # Keep all steps in the same script to decrease the number of intermediate
+ # layes in docker file.
++RUN rm -rf /fuzz-introspector
++COPY fuzz-introspector fuzz-introspector
++
+ RUN /root/checkout_build_install_llvm.sh
+ RUN rm /root/checkout_build_install_llvm.sh
+ 
+diff --git a/infra/base-images/base-runner/coverage b/infra/base-images/base-runner/coverage
+index 585b4d457..014bdbce6 100755
+--- a/infra/base-images/base-runner/coverage
++++ b/infra/base-images/base-runner/coverage
+@@ -382,6 +382,26 @@ if [[ $FUZZING_LANGUAGE == "go" ]]; then
+   echo $DUMPS_DIR
+   $SYSGOPATH/bin/gocovmerge $DUMPS_DIR/*.profdata > fuzz.cov
+   gotoolcover -html=fuzz.cov -o $REPORT_ROOT_DIR/index.html
++
++  # Patch the html with additional javascript to allow direct url
++  # selection of target source file.
++  SCRIPT='<script>
++    function handleHashChange() {
++        const hash = location.hash.substr(1);
++        const files = document.getElementById("files");
++        if (files && hash) {
++            files.value = hash;
++            files.dispatchEvent(new Event("change"));
++        }
++    }
++    window.addEventListener("hashchange", handleHashChange);
++    window.addEventListener("DOMContentLoaded", handleHashChange);
++    </script>
++    </html>'
++  sed -i "/<\/html>/d" $REPORT_ROOT_DIR/index.html
++  echo $SCRIPT >> $REPORT_ROOT_DIR/index.html
++  echo "</html>" >> $REPORT_ROOT_DIR/index.html
++
+   $SYSGOPATH/bin/gocovsum fuzz.cov > $SUMMARY_FILE
+   cp $REPORT_ROOT_DIR/index.html $REPORT_PLATFORM_DIR/index.html
+   $SYSGOPATH/bin/pprof-merge $DUMPS_DIR/*.perf.cpu.prof
+diff --git a/projects/cjson/build.sh b/projects/cjson/build.sh
+index 7d6cea020..fd92b97c5 100644
+--- a/projects/cjson/build.sh
++++ b/projects/cjson/build.sh
+@@ -14,5 +14,10 @@
+ # limitations under the License.
+ #
+ ################################################################################
++
++if [[ "$SANITIZER" == introspector ]]; then
++        exit 1
++fi
++
+ # Run the OSS-Fuzz script in the project
+-$SRC/cjson/fuzzing/ossfuzz.sh
+\ No newline at end of file
++$SRC/cjson/fuzzing/ossfuzz.sh
+diff --git a/projects/htslib/build.sh b/projects/htslib/build.sh
+index a0bbdfd69..8580e7895 100755
+--- a/projects/htslib/build.sh
++++ b/projects/htslib/build.sh
+@@ -14,7 +14,9 @@
+ # limitations under the License.
+ #
+ ################################################################################
+-
++if [[ "$SANITIZER" == introspector ]]; then
++	exit 1
++fi
+ # build project
+ autoconf
+ autoheader

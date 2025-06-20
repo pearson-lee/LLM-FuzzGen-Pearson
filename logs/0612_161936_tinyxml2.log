@@ -1,0 +1,33 @@
+16:19:36 - root.setup_logging:21 - INFO - === Configuration ===[0m
+16:19:36 - root.setup_logging:22 - INFO - Project Name: tinyxml2[0m
+16:19:36 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro-preview-05-06[0m
+16:19:36 - root.setup_logging:24 - INFO - Iteration loop: 1[0m
+16:19:36 - root.setup_logging:25 - INFO - Temperature: 0[0m
+16:19:36 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+16:19:36 - root.setup_logging:27 - INFO - Think Budget Tokens: 2048[0m
+16:19:36 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+16:19:36 - root.setup_logging:29 - INFO - =====================
+[0m
+16:19:36 - __main__.<module>:209 - INFO - Starting introspector webapp for initial analysis[0m
+16:19:36 - external.oss_fuzz.generate_report:169 - INFO - Creating introspector reports for tinyxml2[0m
+16:20:45 - external.oss_fuzz.generate_report:182 - INFO - Introspector reports created for tinyxml2[0m
+16:20:45 - external.introspector.file_lock:115 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+16:20:54 - external.introspector._query_api:72 - INFO - Querying API: shutdown with params: {}[0m
+16:20:57 - external.introspector._query_api:72 - INFO - Querying API: tester with params: {}[0m
+16:20:57 - external.introspector.update_start_webapp:142 - INFO - Web application started successfully.[0m
+16:20:57 - external.introspector.file_lock:121 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+16:21:04 - __main__.process_seed_generation:172 - INFO - Starting seed generation for project: tinyxml2[0m
+16:21:05 - external.introspector.fuzz_target_source_code:252 - INFO - Getting fuzz target source code for project: tinyxml2[0m
+16:21:05 - external.introspector._query_api:72 - INFO - Querying API: harness-source-and-executable with params: {'project': 'tinyxml2'}[0m
+16:21:05 - external.introspector._query_api:72 - INFO - Querying API: project-source-code with params: {'project': 'tinyxml2', 'filepath': '/src/llm_fuzzgen0608210402.cc', 'begin_line': 0, 'end_line': 999}[0m
+16:21:05 - external.introspector._query_api:72 - INFO - Querying API: project-source-code with params: {'project': 'tinyxml2', 'filepath': '/src/xmltest.cpp', 'begin_line': 0, 'end_line': 999}[0m
+16:21:05 - external.introspector._query_api:72 - INFO - Querying API: project-source-code with params: {'project': 'tinyxml2', 'filepath': '/src/llm_fuzzgen0528174039.cc', 'begin_line': 0, 'end_line': 999}[0m
+16:21:05 - external.introspector._query_api:72 - INFO - Querying API: project-source-code with params: {'project': 'tinyxml2', 'filepath': '/src/xmltest2.cpp', 'begin_line': 0, 'end_line': 999}[0m
+16:21:05 - external.introspector._query_api:72 - INFO - Querying API: project-source-code with params: {'project': 'tinyxml2', 'filepath': '/src/llm_fuzzgen0608214338.cc', 'begin_line': 0, 'end_line': 999}[0m
+16:21:11 - __main__.process_seed_generation:183 - INFO - Found 3 llm-fuzz gen fuzzers for tinyxml2: llm_fuzzgen0608210402, llm_fuzzgen0528174039, llm_fuzzgen0608214338[0m
+16:21:57 - __main__.generate_seeds_for_fuzzer:141 - INFO - Generating seeds for fuzzer: llm_fuzzgen0608210402[0m
+16:22:09 - llm_interface.llm_client.generate_seeds:157 - INFO - Generating seeds for prompt: You are an expert software security engineer specializing in generating effective inputs for fuzzing. Your task is to generate a set of initial seed inputs for the provided fuzz target. The goal is to create diverse inputs that might help the fuzzer explore different execution paths in the **tinyxml...[0m
+16:38:47 - llm_interface.llm_client.generate_seeds:175 - INFO - Successfully generated 19 seeds.[0m
+16:38:52 - __main__.generate_seeds_for_fuzzer:157 - INFO - Generated 19 seeds for llm_fuzzgen0608210402[0m
+16:39:43 - external.oss_fuzz.add_seeds:302 - ERROR - Failed to write temporary seed file 00a41cb7-5012-44dd-a051-369183e54985 for content '\x01\x01a\x00\x00...': OSSFuzz._convert_str_to_seed_bytes() takes 1 positional argument but 2 were given[0m
+16:40:44 - external.oss_fuzz.add_seeds:302 - ERROR - Failed to write temporary seed file bad6aeae-7716-4d70-a708-5ccc2447afe7 for content '\x01\x01b\x01\x03txt\x00...': OSSFuzz._convert_str_to_seed_bytes() takes 1 positional argument but 2 were given[0m

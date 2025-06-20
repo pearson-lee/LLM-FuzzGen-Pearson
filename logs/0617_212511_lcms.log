@@ -1,0 +1,43 @@
+21:25:11 - root.setup_logging:21 - INFO - === Configuration ===[0m
+21:25:11 - root.setup_logging:22 - INFO - Project Name: lcms[0m
+21:25:11 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro-preview-05-06[0m
+21:25:11 - root.setup_logging:24 - INFO - Iteration loop: 50[0m
+21:25:11 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+21:25:11 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+21:25:11 - root.setup_logging:27 - INFO - Think Budget Tokens: 8192[0m
+21:25:11 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+21:25:11 - root.setup_logging:29 - INFO - =====================
+[0m
+21:25:11 - __main__.main:382 - INFO - Skipping initial fuzz target generation[0m
+21:25:11 - __main__.main:383 - INFO - Starting introspector webapp for initial analysis of lcms[0m
+21:25:11 - external.oss_fuzz.generate_report:182 - INFO - Creating introspector reports for lcms[0m
+21:29:59 - external.oss_fuzz.generate_report:195 - INFO - Introspector reports created for lcms[0m
+21:29:59 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+21:30:06 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+21:30:11 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+21:30:11 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+21:30:11 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+21:30:11 - external.oss_fuzz.get_coverage_summary:412 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+21:30:11 - __main__.main:389 - INFO - Initial coverage for lcms: 52.64%[0m
+21:30:11 - __main__.process_project:232 - INFO - Starting to process project: lcms[0m
+21:30:11 - external.oss_fuzz.get_coverage_summary:412 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+21:30:11 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: lcms, Current coverage: 52.63825840777078[0m
+21:30:11 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [lcms] Current coverage array: [52.63825840777078][0m
+21:30:11 - external.oss_fuzz.get_coverage_summary:414 - INFO - Successfully extracted total coverage summary for lcms.[0m
+21:30:11 - __main__.regenerate_fuzz_target:213 - INFO - Regenerating fuzz target for project: lcms[0m
+21:30:11 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+21:30:11 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'lcms'}[0m
+21:30:11 - __main__.build_fuzz_target:151 - INFO - Build attempt 1/10 for 'lcms'.[0m
+21:30:11 - llm_interface.llm_client.generate:158 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `lcms` library (c++) that **maximizes code coverage** by strategically exercising...[0m
+21:30:12 - langchain_core.tracers.langchain.log_error_once:46 - ERROR - RunTree.patch() got an unexpected keyword argument 'exclude_inputs'[0m
+21:30:12 - langchain_core.callbacks.manager.handle_event:297 - WARNING - Error in LangChainTracer.on_chain_end callback: TypeError("RunTree.patch() got an unexpected keyword argument 'exclude_inputs'")[0m
+21:30:12 - langchain_core.callbacks.manager.handle_event:297 - WARNING - Error in LangChainTracer.on_chain_end callback: TypeError("RunTree.patch() got an unexpected keyword argument 'exclude_inputs'")[0m
+21:30:12 - langchain_core.callbacks.manager.handle_event:297 - WARNING - Error in LangChainTracer.on_chain_end callback: TypeError("RunTree.patch() got an unexpected keyword argument 'exclude_inputs'")[0m
+21:30:12 - llm_interface.llm_client._generate_node:99 - INFO - Generating prompt from messages...[0m
+21:30:31 - langchain_core.callbacks.manager.handle_event:297 - WARNING - Error in LangChainTracer.on_llm_error callback: TypeError("RunTree.patch() got an unexpected keyword argument 'exclude_inputs'")[0m
+21:30:31 - langchain_core.callbacks.manager.handle_event:297 - WARNING - Error in LangChainTracer.on_chain_error callback: TypeError("RunTree.patch() got an unexpected keyword argument 'exclude_inputs'")[0m
+21:30:31 - langchain_core.callbacks.manager.handle_event:297 - WARNING - Error in LangChainTracer.on_chain_error callback: TypeError("RunTree.patch() got an unexpected keyword argument 'exclude_inputs'")[0m
+21:30:31 - __main__.main:407 - INFO - Process interrupted by user[0m
+21:30:31 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m

@@ -1,0 +1,247 @@
+#include "/src/tomlplusplus/include/toml++/toml.hpp" // Core tomlplusplus library
+#include <fuzzer/FuzzedDataProvider.h> // For FuzzedDataProvider
+#include <string> // For std::string
+#include <cstdint> // For int64_t
+
+// Helper macro to exercise type checking and casting APIs on a toml::node (both const and non-const)
+// and on the returned toml::value<T> object.
+#define EXERCISE_NODE_AND_VALUE_APIS(node_obj, const_node_obj, type_check_method, type_cast_method, value_type) \
+    if (node_obj.type_check_method()) { /* Exercise non-const node APIs */ \
+        toml::value<value_type>* val_ptr = node_obj.type_cast_method(); \
+        if (val_ptr) { /* Coverage: Hit true branch for non-const node::as_X() */ \
+            volatile value_type actual_val = val_ptr->get(); (void)actual_val; \
+            /* Exercise some toml::value<value_type>::as_X methods */ \
+            volatile auto val_as_str = val_ptr->as_string(); if(val_as_str){} \
+            volatile auto val_as_int = val_ptr->as_integer(); if(val_as_int){} \
+            volatile auto val_as_flt = val_ptr->as_floating_point(); if(val_as_flt){} \
+        } \
+    } \
+    if (const_node_obj.type_check_method()) { /* Exercise const node APIs */ \
+        const toml::value<value_type>* const_val_ptr = const_node_obj.type_cast_method(); \
+        if (const_val_ptr) { /* Coverage: Hit true branch for const node::as_X() */ \
+            volatile value_type const_actual_val = const_val_ptr->get(); (void)const_actual_val; \
+            /* Exercise some const toml::value<value_type>::as_X methods */ \
+            volatile auto const_val_as_str = const_val_ptr->as_string(); if(const_val_as_str){} \
+            volatile auto const_val_as_int = const_val_ptr->as_integer(); if(const_val_as_int){} \
+            volatile auto const_val_as_flt = const_val_ptr->as_floating_point(); if(const_val_as_flt){} \
+        } \
+    }
+
+// Helper function to exercise type checking and casting APIs on a toml::node
+void exercise_node_type_apis(toml::node* p_node) {
+    if (!p_node) {
+        return;
+    }
+    toml::node& node = *p_node;
+    const toml::node& const_node = *p_node;
+
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_string, as_string, std::string)
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_integer, as_integer, int64_t)
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_floating_point, as_floating_point, double)
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_boolean, as_boolean, bool)
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_date, as_date, toml::date)
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_time, as_time, toml::time)
+    EXERCISE_NODE_AND_VALUE_APIS(node, const_node, is_date_time, as_date_time, toml::date_time)
+}
+
+#undef EXERCISE_NODE_AND_VALUE_APIS
+
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    FuzzedDataProvider fdp(data, size);
+    std::string toml_string = fdp.ConsumeRemainingBytesAsString();
+
+    try {
+        toml::table root_table = toml::parse(toml_string);
+        const auto& const_root_table = root_table; // Create const ref for const API coverage
+
+        // API 1: bool toml::v3::table::is_date()
+        volatile bool root_is_date = root_table.is_date();
+        volatile bool const_root_is_date = const_root_table.is_date(); // Coverage: Call const is_date on table
+
+        // API 2: value<toml::v3::time> * toml::v3::table::as_time()
+        volatile toml::value<toml::time>* root_as_time = root_table.as_time();
+        if (root_as_time) {
+            // This branch is unlikely to be hit for a table node itself.
+        }
+        volatile const toml::value<toml::time>* const_root_as_time = const_root_table.as_time(); // Coverage: Call const as_time on table
+        if (const_root_as_time) {}
+
+
+        // API 5: bool toml::v3::table::is_integer()
+        volatile bool root_is_integer = root_table.is_integer();
+        volatile bool const_root_is_integer = const_root_table.is_integer(); // Coverage: Call const is_integer on table
+
+
+        // Added calls to uncovered functions for toml::table on root_table
+        volatile bool root_is_string = root_table.is_string(); 
+        volatile toml::value<std::string>* root_as_string = root_table.as_string(); 
+        if (root_as_string) {} 
+        volatile bool const_root_is_string = const_root_table.is_string(); // Coverage: Call const is_string on table
+        volatile auto const_root_as_string_ptr = const_root_table.as_string(); if(const_root_as_string_ptr){} // Coverage: Call const as_string on table
+
+        volatile bool root_is_fp = root_table.is_floating_point(); 
+        volatile toml::value<double>* root_as_fp = root_table.as_floating_point(); 
+        if (root_as_fp) {}
+        volatile bool const_root_is_fp = const_root_table.is_floating_point(); // Coverage: Call const is_floating_point on table
+        volatile auto const_root_as_fp_ptr = const_root_table.as_floating_point(); if(const_root_as_fp_ptr){} // Coverage: Call const as_floating_point on table
+
+
+        volatile bool root_is_bool = root_table.is_boolean(); 
+        volatile toml::value<bool>* root_as_bool = root_table.as_boolean(); 
+        if (root_as_bool) {}
+        volatile bool const_root_is_bool = const_root_table.is_boolean(); // Coverage: Call const is_boolean on table
+        volatile auto const_root_as_bool_ptr = const_root_table.as_boolean(); if(const_root_as_bool_ptr){} // Coverage: Call const as_boolean on table
+
+        volatile bool root_is_datetime = root_table.is_date_time(); 
+        volatile toml::value<toml::date_time>* root_as_datetime = root_table.as_date_time(); 
+        if (root_as_datetime) {}
+        volatile bool const_root_is_datetime = const_root_table.is_date_time(); // Coverage: Call const is_date_time on table
+        volatile auto const_root_as_datetime_ptr = const_root_table.as_date_time(); if(const_root_as_datetime_ptr){} // Coverage: Call const as_date_time on table
+
+        volatile bool root_is_time_check = root_table.is_time(); 
+        volatile toml::value<toml::date>* root_as_date = root_table.as_date(); 
+        if (root_as_date) {}
+        volatile bool const_root_is_time_check = const_root_table.is_time(); // Coverage: Call const is_time on table
+        volatile auto const_root_as_date_ptr = const_root_table.as_date(); if(const_root_as_date_ptr){} // Coverage: Call const as_date on table
+
+
+        for (auto&& [key, node_view] : root_table) {
+            // If node_view is toml::node& due to table iteration behavior, pass its address.
+            // If node_view is toml::node_view, then node_view.node() returns toml::node*.
+            // The error message suggests node_view is treated as toml::node.
+            exercise_node_type_apis(&node_view); 
+
+            if (node_view.is_array()) { // Assuming node_view is toml::node&, this is a valid call
+                toml::array* arr = node_view.as_array();
+                if (arr) {
+                    const toml::array* const_arr = arr; // Create const ref for const API coverage
+
+                    volatile bool arr_is_number = arr->is_number();
+                    volatile toml::value<int64_t>* arr_as_integer = arr->as_integer();
+                    if (arr_as_integer) { }
+                    volatile bool const_arr_is_number = const_arr->is_number(); // Coverage: Call const is_number on array
+                    volatile auto const_arr_as_integer_ptr = const_arr->as_integer(); if(const_arr_as_integer_ptr){} // Coverage: Call const as_integer on array
+
+
+                    volatile bool arr_is_string = arr->is_string(); 
+                    volatile toml::value<std::string>* arr_as_string = arr->as_string(); 
+                    if (arr_as_string) {}
+                    volatile bool const_arr_is_string = const_arr->is_string(); // Coverage: Call const is_string on array
+                    volatile auto const_arr_as_string_ptr = const_arr->as_string(); if(const_arr_as_string_ptr){} // Coverage: Call const as_string on array
+
+
+                    volatile bool arr_is_fp = arr->is_floating_point(); 
+                    volatile toml::value<double>* arr_as_fp = arr->as_floating_point(); 
+                    if (arr_as_fp) {}
+                    volatile bool const_arr_is_fp = const_arr->is_floating_point(); // Coverage: Call const is_floating_point on array
+                    volatile auto const_arr_as_fp_ptr = const_arr->as_floating_point(); if(const_arr_as_fp_ptr){} // Coverage: Call const as_floating_point on array
+
+                    volatile bool arr_is_bool = arr->is_boolean(); 
+                    volatile toml::value<bool>* arr_as_bool = arr->as_boolean(); 
+                    if (arr_as_bool) {}
+                    volatile bool const_arr_is_bool = const_arr->is_boolean(); // Coverage: Call const is_boolean on array
+                    volatile auto const_arr_as_bool_ptr = const_arr->as_boolean(); if(const_arr_as_bool_ptr){} // Coverage: Call const as_boolean on array
+
+                    volatile bool arr_is_datetime = arr->is_date_time(); 
+                    volatile toml::value<toml::date_time>* arr_as_datetime = arr->as_date_time(); 
+                    if (arr_as_datetime) {}
+                    volatile bool const_arr_is_datetime = const_arr->is_date_time(); // Coverage: Call const is_date_time on array
+                    volatile auto const_arr_as_datetime_ptr = const_arr->as_date_time(); if(const_arr_as_datetime_ptr){} // Coverage: Call const as_date_time on array
+                    
+                    volatile bool arr_is_time = arr->is_time(); 
+                    volatile bool arr_is_date = arr->is_date(); 
+                    volatile toml::value<toml::time>* arr_as_time = arr->as_time(); 
+                    if (arr_as_time) {}
+                    volatile toml::value<toml::date>* arr_as_date_val = arr->as_date(); 
+                    if (arr_as_date_val) {}
+                    volatile bool const_arr_is_time = const_arr->is_time(); // Coverage: Call const is_time on array
+                    volatile bool const_arr_is_date = const_arr->is_date(); // Coverage: Call const is_date on array
+                    volatile auto const_arr_as_time_ptr = const_arr->as_time(); if(const_arr_as_time_ptr){} // Coverage: Call const as_time on array
+                    volatile auto const_arr_as_date_ptr_val = const_arr->as_date(); if(const_arr_as_date_ptr_val){} // Coverage: Call const as_date on array
+
+
+                    for (toml::node& element_node : *arr) {
+                        exercise_node_type_apis(&element_node); 
+                        if (element_node.is_table()) {
+                            toml::table* nested_table = element_node.as_table();
+                            if (nested_table) {
+                                const toml::table* const_nested_table = nested_table; // Coverage: Create const ref
+
+                                volatile bool nested_tbl_is_date = nested_table->is_date();
+                                volatile toml::value<toml::time>* nested_tbl_as_time = nested_table->as_time();
+                                volatile bool nested_tbl_is_integer = nested_table->is_integer();
+                                volatile bool const_nested_tbl_is_date = const_nested_table->is_date(); // Coverage: Call const table methods
+                                volatile auto const_nested_tbl_as_time = const_nested_table->as_time(); if(const_nested_tbl_as_time){}
+                                volatile bool const_nested_tbl_is_integer = const_nested_table->is_integer();
+
+
+                                volatile bool nt_is_string = nested_table->is_string(); 
+                                volatile auto nt_as_string = nested_table->as_string(); 
+                                if (nt_as_string) {}
+                                volatile bool const_nt_is_string = const_nested_table->is_string(); // Coverage: Call const table methods
+                                volatile auto const_nt_as_string = const_nested_table->as_string(); if(const_nt_as_string){}
+
+                                // ... (similar const calls for other types on nested_table) ...
+                            }
+                        }
+                    }
+                }
+            } else if (node_view.is_table()) { // Assuming node_view is toml::node&
+                toml::table* sub_table = node_view.as_table();
+                if (sub_table) {
+                    const toml::table* const_sub_table = sub_table; // Coverage: Create const ref
+
+                    volatile bool sub_tbl_is_date = sub_table->is_date();
+                    volatile toml::value<toml::time>* sub_tbl_as_time = sub_table->as_time();
+                    volatile bool sub_tbl_is_integer = sub_table->is_integer();
+                    volatile bool const_sub_tbl_is_date = const_sub_table->is_date(); // Coverage: Call const table methods
+                    volatile auto const_sub_tbl_as_time = const_sub_table->as_time(); if(const_sub_tbl_as_time){}
+                    volatile bool const_sub_tbl_is_integer = const_sub_table->is_integer();
+
+                    // ... (original calls for sub_table) ...
+                    volatile bool st_is_string = sub_table->is_string(); 
+                    volatile auto st_as_string = sub_table->as_string(); 
+                    if (st_as_string) {}
+                    volatile bool const_st_is_string = const_sub_table->is_string(); // Coverage: Call const table methods
+                    volatile auto const_st_as_string = const_sub_table->as_string(); if(const_st_as_string){}
+                    // ... (similar const calls for other types on sub_table) ...
+
+
+                     for (auto&& [sub_key, sub_node_view_inner] : *sub_table) { 
+                        exercise_node_type_apis(&sub_node_view_inner); 
+                        if (sub_node_view_inner.is_array()) { // Assuming sub_node_view_inner is toml::node&
+                            toml::array* nested_arr = sub_node_view_inner.as_array();
+                            if (nested_arr) {
+                                const toml::array* const_nested_arr = nested_arr; // Coverage: Create const ref
+
+                                volatile bool nested_arr_is_number = nested_arr->is_number();
+                                volatile toml::value<int64_t>* nested_arr_as_integer = nested_arr->as_integer();
+                                volatile bool const_nested_arr_is_number = const_nested_arr->is_number(); // Coverage: Call const array methods
+                                volatile auto const_nested_arr_as_integer = const_nested_arr->as_integer(); if(const_nested_arr_as_integer){}
+
+                                // ... (original calls for nested_arr) ...
+                                volatile bool na_is_string = nested_arr->is_string(); 
+                                volatile auto na_as_string = nested_arr->as_string(); 
+                                if (na_as_string) {}
+                                volatile bool const_na_is_string = const_nested_arr->is_string(); // Coverage: Call const array methods
+                                volatile auto const_na_as_string = const_nested_arr->as_string(); if(const_na_as_string){}
+                                // ... (similar const calls for other types on nested_arr) ...
+
+                                for (toml::node& inner_element_node : *nested_arr) { 
+                                    exercise_node_type_apis(&inner_element_node); 
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    } catch (const toml::parse_error& /*err*/) {
+        // Parsing can fail with malformed input; this is expected in fuzzing.
+    } catch (const std::exception& /*ex*/) {
+        // Catch any other C++ standard library exceptions that might occur.
+    }
+    return 0;
+}

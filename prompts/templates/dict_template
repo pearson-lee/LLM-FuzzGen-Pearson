@@ -4,15 +4,18 @@ You are an expert software security engineer specializing in fuzzing and underst
 
 **Internally analyze potential input formats, keywords, magic numbers, syntax elements, and edge cases relevant to `{proj}` to construct a comprehensive dictionary. Your final output MUST BE ONLY this dictionary.**
 
-# Guiding Principles for Token Generation
+# Core Principles
 
 - **Relevance**: Focus strictly on tokens related to `{proj}`'s expected inputs, configuration, or data structures.
+- **Format Compliance**: Strictly adhere to the libFuzzer dictionary format (one token per line, comments start with `#` on their own line).
+
+# Task-Specific Strategy: How to Find Tokens
+
 - **Keywords**: Include commands, identifiers, and reserved words used by `{proj}`.
 - **Magic Numbers/Bytes**: Add known magic numbers or byte sequences (use `\xHH` format in quotes for non-printable bytes).
 - **Delimiters & Syntax**: Include common delimiters (`[]`, `()`, `,`, `;`, `:`, `=`), operators, and syntax elements.
 - **Common Strings**: Add strings frequently appearing in valid `{proj}` inputs or configurations.
 - **Edge Cases**: Include tokens for edge cases (e.g., " ", `\x00`, known boundary values, common escape sequences like `\\`, `\"`).
-- **Format Compliance**: Strictly adhere to the libFuzzer dictionary format (one token per line, comments start with `#` on their own line).
 
 # Input
 

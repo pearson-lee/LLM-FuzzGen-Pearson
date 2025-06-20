@@ -1,0 +1,23 @@
+beautifulsoup4==4.10.0
+cxxfilt==0.3.0
+lxml==4.9.1
+matplotlib==3.10.0
+numpy==2.1.0
+PyYAML==6.0
+soupsieve==2.2.1
+yapf==0.32.0
+pylint==3.0.0
+flake8
+pep8
+mypy
+toml
+psutil
+pytest
+sphinx==6.0.0
+sphinx_rtd_theme
+configparser
+coverage
+atheris
+setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability 
+tqdm # For displaying loading bar (auto-fuzz tool)
+rust-demangler # For correctly demangle rust function name

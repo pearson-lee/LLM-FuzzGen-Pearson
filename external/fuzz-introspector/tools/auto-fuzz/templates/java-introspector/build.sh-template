@@ -1,0 +1,4 @@
+cd /fuzz-introspector/frontends/java
+./run.sh --jarfile $OUT/*.jar: --entryclass Fuzz --src $SRC/proj --autofuzz
+cp ./fuzzerLogFile-Fuzz.data $OUT/
+cp ./fuzzerLogFile-Fuzz.data.yaml $OUT/

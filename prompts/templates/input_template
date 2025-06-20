@@ -1,18 +1,16 @@
+# Role and Objective
+
 You are an expert software security engineer specializing in generating effective inputs for fuzzing. Your task is to generate a set of initial seed inputs for the provided fuzz target. The goal is to create diverse inputs that might help the fuzzer explore different execution paths in the **{proj}** library early on.
 
-### Seed Generation Principles
-When generating initial seeds, consider the following:
+# Core Principles
+
 - **Input Structure**: Analyze the fuzz target code to understand the expected input format or structure (e.g., specific file formats, data structures, sequences of operations).
 - **Variety**: Generate seeds that represent different potential inputs based on the target's logic. Include simple cases, potentially edge cases (empty input, very large input if applicable), and inputs that might trigger different branches or behaviors observed in the fuzz target code.
 - **Coverage-Guided Generation**: Use the provided coverage information to identify code paths that have been executed frequently vs. those that have been executed rarely or not at all. Focus on generating seeds that might trigger the less-covered execution paths.
 - **Library-Specific Input Formats**: Analyze the **{proj}** library's documentation or common use cases to identify typical input formats it processes (e.g., JSON, XML, configuration files, specific binary formats). Generate seeds that represent valid, complex, and potentially malformed instances of these formats, even if the current fuzz target doesn't explicitly focus on them. This helps explore broader library functionality.
 
-### Inputs Provided
-- **Library Name**: {proj}
-- **Existing Fuzz Target Code**: A fuzz target using libFuzzer, designed to test the **{proj}** library.
-- **Coverage Report**: Line-by-line execution count information showing which parts of the code have been exercised and how frequently.
+# Task-Specific Strategy
 
-### Task Objectives
 1.  **Analyze Fuzz Target and Library Input Scope**:
     - Understand how the provided fuzz target consumes input data and passes it to the **{proj}** library.
     - Broaden the scope to consider the {proj} library's general capabilities. What types of data or file formats (e.g., JSON, XML, text with specific syntax) is the library designed to parse or handle? Think beyond the immediate fuzz target.
@@ -24,7 +22,21 @@ When generating initial seeds, consider the following:
 3.  **Generate Targeted and Library-Aware Seeds**: Based on the analysis of the fuzz target code, coverage information, **and the general input types relevant to the {proj} library**, generate a diverse set of input strings (seeds). These seeds should aim to:
     - Represent typical and edge-case inputs for the {proj} library's known data formats (e.g., generate sample JSON files, XML documents, or other relevant structured inputs if applicable to {proj}).
 
-### Output Format
+# Input
+
+- **Library Name**: {proj}
+- **Existing Fuzz Target Code**:
+```c
+{fuzz_target}
+```
+
+- **Coverage Report**:
+```
+{coverage_info}
+```
+
+# Output Format
+
 - Your entire response MUST be wrapped in `<seeds>` tags.
 - Each seed MUST be inside its own triple-backtick (```) code block.
 - **DO NOT** use language specifiers (e.g., ```xml).
@@ -44,18 +56,5 @@ seed2_content_with_special_chars_&<>"
 \x00\x01\x02
 ```
 </seeds>
-
-
-### Specific Inputs to Use
-- **Library Name**: {proj}
-- **Existing Fuzz Target Code**:
-```c
-{fuzz_target}
-```
-
-- **Coverage Report**:
-```
-{coverage_info}
-```
 
 Now, based on the principles and the strict output specification above, analyze the provided code and coverage report. Generate your seeds. Your response **must** begin directly with the `<seeds>` tag and end with `</seeds>`.

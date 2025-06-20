@@ -1,0 +1,14 @@
+17:45:40 - root.setup_logging:21 - INFO - === Configuration ===[0m
+17:45:40 - root.setup_logging:22 - INFO - Project Name: tinyxml2[0m
+17:45:40 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash-preview-05-20[0m
+17:45:40 - root.setup_logging:24 - INFO - Iteration loop: 1[0m
+17:45:40 - root.setup_logging:25 - INFO - Temperature: 0[0m
+17:45:40 - root.setup_logging:26 - INFO - Max Tokens: 62768[0m
+17:45:40 - root.setup_logging:27 - INFO - Think Budget Tokens: 2048[0m
+17:45:40 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+17:45:40 - root.setup_logging:29 - INFO - =====================
+[0m
+17:45:40 - __main__.main:372 - INFO - Generating initial fuzz target[0m
+17:45:46 - __main__.generate_empty_fuzz_target:122 - INFO - Generating empty fuzz target for project: tinyxml2[0m
+17:45:47 - external.oss_fuzz.copy_empty_fuzz_target:423 - INFO - Copied empty fuzz target from /home/jack/LLM-FuzzGen/external/llm_fuzzgen_empty.cc to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/tinyxml2/llm_fuzzgen_empty.cc[0m
+17:45:50 - __main__.generate_empty_fuzz_target:127 - INFO - Attempting to build the empty fuzz target[0m
