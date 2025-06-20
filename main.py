@@ -359,6 +359,7 @@ def calculate_statistics(project_name: str, initial_coverage_percent: float):
 
     logger.info(f"Initial coverage: {initial_coverage_percent:.2f}%")
     if total_coverage_summary:
+        logger.info("=" * 50)
         logger.info("Total Coverage Summary:")
         for metric_name, summary in total_coverage_summary.__dict__.items():
             if summary:
@@ -413,9 +414,12 @@ def main() -> None:
         logger.info(f"Successful project: {result}")
         logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
 
-        user_input = input("Enter 'y' to shutdown the server (http://localhost:8080): ")
-        if user_input.lower() == "y":
+        user_input = input("Do you want to shutdown the server (http://localhost:8080)? (y/n): ")
+        if user_input.lower() == "n":
+            logger.info("Server is still running.")
+        else:
             introspector.shutdown_webapp()
+            logger.info("Server shutdown.")
 
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)

@@ -1,8 +1,3 @@
-from asyncio import sleep
-from socket import timeout
-from sys import api_version
-from langchain.chains import api
-from langchain_google_vertexai import ChatVertexAI, HarmCategory, HarmBlockThreshold
 from langgraph.checkpoint.memory import MemorySaver
 import config.config as config
 import logging
@@ -13,10 +8,10 @@ from langchain.schema import HumanMessage
 from .tools import tools
 from typing import Annotated
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel, Field
+import langchain_google_vertexai as langchain_vertexai
+import langchain_google_genai as langchain_genai
 
 logger = logging.getLogger(__name__)
 
@@ -29,45 +24,45 @@ class State(TypedDict):
 class LLMClient:
     def __init__(self):
         try:
-            # llm_base = ChatGoogleGenerativeAI(
-            #     temperature=config.TEMPERATURE,
-            #     model=config.MODEL_NAME,
-            #     max_output_tokens=config.MAX_TOKENS,
-            #     thinking_budget=config.THINK_BUDGET_TOKEN,
-            #     safety_settings={
-            #         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_TOXICITY: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_VIOLENCE: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_DANGEROUS: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_DEROGATORY: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_MEDICAL: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_SEXUAL: HarmBlockThreshold.OFF,
-            #         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.OFF,
-            #     },
-            #     max_retries=10,
-            # )
-
-            llm_base = ChatVertexAI(
-                model=config.MODEL_NAME,
+            llm_base = langchain_genai.ChatGoogleGenerativeAI(
                 temperature=config.TEMPERATURE,
-                max_tokens=config.MAX_TOKENS,
-                max_retries=10,
+                model=config.MODEL_NAME,
+                max_output_tokens=config.MAX_TOKENS,
                 thinking_budget=config.THINK_BUDGET_TOKEN,
                 safety_settings={
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.OFF,
-                    HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.OFF,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.OFF,
-                    HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: HarmBlockThreshold.OFF,
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.OFF,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_TOXICITY: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_VIOLENCE: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_DANGEROUS: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_DEROGATORY: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_MEDICAL: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_SEXUAL: langchain_genai.HarmBlockThreshold.OFF,
+                    langchain_genai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_genai.HarmBlockThreshold.OFF,
                 },
-                project="ordinal-oxygen-lz9rc",
-                location="global",
+                max_retries=10,
             )
+
+            # llm_base = langchain_vertexai.ChatVertexAI(
+            #     model=config.MODEL_NAME,
+            #     temperature=config.TEMPERATURE,
+            #     max_tokens=config.MAX_TOKENS,
+            #     max_retries=10,
+            #     thinking_budget=config.THINK_BUDGET_TOKEN,
+            #     safety_settings={
+            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_vertexai.HarmBlockThreshold.OFF,
+            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_vertexai.HarmBlockThreshold.OFF,
+            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_vertexai.HarmBlockThreshold.OFF,
+            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_vertexai.HarmBlockThreshold.OFF,
+            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_vertexai.HarmBlockThreshold.OFF,
+            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_vertexai.HarmBlockThreshold.OFF,
+            #     },
+            #     project="ordinal-oxygen-lz9rc",
+            #     location="global",
+            # )
 
             self._llm_without_tools = llm_base
             self._llm = llm_base.bind_tools(tools=tools, tool_choice="auto")
