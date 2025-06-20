@@ -296,6 +296,7 @@ def process_project(project_name: str, seconds: int) -> bool:
                 logger.warning(f"Fuzz target's coverage is lower than the previous iteration {iteration + 1}")
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 no_growth_count += 1
+                logger.info(f"No growth count: {no_growth_count}/{config.NO_GROWTH_STOP_THRESHOLD}")
                 continue
 
             if not generate_report_and_start_webapp(project_name, seconds=seconds):
@@ -304,6 +305,7 @@ def process_project(project_name: str, seconds: int) -> bool:
                 continue
 
             no_growth_count = 0
+            logger.info(f"No growth count reset, 0/{config.NO_GROWTH_STOP_THRESHOLD}")
             # Record successful growth statistics
             if is_regeneration:
                 regeneration_growth.append(coverage_growth)
