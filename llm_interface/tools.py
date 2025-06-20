@@ -31,6 +31,7 @@ def function_cross_references(project_name: str, function_signature: str) -> str
             - List of caller functions with their signatures and headers
             Returns empty string if no information is found.
     """
+    project_name = project_name.lower()
     if not function_signature:
         logger.info(f"Tool(function_cross_references): No function signature provided")
         return ""
@@ -87,6 +88,7 @@ def search_function(project_name: str, function_name_pattern: str) -> str:
             Returns empty string if no functions are found.
 
     """
+    project_name = project_name.lower()
     all_functions = introspector.get_all_functions(project_name=project_name)
 
     if not all_functions:
@@ -162,6 +164,7 @@ def project_source_code(project_name: str, filepath: str, begin_line: int = None
     Returns:
         str: The source code of the specified file (or line range), or an empty string if not found.
     """
+    project_name = project_name.lower()
     if not filepath:
         logger.info(f"Tool(project_source_code): No filepath provided")
         return ""
@@ -222,6 +225,7 @@ def get_line_coverage_report(project_name: str, function_name_pattern: str) -> s
         str: A formatted, line-by-line coverage report for the matching functions, or an empty string if not found.
 
     """
+    project_name = project_name.lower()
     with coverage_lock:
         if not all((project_name, function_name_pattern)):
             msg = f"Missing required parameters: project_name={project_name}, function_name_pattern={function_name_pattern}"
