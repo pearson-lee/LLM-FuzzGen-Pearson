@@ -2616,3 +2616,103 @@ You are an expert software security engineer specializing in comprehensive fuzz 
 16:06:12 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
 16:06:26 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex cJSON_AddRawToObject[0m
 16:06:26 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+16:06:49 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+16:06:49 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+16:06:49 - llm_interface.tools.get_line_coverage_report:231 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for cjson_wo_exist_b8371_l8917 with regex cJSON_AddRawToObject[0m
+16:06:49 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+16:07:11 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for cjson_wo_exist_b8371_l8917 with function regex add_item_to_object[0m
+16:07:11 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with existing corpus[0m
+16:07:34 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+16:07:34 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with existing corpus: 91.71492204899778%[0m
+16:07:34 - llm_interface.tools.get_line_coverage_report:231 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for cjson_wo_exist_b8371_l8917 with regex add_item_to_object[0m
+16:07:34 - llm_interface.llm_client._generate_node:82 - INFO - Generating prompt from messages...[0m
+16:08:09 - llm_interface.llm_client.generate:147 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Custom deleter for unique_ptr to handle cJSON objects
+struct cJSONDeleter {
+    void operator()(cJSON* ptr) const {
+        cJSON_Delete(ptr);
+    }
+};
+
+using cJSONUniquePtr = std::unique_ptr<cJSON, cJSONDeleter>;
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    FuzzedDataProvider fdp(Data, Size);
+
+    // Target: cJSON_ParseWithOpts to cover NULL value case
+    // The existing fuzzer does not pass NULL to cJSON_ParseWithOpts.
+    if (fdp.ConsumeBool()) {
+        cJSON_ParseWithOpts(NULL, NULL, fdp.ConsumeBool());
+    }
+
+    std::string json_string = fdp.ConsumeRandomLengthString(1000);
+    cJSONUniquePtr root(cJSON_Parse(json_string.c_str()));
+
+    if (root) {
+        // Target: cJSON_AddRawToObject to cover the error path where add_item_to_object fails.
+        // This happens if we try to add an object to itself.
+        std::string raw_string = fdp.ConsumeRandomLengthString(100);
+        cJSON_AddRawToObject(root.get(), "raw_data", raw_string.c_str());
+
+        // Create an object to add to itself to trigger the error path.
+        cJSON* item_to_add = cJSON_CreateObject();
+        if (item_to_add) {
+            // This call to add_item_to_object inside cJSON_AddItemToObject will fail
+            // because 'item_to_add' is being added to itself.
+            cJSON_AddItemToObject(item_to_add, "self", item_to_add);
+        }
+        // No need to delete item_to_add if it was successfully added, but here it won't be.
+        cJSON_Delete(item_to_add);
+
+
+        // Target: cJSON_CreateStringArray to cover allocation paths.
+        const int num_strings = fdp.ConsumeIntegralInRange<int>(1, 20);
+        std::vector<const char*> string_pointers;
+        std::vector<std::string> string_storage;
+        string_storage.reserve(num_strings);
+        for (int i = 0; i < num_strings; ++i) {
+            string_storage.push_back(fdp.ConsumeRandomLengthString(50));
+            string_pointers.push_back(string_storage.back().c_str());
+        }
+        cJSONUniquePtr string_array(cJSON_CreateStringArray(string_pointers.data(), num_strings));
+
+        if (string_array) {
+            // Target: cJSON_Duplicate to cover more complex object duplication.
+            cJSONUniquePtr duplicated_array(cJSON_Duplicate(string_array.get(), fdp.ConsumeBool()));
+
+            if (duplicated_array) {
+                // Target: cJSON_PrintBuffered to exercise the 'ensure' function's reallocation logic.
+                // Using a small initial buffer size is more likely to trigger reallocations.
+                unsigned int buffer_size = fdp.ConsumeIntegralInRange<unsigned int>(1, 1024);
+                char* printed_json = cJSON_PrintBuffered(duplicated_array.get(), buffer_size, fdp.ConsumeBool());
+                if (printed_json) {
+                    // IMPORTANT: The buffer allocated by cJSON_PrintBuffered must be freed with cJSON_free.
+                    cJSON_free(printed_json);
+                }
+            }
+        }
+    }
+
+    return 0;
+}[0m
+16:08:09 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620160809.cc[0m
+16:08:09 - __main__.build_fuzz_target:167 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620160809.cc'.[0m
+16:08:09 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620160809 for 30 seconds for project cjson_wo_exist_b8371_l8917[0m
+16:08:59 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620160809 ran successfully[0m
+16:08:59 - __main__.build_fuzz_target:172 - INFO - Build succeeded: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/cjson_wo_exist_b8371_l8917/llm_fuzzgen0620160809.cc'.[0m
+16:08:59 - __main__.regenerate_fuzz_target:233 - INFO - Regenerated fuzz target for cjson_wo_exist_b8371_l8917 successfully[0m
+16:08:59 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620160809[0m
+16:08:59 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620160809 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
+16:10:16 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0620160809 ran successfully[0m
+16:10:44 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for cjson_wo_exist_b8371_l8917 (excluding target).[0m
+16:10:44 - external.oss_fuzz.coverage:182 - INFO - Coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620160809: 91.71492204899778%[0m
+16:10:44 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for cjson_wo_exist_b8371_l8917 with fuzzer llm_fuzzgen0620160809[0m
+16:10:44 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0620160809 for 60 seconds for project cjson_wo_exist_b8371_l8917[0m
