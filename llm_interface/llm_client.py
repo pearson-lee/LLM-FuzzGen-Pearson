@@ -24,12 +24,13 @@ class State(TypedDict):
 # Ensure the response from the LLM is not empty and not just tool calls.
 def ensure_response_not_empty(message: BaseMessage) -> BaseMessage:
     """Checks if the AIMessage from the LLM is empty (no content and no tool calls)."""
-    is_content_empty = not (message.content and message.content.strip())
-    has_no_tool_calls = not getattr(message, "tool_calls", [])
-    if is_content_empty and has_no_tool_calls:
-        logger.error("LLM returned an empty response, raw response: %s", message)
-        raise ValueError("LLM returned an empty response.")
-    return message
+    has_content = bool(message.content)
+    has_tool_calls = bool(getattr(message, "tool_calls", []))
+    if has_content or has_tool_calls:
+        return message
+
+    logger.error("LLM returned an empty response, raw response: %s", message)
+    raise ValueError("LLM returned an empty response.")
 
 
 class LLMClient:
