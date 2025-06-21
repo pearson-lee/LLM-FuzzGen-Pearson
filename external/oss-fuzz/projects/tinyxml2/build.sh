@@ -21,6 +21,8 @@ sed -i 's/CXXFLAGS =/#CXXFLAGS/g' Makefile
 ##### LLM-FuzzGen #####
 export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 export CCACHE_DIR="$WORK/ccache"
+export CFLAGS="$CFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
+export CXXFLAGS="$CXXFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
 #https://github.com/google/oss-fuzz/pull/10891
 #if [ "$SANITIZER" == "introspector" ]; then
 #  export CFLAGS="${CFLAGS} -fsanitize=address"

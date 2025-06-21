@@ -517,8 +517,8 @@ else
 
   generate_html $PROFILE_FILE "$shared_libraries" "$objects" "$REPORT_ROOT_DIR"
   llvm-cov show -instr-profile=$PROFILE_FILE $objects -show-branches=count -show-instantiations=false -Xdemangler c++filt $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/project.linecovreport
-  llvm-cov report -show-functions -show-instantiation-summary -ignore-filename-regex=.*llm_fuzzgen* -use-color=false -Xdemangler c++filt -instr-profile=$PROFILE_FILE $objects -sources $OUT$SRC $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/project.funcovreport
-  llvm-cov export -summary-only -instr-profile=$PROFILE_FILE $objects -ignore-filename-regex=.*llm_fuzzgen* -Xdemangler c++filt $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/summary_exclude_target.json
+  llvm-cov report -show-functions -show-instantiation-summary -ignore-filename-regex='.*(llm_fuzzgen|fuzzer).*' -use-color=false -Xdemangler c++filt -instr-profile=$PROFILE_FILE $objects -sources $OUT$SRC $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/project.funcovreport
+  llvm-cov export -summary-only -instr-profile=$PROFILE_FILE $objects -ignore-filename-regex='.*(llm_fuzzgen|fuzzer).*' -Xdemangler c++filt $LLVM_COV_COMMON_ARGS $COVERAGE_EXTRA_ARGS > ${TEXTCOV_REPORT_DIR}/summary_exclude_target.json
 
   # Per target reports.
   for fuzz_target in $FUZZ_TARGETS; do

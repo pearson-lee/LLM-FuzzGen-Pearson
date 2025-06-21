@@ -261,10 +261,10 @@ class OSSFuzz:
 
         return report_file.read_text()
 
-    def linecov_reports(self, proj_name: str, fuzzer_name: str, fun_name_regex: str = None) -> str:
+    def linecov_reports(self, proj_name: str, fuzzer_name: str, fun_name_regex: str = "LLVMFuzzerTestOneInput") -> str:
         """
         Returns the linecov report for the given fuzzer.
-        `fun_name_regex` is the regex to filter function names for coverage.
+        `fun_name_regex` is the regex to filter function names for coverage. (default: "LLVMFuzzerTestOneInput")
         """
         logger.info(f"Generating linecov report for {proj_name} with fuzzer {fuzzer_name} and function regex {fun_name_regex}")
         self.coverage(proj_name, fun_name_regex=fun_name_regex)

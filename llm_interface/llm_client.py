@@ -1,16 +1,16 @@
+from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import MemorySaver
 import config.config as config
 import logging
 import re
 import time
 from typing import Literal, TypedDict, List
-from langchain.schema import HumanMessage
+from langchain.schema import HumanMessage, BaseMessage
 from .tools import tools
 from typing import Annotated
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.graph import StateGraph, add_messages, START, END
+from langgraph.prebuilt import ToolNode
+from langgraph.graph import StateGraph, add_messages
 from langgraph.graph.state import CompiledStateGraph
-import langchain_google_vertexai as langchain_vertexai
 import langchain_google_genai as langchain_genai
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     parsed: str
+
+
+# Ensure the response from the LLM is not empty and not just tool calls.
+def ensure_response_not_empty(message: BaseMessage) -> BaseMessage:
+    """Checks if the AIMessage from the LLM is empty (no content and no tool calls)."""
+    is_content_empty = not (message.content and message.content.strip())
+    has_no_tool_calls = not getattr(message, "tool_calls", [])
+    if is_content_empty and has_no_tool_calls:
+        logger.error("LLM returned an empty response, raw response: %s", message)
+        raise ValueError("LLM returned an empty response.")
+    return message
 
 
 class LLMClient:
@@ -43,14 +54,12 @@ class LLMClient:
                     langchain_genai.HarmCategory.HARM_CATEGORY_SEXUAL: langchain_genai.HarmBlockThreshold.OFF,
                     langchain_genai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_genai.HarmBlockThreshold.OFF,
                 },
-                max_retries=10,
             )
 
             # llm_base = langchain_vertexai.ChatVertexAI(
             #     model=config.MODEL_NAME,
             #     temperature=config.TEMPERATURE,
             #     max_tokens=config.MAX_TOKENS,
-            #     max_retries=10,
             #     thinking_budget=config.THINK_BUDGET_TOKEN,
             #     safety_settings={
             #         langchain_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_vertexai.HarmBlockThreshold.OFF,
@@ -64,8 +73,14 @@ class LLMClient:
             #     location="global",
             # )
 
-            self._llm_without_tools = llm_base
-            self._llm = llm_base.bind_tools(tools=tools, tool_choice="auto")
+            validator = RunnableLambda(ensure_response_not_empty)
+            retry_attempt = 10
+
+            pipeline_without_tools = llm_base | validator
+            self._llm_without_tools = pipeline_without_tools.with_retry(stop_after_attempt=retry_attempt)
+
+            pipeline_with_tools = llm_base.bind_tools(tools=tools, tool_choice="auto") | validator
+            self._llm = pipeline_with_tools.with_retry(stop_after_attempt=retry_attempt)
 
             self._graph = self._build_graph()
 
@@ -75,26 +90,8 @@ class LLMClient:
 
     def _generate_node(self, state: State) -> dict:
         logger.info(f"Generating prompt from messages...")
-        try:
-            # retry if the LLM response is empty
-            for attempt in range(10):
-                res = self._llm.invoke(state["messages"])
-                if res.content or res.tool_calls:
-                    return {"messages": [res]}
-                else:
-                    sleep_time = 30 * attempt
-                    logger.warning(
-                        f"LLM response empty on attempt {attempt + 1}. Retrying... {sleep_time} seconds, raw response: {res}",
-                        exc_info=True,
-                    )
-                    time.sleep(sleep_time)
-
-            # If all attempts fail, raise an exception
-            raise Exception("LLM generation failed after multiple retries.")
-
-        except Exception as e:
-            logger.error(f"LLM generation failed: {e}")
-            raise
+        res = self._llm.invoke(state["messages"])
+        return {"messages": [res]}
 
     def _parse_node(self, state: State) -> dict:
         content = state["messages"][-1].content
@@ -153,25 +150,21 @@ class LLMClient:
             return None
 
         logger.info(f"Generating seeds for prompt: {prompt[:300]}...")
-        for i in range(3):
-            try:
-                response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
-                response_content = getattr(response, "content", "").strip()
-                if response_content:
-                    # First, try to extract content within <seeds> tags
-                    seeds_block_match = re.search(r"<seeds>(.*?)</seeds>", response_content, re.DOTALL)
-                    if seeds_block_match:
-                        response_content = seeds_block_match.group(1).strip()
+        try:
+            response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
+            if response_content := getattr(response, "content", "").strip():
+                if seeds_block_match := re.search(r"<seeds>(.*?)</seeds>", response_content, re.DOTALL):
+                    response_content = seeds_block_match.group(1).strip()
 
-                    if seeds := [s.strip() for s in re.findall(r"```(.*?)```", response_content, re.DOTALL) if s.strip()]:
-                        logger.info(f"Successfully generated {len(seeds)} seeds. Seeds: {seeds}")
-                        return seeds
+                if seeds := [s.strip() for s in re.findall(r"```(.*?)```", response_content, re.DOTALL) if s.strip()]:
+                    logger.info(f"Successfully generated {len(seeds)} seeds. Seeds: {seeds}")
+                    return seeds
 
-                logger.warning(f"No seeds extracted from LLM response, retrying..., raw response: {response}")
-            except Exception as e:
-                logger.error(f"Attempt {i+1}/3 failed: {e}", exc_info=True)
-
-        return None
+            logger.warning(f"No seeds extracted from LLM response. Raw response: {response}")
+            return None
+        except Exception as e:
+            logger.error(f"Seed generation failed after all retries: {e}", exc_info=True)
+            return None
 
     def generate_dict(self, prompt: str) -> str | None:
         if not prompt:
@@ -179,24 +172,19 @@ class LLMClient:
             return None
         logger.info(f"Generating dict for prompt: {prompt[:300]}...")
 
-        for i in range(3):
-            try:
-                response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
-                if response and response.content:
-                    # Use regex to extract content within ```text ... ```
-                    if match := re.search(r"```(?:text)?\n(.*?)\n```", response.content, re.DOTALL):
-                        dict_content = match.group(1).strip()
-                        logger.info("Successfully extracted dictionary content.")
-                        return dict_content
+        try:
+            response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
+            if response and response.content:
+                if match := re.search(r"```(?:text)?\n(.*?)\n```", response.content, re.DOTALL):
+                    dict_content = match.group(1).strip()
+                    logger.info("Successfully extracted dictionary content.")
+                    return dict_content
 
-                    logger.warning(
-                        f"Could not find ```text ... ``` block in LLM response, retrying..., raw response: {response.content}"
-                    )
-
-                else:
-                    logger.warning(f"Empty LLM response, retrying..., raw response: {response.content}")
-
-            except Exception as e:
-                logger.error(f"Dictionary generation failed: {e}", exc_info=True)
-
-        return None
+                logger.warning(f"Could not find ```text ... ``` block in LLM response. Raw response: {response.content}")
+                return None
+            else:
+                logger.warning(f"Empty LLM response. Raw response: {response.content}")
+                return None
+        except Exception as e:
+            logger.error(f"Dictionary generation failed after all retries: {e}", exc_info=True)
+            return None

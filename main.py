@@ -199,8 +199,8 @@ def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
 
 def mutate_fuzz_target(project_name: str, fuzz_target: str, fuzz_target_name: str) -> Path | None:
     logger.info(f"Mutating fuzz target for project: {project_name}")
-    # Use regex to search for LLVMFuzzerTestOneInput in order to analyze the fuzz target's coverage
-    fuzz_target_coverage_report = oss_fuzz.linecov_reports(project_name, fuzz_target_name, "LLVMFuzzerTestOneInput")
+    # Search for LLVMFuzzerTestOneInput in order to analyze the fuzz target's coverage
+    fuzz_target_coverage_report = oss_fuzz.linecov_reports(project_name, fuzz_target_name)
     prompt = prompt_generator.coverage_prompt(
         fuzz_target_code=fuzz_target,
         lang=oss_fuzz.proj_lang(project_name),
@@ -241,7 +241,7 @@ def process_project(project_name: str, seconds: int) -> bool:
     try:
         logger.info(f"Starting to process project: {project_name}")
 
-        # generate_dict_for_proj(project_name)
+        generate_dict_for_proj(project_name)
         iterator = FuzzIterator(project_name, oss_fuzz)
         fuzz_target = None  # Will hold the path to the current fuzz target
         mutated_targets = set()  # Track mutated targets to avoid re-mutation
@@ -282,8 +282,8 @@ def process_project(project_name: str, seconds: int) -> bool:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 continue
 
-            # generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
-            # oss_fuzz.remove_corpus(project_name, new_target.stem)
+            generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
+            oss_fuzz.remove_corpus(project_name, new_target.stem)
 
             cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
             coverage_growth = cov_with_seeds - previous_cov
