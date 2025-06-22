@@ -1,0 +1,137 @@
+16:55:11 - root.setup_logging:21 - INFO - === Configuration ===[0m
+16:55:11 - root.setup_logging:22 - INFO - Project Name: tinyxml2[0m
+16:55:11 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
+16:55:11 - root.setup_logging:24 - INFO - Iteration loop: 10[0m
+16:55:11 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+16:55:11 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+16:55:11 - root.setup_logging:27 - INFO - Think Budget Tokens: -1[0m
+16:55:11 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+16:55:11 - root.setup_logging:29 - INFO - =====================
+[0m
+16:55:11 - __main__.main:395 - INFO - Skipping initial fuzz target generation[0m
+16:55:11 - __main__.main:396 - INFO - Starting introspector webapp for initial analysis of tinyxml2[0m
+16:55:11 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for tinyxml2[0m
+16:56:44 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for tinyxml2[0m
+16:56:44 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+16:56:53 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+16:57:03 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+16:57:03 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+16:57:03 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+16:57:03 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for tinyxml2 (excluding target).[0m
+16:57:03 - __main__.main:402 - INFO - Initial coverage for tinyxml2: 66.47%[0m
+16:57:03 - __main__.process_project:242 - INFO - Starting to process project: tinyxml2[0m
+16:57:03 - llm_interface.llm_client.generate_dict:173 - INFO - Generating dict for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzzing and understanding data formats. Your objective is to **generate a libFuzzer dictionary** specifically for the `tinyxml2` library. This dictionary must contain tokens likely to uncover new code paths and trigge...[0m
+16:57:03 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 53
+}
+].[0m
+16:57:07 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 49
+}
+].[0m
+16:57:15 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 43
+}
+].[0m
+16:57:23 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 35
+}
+].[0m
+16:57:33 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 23
+}
+].[0m
+16:57:56 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 2
+}
+].[0m
+16:58:34 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+violations {
+}
+violations {
+}
+violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 23
+}
+].[0m
