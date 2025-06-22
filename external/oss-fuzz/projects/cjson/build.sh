@@ -14,17 +14,15 @@
 # limitations under the License.
 #
 ################################################################################
-##### LLM-FuzzGen #####
+# Run the OSS-Fuzz script in the project
 export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 export CCACHE_DIR="$WORK/ccache"
-export CFLAGS="$CFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
-export CXXFLAGS="$CXXFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
+
 #https://github.com/google/oss-fuzz/pull/12356
 if [ "$SANITIZER" == "introspector" ]; then
   export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
   export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
 fi
-#######################
 $SRC/cjson/fuzzing/ossfuzz.sh
 
 # Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
