@@ -60,45 +60,83 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
                     shutil.copy(src_file, textcov_reports_dest / report_file)
                     logger.info(f"Copied {report_file} to {textcov_reports_dest}")
 
-    # Display coverage summary
-    logger.info("=" * 80)
-    logger.info("Coverage Summary")
-    logger.info("=" * 80)
-
+    # Collect data for the table
+    table_data = []
     for proj_name in projects_to_process:
         summary_file = projects_dir / proj_name / "textcov_reports" / "summary_exclude_target.json"
+        
+        row = {"Project": proj_name}
+        
         if summary_file.exists():
             try:
                 with open(summary_file, "r") as f:
                     summary_data = json.load(f)
-
                 totals = summary_data["data"][0]["totals"]
-
-                logger.info(f"Project: {proj_name}")
-                logger.info("-" * 40)
-
+                
                 for metric in ["branches", "functions", "lines"]:
                     if metric in totals:
                         count = totals[metric]["count"]
                         covered = totals[metric]["covered"]
                         percent = totals[metric]["percent"]
-                        logger.info(f"  {metric.capitalize():<10}: Count={count:<6} Covered={covered:<6} Percent={percent:.2f}%")
-
-                # Display fuzz target count
-                fuzz_target_file = build_out_dir / proj_name / "fuzzer_stats" / "coverage_targets.txt"
-                fuzz_target_count = 0
-                if fuzz_target_file.exists():
-                    with open(fuzz_target_file, "r") as f:
-                        fuzz_target_count = sum(1 for line in f if line.strip())
-                logger.info(f"  {'Fuzz Targets':<10}: {fuzz_target_count}")
-
-                logger.info("-" * 40)
+                        row[metric.capitalize()] = f"{percent:.2f} ({covered}/{count})"
+                    else:
+                        row[metric.capitalize()] = "N/A"
 
             except (json.JSONDecodeError, KeyError, IndexError) as e:
                 logger.error(f"Could not parse summary for {proj_name}: {e}")
+                for metric in ["Branches", "Functions", "Lines"]:
+                    row[metric] = "Error"
+
         else:
-            logger.warning(f"No summary file found for {proj_name}")
-    logger.info("=" * 80)
+            for metric in ["Branches", "Functions", "Lines"]:
+                row[metric] = "No Summary"
+
+        # Get fuzz target count
+        fuzz_target_file = build_out_dir / proj_name / "fuzzer_stats" / "coverage_targets.txt"
+        fuzz_target_count = 0
+        if fuzz_target_file.exists():
+            with open(fuzz_target_file, "r") as f:
+                fuzz_target_count = sum(1 for line in f if line.strip())
+        row["Fuzz Targets"] = str(fuzz_target_count)
+        
+        table_data.append(row)
+
+    # Display table
+    if not table_data:
+        logger.info("No projects found to display.")
+        return
+
+    headers = ["Project", "Branches (%)", "Functions (%)", "Lines (%)", "Fuzz Targets"]
+    
+    # Calculate column widths
+    col_widths = {h: len(h) for h in headers}
+    for row in table_data:
+        for h in headers:
+            # Remap keys for lookup
+            key = h.split(" ")[0] if h != "Fuzz Targets" else "Fuzz Targets"
+            col_widths[h] = max(col_widths[h], len(row.get(key, '')))
+
+    # Print header
+    header_line = "| " + " | ".join(f"{h:<{col_widths[h]}}" for h in headers) + " |"
+    separator_line = "|-" + "-|-".join("-" * col_widths[h] for h in headers) + "-|"
+    
+    print("\n\n")
+    logger.info("Coverage Summary")
+    logger.info("=" * len(header_line))
+    logger.info(header_line)
+    logger.info(separator_line)
+
+    # Print rows
+    for row in table_data:
+        row_line = "| "
+        row_line += f"{row['Project']:<{col_widths['Project']}} | "
+        row_line += f"{row.get('Branches', 'N/A'):<{col_widths['Branches (%)']}} | "
+        row_line += f"{row.get('Functions', 'N/A'):<{col_widths['Functions (%)']}} | "
+        row_line += f"{row.get('Lines', 'N/A'):<{col_widths['Lines (%)']}} | "
+        row_line += f"{row.get('Fuzz Targets', 'N/A'):<{col_widths['Fuzz Targets']}} |"
+        logger.info(row_line)
+    
+    logger.info("=" * len(header_line))
 
 
 def _find_lowest_coverage_target(project_name: str, exclude_targets: set[str] = None) -> Path | None:
