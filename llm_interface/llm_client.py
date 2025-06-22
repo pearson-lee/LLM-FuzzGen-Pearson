@@ -12,6 +12,7 @@ from langgraph.prebuilt import ToolNode
 from langgraph.graph import StateGraph, add_messages
 from langgraph.graph.state import CompiledStateGraph
 import langchain_google_genai as langchain_genai
+import langchain_google_vertexai as langchain_vertexai
 
 logger = logging.getLogger(__name__)
 

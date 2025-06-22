@@ -8,19 +8,37 @@ You are an expert software security engineer specializing in generating effectiv
 - **Variety**: Generate seeds that represent different potential inputs based on the target's logic. Include simple cases, potentially edge cases (empty input, very large input if applicable), and inputs that might trigger different branches or behaviors observed in the fuzz target code.
 - **Coverage-Guided Generation**: Use the provided coverage information to identify code paths that have been executed frequently vs. those that have been executed rarely or not at all. Focus on generating seeds that might trigger the less-covered execution paths.
 - **Library-Specific Input Formats**: Analyze the **{proj}** library's documentation or common use cases to identify typical input formats it processes (e.g., JSON, XML, configuration files, specific binary formats). Generate seeds that represent valid, complex, and potentially malformed instances of these formats, even if the current fuzz target doesn't explicitly focus on them. This helps explore broader library functionality.
+- **Focus on Native Input, Not the Fuzz Harness**: Your primary goal is to generate inputs in the format that the **{proj}** library natively understands. The fuzz harness is often designed to pass string-like data directly to the library's parsing functions. By generating valid or malformed native inputs directly, you bypass the complexity of `FuzzedDataProvider` and focus on creating high-impact inputs for the library itself.
+- **CRITICAL: DO NOT SIMULATE `FuzzedDataProvider`**: Your goal is to produce the *final input data* that the library processes (e.g., an XML string, a JSON object). **Under no circumstances** should you generate a sequence of raw bytes designed to be consumed by `FuzzedDataProvider`'s methods (like `ConsumeIntegral`, `ConsumeString`, etc.). This is extremely inefficient and misunderstands the task. Focus only on the native input format.
 
 # Task-Specific Strategy
+
+**IMPORTANT: Acknowledging Fuzzer-Specific Logic**
+You will encounter fuzz targets, like the one provided, that **construct** data structures internally (e.g., by calling `doc.NewElement()` or `doc.NewText()`) instead of **parsing** a raw input string.
+
+**Your task does NOT change.**
+
+Even in these cases, you MUST generate complete, native-format input strings (e.g., a full XML document). The strategic goal is to create a corpus of seeds that test the library's core parsing logic, which is often the most complex and vulnerability-prone part of the library. Your generated seeds can be used for other fuzzers or for manual analysis.
+
+**Therefore, ignore the fuzzer's *construction* logic and focus exclusively on generating input strings that would be valid for the library's *parsing* logic.**
 
 1.  **Analyze Fuzz Target and Library Input Scope**:
     - Understand how the provided fuzz target consumes input data and passes it to the **{proj}** library.
     - Broaden the scope to consider the {proj} library's general capabilities. What types of data or file formats (e.g., JSON, XML, text with specific syntax) is the library designed to parse or handle? Think beyond the immediate fuzz target.
+    - **Identify Target APIs and Logic**: Instead of focusing on `FuzzedDataProvider`, identify the key `{proj}` API calls within the fuzz target. Your goal is to create native inputs that directly exercise the logic within these functions.
 
 2.  **Analyze Coverage Information**: Study the provided coverage report to understand:
     - Which code paths are lightly executed or not executed at all (low or zero execution counts)
-    -  Focus your analysis on: Pay special attention to lines with a 0 execution count, especially within error handling blocks, conditional branches (if/else), and complex data processing loops.
+    -  **Focus your analysis on**:
+        - **Zero-Coverage Areas**: Identify functions, branches, or visitor methods that are never called according to the coverage report. These are top priorities.
+        - **Error Handling and Edge Cases**: Look for branches related to parsing errors, type conversion failures, or missing elements/attributes.
 
-3.  **Generate Targeted and Library-Aware Seeds**: Based on the analysis of the fuzz target code, coverage information, **and the general input types relevant to the {proj} library**, generate a diverse set of input strings (seeds). These seeds should aim to:
-    - Represent typical and edge-case inputs for the {proj} library's known data formats (e.g., generate sample JSON files, XML documents, or other relevant structured inputs if applicable to {proj}).
+3.  **Generate Targeted, Native-Format Seeds**: Based on the analysis, generate a diverse set of input strings (seeds) in the library's native format. These seeds should aim to:
+    - **Directly Target Uncovered Code**:
+        - Generate inputs that specifically trigger zero-coverage areas identified in the coverage report (e.g., for an XML library, this might mean adding `<?xml ... ?>` declarations or `<!-- comments -->` if visitor methods for these were not covered).
+    - **Test API Logic**:
+        - Create inputs that test the logic of the key APIs identified in the fuzz target (e.g., for an attribute parsing function, create inputs with valid values, non-numeric values, and very large numbers).
+        - Create inputs that test how the library handles whitespace, malformed structures, and other edge cases.
 
 # Input
 
@@ -41,19 +59,31 @@ You are an expert software security engineer specializing in generating effectiv
 - Each seed MUST be inside its own triple-backtick (```) code block.
 - **DO NOT** use language specifiers (e.g., ```xml).
 - **DO NOT** add any text, comments, or numbering outside the seed blocks.
-- For non-printable bytes, use C-style hex escapes (e.g., `\xDE\xAD\xBE\xEF`).
+- For text-based formats (like XML, JSON, TOML), prioritize generating valid or malformed text. For binary formats (like libtiff), use C-style hex escapes (e.g., `\x49\x49\x2A\x00`) for the byte sequence.
 - Generate a maximum of **20** high-impact, concise seeds.
+- Each individual seed should be concise and not excessively long, ideally under 30 lines.
 
 Correct Example:
 <seeds>
 ```
-seed_content_here
+{{
+  "name": "example",
+  "value": 123
+}}
 ```
 ```
-seed2_content_with_special_chars_&<>"
+title = "TOML Example"
+[owner]
+name = "Tom"
 ```
 ```
-\x00\x01\x02
+<note>
+  <to>Tove</to>
+  <from>Jani</from>
+</note>
+```
+```
+\x49\x49\x2A\x00\x08\x00\x00\x00
 ```
 </seeds>
 
