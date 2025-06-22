@@ -14,63 +14,74 @@
 # limitations under the License.
 #
 ################################################################################
+##### LLM-FuzzGen #####
 export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
 export CCACHE_DIR="$WORK/ccache"
+export CFLAGS="$CFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
+export CXXFLAGS="$CXXFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
+#https://github.com/google/oss-fuzz/pull/10891
+#if [ "$SANITIZER" == "introspector" ]; then
+#  export CFLAGS="${CFLAGS} -fsanitize=address"
+#  export CXXFLAGS="${CXXFLAGS} -fsanitize=address"
+#fi
+#https://github.com/google/oss-fuzz/pull/12356
 if [ "$SANITIZER" == "introspector" ]; then
   export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
   export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
 fi
+#######################
 # build the target.
 ./configure --enable-shared=no
 make -j$(nproc) all
 
 # build your fuzzer(s)
-# FUZZERS="cmsIT8_load_fuzzer            \
-#         cms_transform_fuzzer           \
-#         cms_overwrite_transform_fuzzer \
-#         cms_transform_all_fuzzer       \
-#         cms_profile_fuzzer             \
-#         cms_universal_transform_fuzzer \
-#         cms_transform_extended_fuzzer  \
-#         cms_md5_fuzzer                 \
-#         cms_dict_fuzzer                \
-#         cms_postscript_fuzzer          \
-#         cms_cie_cam02_fuzzer           \
-#         cms_gdb_fuzzer                 \
-#         cms_cgats_fuzzer               \
-#         cms_virtual_profile_fuzzer     \
-#         cms_devicelink_fuzzer" 
+FUZZERS="cmsIT8_load_fuzzer            \
+        cms_transform_fuzzer           \
+        cms_overwrite_transform_fuzzer \
+        cms_transform_all_fuzzer       \
+        cms_profile_fuzzer             \
+        cms_universal_transform_fuzzer \
+        cms_transform_extended_fuzzer  \
+        cms_md5_fuzzer                 \
+        cms_dict_fuzzer                \
+        cms_postscript_fuzzer          \
+        cms_cie_cam02_fuzzer           \
+        cms_gdb_fuzzer                 \
+        cms_cgats_fuzzer               \
+        cms_virtual_profile_fuzzer     \
+        cms_devicelink_fuzzer" 
 
 
-# for F in $FUZZERS; do
-#     $CC $CFLAGS -c -Iinclude \
-#         $SRC/$F.c -o $SRC/$F.o
-#     $CXX $CXXFLAGS \
-#         $SRC/$F.o -o $OUT/$F \
-#         $LIB_FUZZING_ENGINE src/.libs/liblcms2.a
-# done
+for F in $FUZZERS; do
+    $CC $CFLAGS -c -Iinclude \
+        $SRC/$F.c -o $SRC/$F.o
+    $CXX $CXXFLAGS \
+        $SRC/$F.o -o $OUT/$F \
+        $LIB_FUZZING_ENGINE src/.libs/liblcms2.a
+done
 
-# cp $SRC/*.dict $SRC/*.options $OUT/
-# cp $SRC/icc.dict $OUT/cms_transform_all_fuzzer.dict
-# cp $SRC/icc.dict $OUT/cms_transform_extended_fuzzer.dict
-# cp $SRC/icc.dict $OUT/cms_universal_transform_fuzzer.dict
-# cp $SRC/icc.dict $OUT/cms_profile_fuzzer.dict
-# cp $SRC/icc.dict $OUT/cms_postscript_fuzzer.dict
-# cp $SRC/icc.dict $OUT/cms_virtual_profile_fuzzer.dict
-# cp $SRC/icc.dict $OUT/cms_md5_fuzzer.dict
-# cp $SRC/seed_corpus.zip $OUT/cms_postscript_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_profile_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_universal_transform_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_transform_all_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_transform_extended_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_virtual_profile_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cmsIT8_load_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_md5_fuzzer_seed_corpus.zip
-# cp $SRC/seed_corpus.zip $OUT/cms_overwrite_transform_fuzzer_seed_corpus.zip
+cp $SRC/*.dict $SRC/*.options $OUT/
+cp $SRC/icc.dict $OUT/cms_transform_all_fuzzer.dict
+cp $SRC/icc.dict $OUT/cms_transform_extended_fuzzer.dict
+cp $SRC/icc.dict $OUT/cms_universal_transform_fuzzer.dict
+cp $SRC/icc.dict $OUT/cms_profile_fuzzer.dict
+cp $SRC/icc.dict $OUT/cms_postscript_fuzzer.dict
+cp $SRC/icc.dict $OUT/cms_virtual_profile_fuzzer.dict
+cp $SRC/icc.dict $OUT/cms_md5_fuzzer.dict
+cp $SRC/seed_corpus.zip $OUT/cms_postscript_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_profile_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_universal_transform_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_transform_all_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_transform_extended_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_transform_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_virtual_profile_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cmsIT8_load_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_md5_fuzzer_seed_corpus.zip
+cp $SRC/seed_corpus.zip $OUT/cms_overwrite_transform_fuzzer_seed_corpus.zip
 
+##### LLM-FuzzGen #####
 # Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
-find "$SRC" -maxdepth 1 -type f -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" | while read -r target; do
+find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target
@@ -89,3 +100,4 @@ done
 cp $SRC/llm_fuzzgen.dict $OUT/ || true
 cp $SRC/llm_fuzzgen*.options $OUT/ || true
 cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
+#######################
