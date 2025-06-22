@@ -16,7 +16,8 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y yasm wget gcc
-RUN git clone https://chromium.googlesource.com/webm/libvpx
+RUN git clone --branch v1.14.0 --depth 1 https://chromium.googlesource.com/webm/libvpx
 ADD https://storage.googleapis.com/downloads.webmproject.org/test_data/fuzzer/vpx_fuzzer_seed_corpus.zip $SRC/
 COPY build.sh vpx_dec_fuzzer.dict $SRC/
 WORKDIR libvpx
+COPY llm_fuzzgen* $SRC/

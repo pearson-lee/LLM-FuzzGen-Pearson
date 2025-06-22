@@ -14,7 +14,22 @@
 # limitations under the License.
 #
 ################################################################################
-
+##### LLM-FuzzGen #####
+export PATH="/ccache/bin:$PATH" # Use ccache for faster builds, from oss-fuzz/infra/base-images/base-builder/Dockerfile
+export CCACHE_DIR="$WORK/ccache"
+export CFLAGS="$CFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
+export CXXFLAGS="$CXXFLAGS -w -fno-color-diagnostics -fdiagnostics-fixit-info" # Suppress warnings, color diagnostics and fixit info
+#https://github.com/google/oss-fuzz/pull/10891
+#if [ "$SANITIZER" == "introspector" ]; then
+#  export CFLAGS="${CFLAGS} -fsanitize=address"
+#  export CXXFLAGS="${CXXFLAGS} -fsanitize=address"
+#fi
+#https://github.com/google/oss-fuzz/pull/12356
+if [ "$SANITIZER" == "introspector" ]; then
+  export CFLAGS=$(echo "$CFLAGS" | sed 's/gold/lld/g')
+  export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
+fi
+#######################
 # Build libvpx
 build_dir=$WORK/build
 rm -rf ${build_dir}
@@ -53,11 +68,35 @@ for decoder in "${fuzzer_decoders[@]}"; do
     -DDECODER=${decoder} \
     -I$SRC/libvpx \
     -I${build_dir} \
-    -Wl,--start-group \
-    $LIB_FUZZING_ENGINE \
     $SRC/libvpx/examples/${fuzzer_src_name}.cc -o $OUT/${fuzzer_name} \
-    ${build_dir}/libvpx.a \
+    -Wl,--start-group \
+    -Wl,--whole-archive ${build_dir}/libvpx.a -Wl,--no-whole-archive  \
+    $LIB_FUZZING_ENGINE \
     -Wl,--end-group
+
   cp $SRC/vpx_fuzzer_seed_corpus.zip $OUT/${fuzzer_name}_seed_corpus.zip
   cp $SRC/vpx_dec_fuzzer.dict $OUT/${fuzzer_name}.dict
 done
+##### LLM-FuzzGen #####
+# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
+find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
+  target_basename=$(basename "${target%.*}")
+
+  #### compile the fuzz target
+  $CXX $CXXFLAGS -std=c++11 -I$SRC/libvpx -I${build_dir} "$target" \
+    -o "$OUT/$target_basename" \
+    -Wl,--start-group \
+    -Wl,--whole-archive ${build_dir}/libvpx.a -Wl,--no-whole-archive \
+    $LIB_FUZZING_ENGINE \
+    -Wl,--end-group
+  ####
+
+  if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
+    echo "[libfuzzer]" > "$SRC/${target_basename}.options"
+    echo "dict = llm_fuzzgen.dict" >> "$SRC/${target_basename}.options"
+  fi
+done
+cp $SRC/llm_fuzzgen.dict $OUT/ || true
+cp $SRC/llm_fuzzgen*.options $OUT/ || true
+cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
+#######################
