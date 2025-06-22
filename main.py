@@ -44,35 +44,19 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
             logger.info(f"Running introspector for {project_name} for {run_introspector_seconds} seconds")
             oss_fuzz.generate_report(project_name, run_introspector_seconds, clean=True)
 
-    # Copy coverage reports
-    for proj_name in projects_to_process:
-        project_build_dir = build_out_dir / proj_name
-        textcov_reports_src = project_build_dir / "textcov_reports"
-        if textcov_reports_src.is_dir():
-            logger.info(f"Found textcov_reports for {proj_name}")
-
-            textcov_reports_dest = projects_dir / proj_name / "textcov_reports"
-            textcov_reports_dest.mkdir(parents=True, exist_ok=True)
-
-            for report_file in ["project.funcovreport", "project.linecovreport", "summary_exclude_target.json"]:
-                src_file = textcov_reports_src / report_file
-                if src_file.exists():
-                    shutil.copy(src_file, textcov_reports_dest / report_file)
-                    logger.info(f"Copied {report_file} to {textcov_reports_dest}")
-
     # Collect data for the table
     table_data = []
     for proj_name in projects_to_process:
-        summary_file = projects_dir / proj_name / "textcov_reports" / "summary_exclude_target.json"
-        
+        summary_file = build_out_dir / proj_name / "textcov_reports" / "summary_exclude_target.json"
+
         row = {"Project": proj_name}
-        
+
         if summary_file.exists():
             try:
                 with open(summary_file, "r") as f:
                     summary_data = json.load(f)
                 totals = summary_data["data"][0]["totals"]
-                
+
                 for metric in ["branches", "functions", "lines"]:
                     if metric in totals:
                         count = totals[metric]["count"]
@@ -98,7 +82,7 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
             with open(fuzz_target_file, "r") as f:
                 fuzz_target_count = sum(1 for line in f if line.strip())
         row["Fuzz Targets"] = str(fuzz_target_count)
-        
+
         table_data.append(row)
 
     # Display table
@@ -107,19 +91,19 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
         return
 
     headers = ["Project", "Branches (%)", "Functions (%)", "Lines (%)", "Fuzz Targets"]
-    
+
     # Calculate column widths
     col_widths = {h: len(h) for h in headers}
     for row in table_data:
         for h in headers:
             # Remap keys for lookup
             key = h.split(" ")[0] if h != "Fuzz Targets" else "Fuzz Targets"
-            col_widths[h] = max(col_widths[h], len(row.get(key, '')))
+            col_widths[h] = max(col_widths[h], len(row.get(key, "")))
 
     # Print header
     header_line = "| " + " | ".join(f"{h:<{col_widths[h]}}" for h in headers) + " |"
     separator_line = "|-" + "-|-".join("-" * col_widths[h] for h in headers) + "-|"
-    
+
     print("\n\n")
     logger.info("Coverage Summary")
     logger.info("=" * len(header_line))
@@ -135,7 +119,7 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
         row_line += f"{row.get('Lines', 'N/A'):<{col_widths['Lines (%)']}} | "
         row_line += f"{row.get('Fuzz Targets', 'N/A'):<{col_widths['Fuzz Targets']}} |"
         logger.info(row_line)
-    
+
     logger.info("=" * len(header_line))
 
 

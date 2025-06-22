@@ -16,7 +16,7 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool
-RUN git clone --depth 1 https://github.com/mm2/Little-CMS.git lcms
+RUN git clone --branch lcms2.15 --depth 1 https://github.com/mm2/Little-CMS.git lcms
 RUN mkdir $SRC/seeds && \
     cd seeds && \
     cp $SRC/lcms/testbed/bad.icc . && \
@@ -24,13 +24,6 @@ RUN mkdir $SRC/seeds && \
     cp $SRC/lcms/testbed/test1.icc . && \
     cp $SRC/lcms/testbed/crayons.icc . && \
     cp $SRC/lcms/testbed/ibm-t61.icc . && \
-    #add more seeds from the testbed dir
-    cp $SRC/lcms/testbed/bad_mpe.icc . && \
-    cp $SRC/lcms/testbed/new.icc . && \
-    cp $SRC/lcms/testbed/test2.icc . && \
-    cp $SRC/lcms/testbed/test3.icc . && \
-    cp $SRC/lcms/testbed/test4.icc . && \
-    cp $SRC/lcms/testbed/test5.icc . && \
     zip -rj $SRC/seed_corpus.zip $SRC/seeds/*
 
 WORKDIR lcms
