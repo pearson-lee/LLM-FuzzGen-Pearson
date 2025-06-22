@@ -4,6 +4,8 @@ import logging
 import sys
 import time
 import argparse
+import json
+import shutil
 from pathlib import Path
 
 import config.config as config
@@ -20,6 +22,83 @@ logger = logging.getLogger(__name__)
 oss_fuzz = OSSFuzz()
 introspector = Introspector()
 llm_client = LLMClient()
+
+
+def show_current_coverage(project_names: list[str], run_introspector_seconds: int | None):
+    """
+    Shows the current coverage for the specified projects.
+    Optionally runs the introspector before showing the coverage.
+    """
+    logger.info("Showing current coverage")
+
+    # Determine which projects to process
+    build_out_dir = Path("./external/oss-fuzz/build/out/")
+    projects_dir = Path("./external/oss-fuzz/projects/")
+
+    projects_to_process = project_names
+    if not projects_to_process:
+        projects_to_process = [p.name for p in build_out_dir.iterdir() if p.is_dir()]
+
+    if run_introspector_seconds:
+        for project_name in projects_to_process:
+            logger.info(f"Running introspector for {project_name} for {run_introspector_seconds} seconds")
+            oss_fuzz.generate_report(project_name, run_introspector_seconds, clean=True)
+
+    # Copy coverage reports
+    for proj_name in projects_to_process:
+        project_build_dir = build_out_dir / proj_name
+        textcov_reports_src = project_build_dir / "textcov_reports"
+        if textcov_reports_src.is_dir():
+            logger.info(f"Found textcov_reports for {proj_name}")
+
+            textcov_reports_dest = projects_dir / proj_name / "textcov_reports"
+            textcov_reports_dest.mkdir(parents=True, exist_ok=True)
+
+            for report_file in ["project.funcovreport", "project.linecovreport", "summary_exclude_target.json"]:
+                src_file = textcov_reports_src / report_file
+                if src_file.exists():
+                    shutil.copy(src_file, textcov_reports_dest / report_file)
+                    logger.info(f"Copied {report_file} to {textcov_reports_dest}")
+
+    # Display coverage summary
+    logger.info("=" * 80)
+    logger.info("Coverage Summary")
+    logger.info("=" * 80)
+
+    for proj_name in projects_to_process:
+        summary_file = projects_dir / proj_name / "textcov_reports" / "summary_exclude_target.json"
+        if summary_file.exists():
+            try:
+                with open(summary_file, "r") as f:
+                    summary_data = json.load(f)
+
+                totals = summary_data["data"][0]["totals"]
+
+                logger.info(f"Project: {proj_name}")
+                logger.info("-" * 40)
+
+                for metric in ["branches", "functions", "lines"]:
+                    if metric in totals:
+                        count = totals[metric]["count"]
+                        covered = totals[metric]["covered"]
+                        percent = totals[metric]["percent"]
+                        logger.info(f"  {metric.capitalize():<10}: Count={count:<6} Covered={covered:<6} Percent={percent:.2f}%")
+
+                # Display fuzz target count
+                fuzz_target_file = build_out_dir / proj_name / "fuzzer_stats" / "coverage_targets.txt"
+                fuzz_target_count = 0
+                if fuzz_target_file.exists():
+                    with open(fuzz_target_file, "r") as f:
+                        fuzz_target_count = sum(1 for line in f if line.strip())
+                logger.info(f"  {'Fuzz Targets':<10}: {fuzz_target_count}")
+
+                logger.info("-" * 40)
+
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                logger.error(f"Could not parse summary for {proj_name}: {e}")
+        else:
+            logger.warning(f"No summary file found for {proj_name}")
+    logger.info("=" * 80)
 
 
 def _find_lowest_coverage_target(project_name: str, exclude_targets: set[str] = None) -> Path | None:
@@ -90,20 +169,37 @@ compilation_successes = 0
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fuzz target generator for OSS-Fuzz projects.")
-    parser.add_argument("project_name", help="The name of the project to process.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    parser.add_argument(
+    # Subparser for the main fuzzing process
+    parser_process = subparsers.add_parser("process", help="Process a project to generate and improve fuzz targets.")
+    parser_process.add_argument("project_name", help="The name of the project to process.")
+    parser_process.add_argument(
         "--initial-fuzz-target",
         action="store_true",
         default=False,
         help="Generate an initial fuzz target. Default is not to generate.",
     )
-
-    parser.add_argument(
+    parser_process.add_argument(
         "--seconds",
         type=int,
         default=60,
         help="The number of seconds to wait for report generation. Default is 60 seconds.",
+    )
+
+    # Subparser for showing current coverage
+    parser_cov = subparsers.add_parser("show_current_cov", help="Show current coverage for specified projects.")
+    parser_cov.add_argument(
+        "project_names", nargs="*", help="The names of the projects to show coverage for. Shows all if none are provided."
+    )
+    parser_cov.add_argument(
+        "--run_introspector",
+        type=int,
+        nargs="?",
+        const=15,
+        default=None,
+        metavar="SECONDS",
+        help="Run introspector for the specified number of seconds before showing coverage. Defaults to 15s if no value is provided.",
     )
 
     args = parser.parse_args()
@@ -383,6 +479,14 @@ def main() -> None:
     try:
         t0 = time.perf_counter()
         args = _parse_args()
+
+        if args.command == "show_current_cov":
+            setup_logging("show_current_cov")
+            show_current_coverage(args.project_names, args.run_introspector)
+            logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
+            return
+
+        # Default command is "process"
         project_name = args.project_name
         setup_logging(project_name)
 
