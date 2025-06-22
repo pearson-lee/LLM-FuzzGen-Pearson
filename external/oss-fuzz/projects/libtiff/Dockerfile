@@ -16,7 +16,7 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool cmake nasm
-RUN git clone --depth 1 https://gitlab.com/libtiff/libtiff
+RUN git clone --branch v4.7.0 --depth 1 https://gitlab.com/libtiff/libtiff
 RUN git clone --depth 1 https://github.com/madler/zlib
 RUN git clone --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo
 RUN git clone https://www.cl.cam.ac.uk/~mgk25/git/jbigkit
