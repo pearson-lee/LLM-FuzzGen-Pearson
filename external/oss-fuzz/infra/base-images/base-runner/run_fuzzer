@@ -217,6 +217,9 @@ fi
 
 echo $CMD_LINE
 
+# Save OUT before unsetting it for corpus minimization later
+SAVED_OUT=$OUT
+
 # Unset OUT so the fuzz target can't rely on it.
 unset OUT
 
@@ -226,3 +229,61 @@ fi
 
 bash -c "$CMD_LINE"
 
+# Add corpus minimization for libfuzzer after fuzzing completes
+if [[ "$FUZZING_ENGINE" = "libfuzzer" ]]; then
+  ORIGINAL_COUNT=$(find "$CORPUS_DIR" -type f | wc -l)
+  
+  # Only perform minimization if corpus has more than 1000 files
+  if [ "$ORIGINAL_COUNT" -gt 1000 ]; then
+    echo "Fuzzing completed. Corpus size: $ORIGINAL_COUNT files (threshold: 1000)"
+    echo "Starting corpus minimization..."
+    
+    # Create a temporary directory for the minimized corpus
+    MINIMIZED_CORPUS_DIR="/tmp/${FUZZER}_minimized_corpus_$(date +%s)"
+    mkdir -p "$MINIMIZED_CORPUS_DIR"
+    
+    # Run libfuzzer with -merge flag to minimize the corpus
+    MERGE_CMD_LINE="$SAVED_OUT/$FUZZER -set_cover_merge=1 \"$MINIMIZED_CORPUS_DIR\" \"$CORPUS_DIR\" $FUZZER_ARGS $*"
+    
+    # Add custom libfuzzer options if they exist
+    if [[ ! -z ${CUSTOM_LIBFUZZER_OPTIONS} ]]; then
+      MERGE_CMD_LINE="$MERGE_CMD_LINE $CUSTOM_LIBFUZZER_OPTIONS"
+    fi
+    
+    echo "Running corpus merge: $MERGE_CMD_LINE"
+    
+    # Wait for merge process to complete and capture exit code
+    if bash -c "$MERGE_CMD_LINE"; then
+      # Get corpus statistics AFTER merge is complete
+      MINIMIZED_COUNT=$(find "$MINIMIZED_CORPUS_DIR" -type f | wc -l)
+      
+      echo "Corpus minimization completed:"
+      echo "  Original corpus size: $ORIGINAL_COUNT files"
+      echo "  Minimized corpus size: $MINIMIZED_COUNT files"
+
+      # Optionally replace the original corpus with minimized version
+      if [ "$MINIMIZED_COUNT" -gt 0 ]; then
+        echo "Replacing original corpus with minimized version..."
+        
+        # Clear the original corpus directory and move files from minimized corpus
+        # This avoids the 'Device or resource busy' error by not moving directories
+        echo "Clearing original corpus and copying minimized files..."
+        if rm -rf "$CORPUS_DIR"/* && mv "$MINIMIZED_CORPUS_DIR"/* "$CORPUS_DIR"/ 2>/dev/null; then
+          rmdir "$MINIMIZED_CORPUS_DIR"
+          echo "Successfully replaced corpus contents."
+        else
+          echo "Warning: Failed to replace corpus contents. Keeping both versions."
+          # In case of failure, just leave both directories as they are
+        fi
+      else
+        echo "Warning: Minimized corpus is empty, keeping original corpus."
+        rm -rf "$MINIMIZED_CORPUS_DIR"
+      fi
+    else
+      echo "Warning: Merge process failed."
+      rm -rf "$MINIMIZED_CORPUS_DIR"
+    fi
+  else
+    echo "Corpus size ($ORIGINAL_COUNT files) is under threshold (1000), skipping minimization."
+  fi
+fi

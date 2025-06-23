@@ -123,40 +123,6 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
     logger.info("=" * len(header_line))
 
 
-def _find_lowest_coverage_target(project_name: str, exclude_targets: set[str] = None) -> Path | None:
-    target_names = introspector.get_fuzz_target_names(project_name)
-    if not target_names:
-        logger.warning(f"No fuzz targets found for project {project_name}")
-        return None
-
-    exclude_targets = exclude_targets or set()
-    lowest_target = None
-    lowest_coverage = float("inf")
-
-    for target_name in target_names:
-        if target_name in exclude_targets:
-            logger.info(f"Skipping already mutated target: {target_name}")
-            continue
-
-        coverage_summary = oss_fuzz.get_coverage_summary(project_name, target_name)
-        if coverage_summary and coverage_summary.functions:
-            function_coverage = coverage_summary.functions.percent
-            logger.info(f"Target {target_name} function coverage: {function_coverage}%")
-
-            if function_coverage < lowest_coverage:
-                lowest_coverage = function_coverage
-                lowest_target = target_name
-
-    if lowest_target:
-        logger.info(f"Lowest coverage target: {lowest_target} ({lowest_coverage}%)")
-        project_dir = oss_fuzz.oss_fuzz_dir / "projects" / project_name
-        for file_path in project_dir.glob(f"{lowest_target}.*"):
-            if file_path.suffix in [".c", ".cc", ".cpp"]:
-                return file_path
-
-    return None
-
-
 def _format_all_function_for_prompt(project_name: str, coverage_threshold: float = 50.0) -> str:
     """
     Formats function signature data obtained from the introspector into a prompt string.
@@ -207,6 +173,18 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=60,
         help="The number of seconds to wait for report generation. Default is 60 seconds.",
+    )
+    parser_process.add_argument(
+        "--dict",
+        action="store_true",
+        default=False,
+        help="Enable dictionary generation.",
+    )
+    parser_process.add_argument(
+        "--seeds",
+        action="store_true",
+        default=False,
+        help="Enable seed generation.",
     )
 
     # Subparser for showing current coverage
@@ -354,15 +332,15 @@ def regenerate_fuzz_target(project_name: str) -> Path | None:
     return new_fuzz_target
 
 
-def process_project(project_name: str, seconds: int) -> bool:
+def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: bool) -> bool:
     """Process a single project and generate fuzz targets."""
     try:
         logger.info(f"Starting to process project: {project_name}")
 
-        generate_dict_for_proj(project_name)
+        if use_dict:
+            generate_dict_for_proj(project_name)
         iterator = FuzzIterator(project_name, oss_fuzz)
         fuzz_target = None  # Will hold the path to the current fuzz target
-        mutated_targets = set()  # Track mutated targets to avoid re-mutation
         iterator.record_cov()  # Record coverage before any fuzz target generation
 
         no_growth_count = 0
@@ -376,15 +354,6 @@ def process_project(project_name: str, seconds: int) -> bool:
             previous_cov = iterator.latest_cov()
             is_regeneration = iterator.should_regenerate()
 
-            # Determine target generation strategy
-            # total_coverage = oss_fuzz.get_coverage_summary(project_name)
-            # function_coverage = total_coverage.functions.percent if total_coverage and total_coverage.functions else 0.0
-
-            # High coverage strategy: mutate lowest coverage target
-            # if function_coverage > 90.0 and (lowest_target := _find_lowest_coverage_target(project_name, mutated_targets)):
-            #     mutated_targets.add(lowest_target.stem)
-            #     new_target = mutate_fuzz_target(project_name, lowest_target.read_text(), lowest_target.stem)
-            #     is_regeneration = False
             # Standard strategy: regenerate or mutate existing
             if is_regeneration or fuzz_target is None:
                 new_target = regenerate_fuzz_target(project_name)
@@ -400,8 +369,9 @@ def process_project(project_name: str, seconds: int) -> bool:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 continue
 
-            generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
-            oss_fuzz.remove_corpus(project_name, new_target.stem)
+            if use_seeds:
+                generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
+                oss_fuzz.remove_corpus(project_name, new_target.stem)
 
             cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
             coverage_growth = cov_with_seeds - previous_cov
@@ -529,7 +499,7 @@ def main() -> None:
         if args.initial_fuzz_target:
             oss_fuzz.remove_target(project_name, "llm_fuzzgen_empty")
 
-        result = process_project(project_name, seconds=args.seconds)
+        result = process_project(project_name, seconds=args.seconds, use_dict=args.dict, use_seeds=args.seeds)
 
         if not generate_report_and_start_webapp(project_name, seconds=args.seconds, clean=True):
             sys.exit(1)

@@ -5,7 +5,7 @@
 MODEL_NAME: "gemini-2.5-pro"
 # MODEL_NAME: "gemini-2.0-flash"
 MAX_TOKENS: 32768
-THINK_BUDGET_TOKEN: -1 # Setting the thinkingBudget to -1 turns on dynamic thinking on Gemini
+THINK_BUDGET_TOKEN: 8192 # Setting the thinkingBudget to -1 turns on dynamic thinking on Gemini
 ITERATION_LOOP: 100
 TEMPERATURE: 0.2
 INTROSPECTOR_API_BASE_URL: "http://localhost:8080/api"
