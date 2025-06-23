@@ -58,8 +58,7 @@ PATH_EQUIVALENCE_ARGS="-path-equivalence=/,$OUT"
 # can contain paths to source files / directories which are positional args.
 LLVM_COV_COMMON_ARGS="$PATH_EQUIVALENCE_ARGS \
     -ignore-filename-regex=.*src/libfuzzer/.*"
-$COVERAGE_EXTRA_ARGS = $COVERAGE_EXTRA_ARGS
-
+COVERAGE_EXTRA_ARGS="$COVERAGE_EXTRA_ARGS"
 # Options to extract branch coverage.
 BRANCH_COV_ARGS="--show-branches=count --show-expansions"
 
