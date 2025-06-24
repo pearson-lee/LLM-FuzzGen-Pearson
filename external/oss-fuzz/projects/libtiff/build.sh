@@ -39,7 +39,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   #### compile the fuzz target
     $CXX $CXXFLAGS -std=c++11 -I$WORK/include \
     "$target" -o "$OUT/$target_basename" \
-    $LIB_FUZZING_ENGINE $WORK/lib/libtiffxx.a $WORK/lib/libtiff.a $WORK/lib/libz.a $WORK/lib/libjpeg.a \
+    $LIB_FUZZING_ENGINE  $WORK/lib/libtiffxx.a -Wl,--whole-archive $WORK/lib/libtiff.a -Wl,--no-whole-archive $WORK/lib/libz.a $WORK/lib/libjpeg.a \
     $WORK/lib/libjbig.a $WORK/lib/libjbig85.a -Wl,-Bstatic -llzma -Wl,-Bdynamic
   ####
 
