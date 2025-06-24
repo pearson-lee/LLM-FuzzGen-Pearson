@@ -1,0 +1,107 @@
+09:38:48 - root.setup_logging:21 - INFO - === Configuration ===[0m
+09:38:48 - root.setup_logging:22 - INFO - Project Name: libvpx[0m
+09:38:48 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash[0m
+09:38:48 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
+09:38:48 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+09:38:48 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+09:38:48 - root.setup_logging:27 - INFO - Think Budget Tokens: 8192[0m
+09:38:48 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+09:38:48 - root.setup_logging:29 - INFO - =====================
+[0m
+09:38:48 - __main__.main:491 - INFO - Skipping initial fuzz target generation[0m
+09:38:48 - __main__.main:492 - INFO - Starting introspector webapp for initial analysis of libvpx[0m
+09:38:48 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libvpx[0m
+09:43:07 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for libvpx[0m
+09:43:07 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+09:43:18 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+09:43:28 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+09:43:28 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+09:43:28 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+09:43:28 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+09:43:28 - __main__.main:498 - INFO - Initial coverage for libvpx: 56.48%[0m
+09:43:28 - __main__.process_project:337 - INFO - Starting to process project: libvpx[0m
+09:43:28 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+09:43:28 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: libvpx, Current coverage: 56.479548660084625[0m
+09:43:28 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [libvpx] Current coverage array: [56.479548660084625][0m
+09:43:28 - __main__.regenerate_fuzz_target:317 - INFO - Regenerating fuzz target for project: libvpx[0m
+09:43:28 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+09:43:28 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for libvpx with project[0m
+09:43:28 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for libvpx with existing corpus[0m
+09:44:11 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+09:44:11 - external.oss_fuzz.coverage:182 - INFO - Coverage for libvpx with existing corpus: 56.47672778561355%[0m
+09:44:11 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'libvpx'}[0m
+09:44:11 - __main__.build_fuzz_target:253 - INFO - Build attempt 1/10 for 'libvpx'.[0m
+09:44:11 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `libvpx` library (c++) that **maximizes code coverage** by strategically exercisi...[0m
+09:44:11 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+09:44:12 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 47
+}
+].[0m
+09:44:19 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 40
+}
+].[0m
+09:44:27 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 33
+}
+].[0m
+09:44:36 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 23
+}
+].[0m
+09:44:49 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 10
+}
+].[0m
+09:45:10 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 49
+}
+].[0m
+09:45:49 - langchain_google_genai.chat_models.log_it:65 - WARNING - Retrying langchain_google_genai.chat_models._chat_with_retry.<locals>._chat_with_retry in 2.0 seconds as it raised ResourceExhausted: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 11
+}
+].[0m

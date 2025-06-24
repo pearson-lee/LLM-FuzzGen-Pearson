@@ -1,0 +1,1431 @@
+01:46:45 - root.setup_logging:21 - INFO - === Configuration ===[0m
+01:46:45 - root.setup_logging:22 - INFO - Project Name: libvpx[0m
+01:46:45 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
+01:46:45 - root.setup_logging:24 - INFO - Iteration loop: 1[0m
+01:46:45 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+01:46:45 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+01:46:45 - root.setup_logging:27 - INFO - Think Budget Tokens: 8192[0m
+01:46:45 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+01:46:45 - root.setup_logging:29 - INFO - =====================
+[0m
+01:46:45 - __main__.main:491 - INFO - Skipping initial fuzz target generation[0m
+01:46:45 - __main__.main:492 - INFO - Starting introspector webapp for initial analysis of libvpx[0m
+01:46:45 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libvpx[0m
+01:49:18 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for libvpx[0m
+01:49:18 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+01:49:30 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+01:49:40 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+01:49:40 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+01:49:40 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+01:49:40 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+01:49:40 - __main__.main:498 - INFO - Initial coverage for libvpx: 53.62%[0m
+01:49:40 - __main__.process_project:337 - INFO - Starting to process project: libvpx[0m
+01:49:40 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+01:49:40 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: libvpx, Current coverage: 53.624823695345555[0m
+01:49:40 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [libvpx] Current coverage array: [53.624823695345555][0m
+01:49:40 - __main__.regenerate_fuzz_target:317 - INFO - Regenerating fuzz target for project: libvpx[0m
+01:49:40 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:49:40 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for libvpx with project[0m
+01:49:40 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for libvpx with existing corpus[0m
+01:50:02 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+01:50:02 - external.oss_fuzz.coverage:182 - INFO - Coverage for libvpx with existing corpus: 53.624823695345555%[0m
+01:50:02 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'libvpx'}[0m
+01:50:02 - __main__.build_fuzz_target:253 - INFO - Build attempt 1/10 for 'libvpx'.[0m
+01:50:02 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `libvpx` library (c++) that **maximizes code coverage** by strategically exercisi...[0m
+01:50:03 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:50:15 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:50:21 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:50:26 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp8_loop_filter_frame(VP8_COMMON *, MACROBLOCKD *, int)'}[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp8_loop_filter_frame_yonly(VP8_COMMON *, MACROBLOCKD *, int)'}[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp8_loop_filter_frame_init(VP8_COMMON *, MACROBLOCKD *, int)'}[0m
+01:50:42 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 3 functions matching 'vp8_loop_filter_frame' for libvpx[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_loop_filter_frame(YV12_BUFFER_CONFIG *, VP9_COMMON *, MACROBLOCKD *, int, int, int)'}[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_loop_filter_frame_mt(YV12_BUFFER_CONFIG *, VP9_COMMON *, struct macroblockd_plane *, int, int, int, VPxWorker *, int, VP9LfSync *)'}[0m
+01:50:42 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_loop_filter_frame_init(VP9_COMMON *, int)'}[0m
+01:50:42 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 3 functions matching 'vp9_loop_filter_frame' for libvpx[0m
+01:50:42 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_find_mv_refs(const VP9_COMMON *, const MACROBLOCKD *, MODE_INFO *, MV_REFERENCE_FRAME, int_mv *, int, int, uint8_t *)'}[0m
+01:51:14 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 1 functions matching 'vp9_find_mv_refs' for libvpx[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_build_inter_predictors_sbp(MACROBLOCKD *, int, int, BLOCK_SIZE, int)'}[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp8_multiframe_quality_enhance(VP8_COMMON *)'}[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_build_inter_predictors_sb(MACROBLOCKD *, int, int, BLOCK_SIZE)'}[0m
+01:51:14 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 1 functions matching 'vp8_multiframe_quality_enhance' for libvpx[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_build_inter_predictors_sbuv(MACROBLOCKD *, int, int, BLOCK_SIZE)'}[0m
+01:51:14 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'libvpx', 'function_signature': 'void vp9_build_inter_predictors_sby(MACROBLOCKD *, int, int, BLOCK_SIZE)'}[0m
+01:51:14 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 4 functions matching 'vp9_build_inter_predictors_sb' for libvpx[0m
+01:51:14 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:51:18 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:51:59 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:52:37 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 4.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:53:02 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 8.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:53:42 - langchain_google_vertexai._retry.log_it:65 - WARNING - Retrying langchain_google_vertexai.chat_models._completion_with_retry.<locals>._completion_with_retry_inner in 10.0 seconds as it raised ResourceExhausted: 429 Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details..[0m
+01:54:09 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vpx/vp8dx.h"
+#include "vp8/common/onyxd.h"
+#include "vp8/common/loopfilter.h"
+#include "vp8/common/postproc.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp8_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP8_COMMON vp8_cm;
+    memset(&vp8_cm, 0, sizeof(vp8_cm));
+    vp8_cm.frame_type = (FRAME_TYPE)fdp.ConsumeIntegralInRange<int>(0, 1);
+    vp8_cm.filter_type = (LOOPFILTERTYPE)fdp.ConsumeIntegralInRange<int>(0, 1);
+    vp8_cm.sharpness_level = fdp.ConsumeIntegralInRange<int>(0, 7);
+    vp8_cm.last_sharpness_level = fdp.ConsumeIntegralInRange<int>(0, 7);
+    vp8_cm.mb_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp8_cm.mb_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp8_cm.base_qindex = fdp.ConsumeIntegralInRange<int>(0, 127);
+    vp8_cm.postproc_state.last_base_qindex = fdp.ConsumeIntegralInRange<int>(0, 127);
+
+    MACROBLOCKD mbd;
+    memset(&mbd, 0, sizeof(mbd));
+    mbd.segmentation_enabled = fdp.ConsumeBool();
+    mbd.mb_segment_abs_delta = fdp.ConsumeBool();
+    mbd.mode_ref_lf_delta_enabled = fdp.ConsumeBool();
+
+    YV12_BUFFER_CONFIG yv12_buffer;
+    memset(&yv12_buffer, 0, sizeof(yv12_buffer));
+    yv12_buffer.y_width = vp8_cm.mb_cols * 16;
+    yv12_buffer.y_height = vp8_cm.mb_rows * 16;
+    yv12_buffer.uv_width = yv12_buffer.y_width / 2;
+    yv12_buffer.uv_height = yv12_buffer.y_height / 2;
+    yv12_buffer.y_stride = yv12_buffer.y_width;
+    yv12_buffer.uv_stride = yv12_buffer.uv_width;
+    yv12_buffer.y_buffer = (uint8_t *)malloc(yv12_buffer.y_width * yv12_buffer.y_height);
+    yv12_buffer.u_buffer = (uint8_t *)malloc(yv12_buffer.uv_width * yv12_buffer.uv_height);
+    yv12_buffer.v_buffer = (uint8_t *)malloc(yv12_buffer.uv_width * yv12_buffer.uv_height);
+    vp8_cm.frame_to_show = &yv12_buffer;
+
+    vp8_loop_filter_frame(&vp8_cm, &mbd, vp8_cm.frame_type);
+    free(yv12_buffer.y_buffer);
+    free(yv12_buffer.u_buffer);
+    free(yv12_buffer.v_buffer);
+  }
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    vp9_cm.frame_type = (FRAME_TYPE)fdp.ConsumeIntegralInRange<int>(0, 1);
+    vp9_cm.filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    vp9_loop_filter_frame(&frame, &vp9_cm, &xd, vp9_cm.filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp8_multiframe_quality_enhance
+  if (fdp.remaining_bytes() > 1000) {
+    VP8_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    cm.frame_type = (FRAME_TYPE)fdp.ConsumeIntegralInRange<int>(0, 1);
+    cm.mb_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    cm.mb_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+    cm.base_qindex = fdp.ConsumeIntegralInRange<int>(0, 127);
+    cm.postproc_state.last_base_qindex = fdp.ConsumeIntegralInRange<int>(0, 127);
+
+    YV12_BUFFER_CONFIG show;
+    memset(&show, 0, sizeof(show));
+    show.y_width = cm.mb_cols * 16;
+    show.y_height = cm.mb_rows * 16;
+    show.uv_width = show.y_width / 2;
+    show.uv_height = show.y_height / 2;
+    show.y_stride = show.y_width;
+    show.uv_stride = show.uv_width;
+    show.y_buffer = (uint8_t *)malloc(show.y_width * show.y_height);
+    show.u_buffer = (uint8_t *)malloc(show.uv_width * show.uv_height);
+    show.v_buffer = (uint8_t *)malloc(show.uv_width * show.uv_height);
+    cm.frame_to_show = &show;
+
+    YV12_BUFFER_CONFIG dest;
+    memset(&dest, 0, sizeof(dest));
+    dest.y_width = cm.mb_cols * 16;
+    dest.y_height = cm.mb_rows * 16;
+    dest.uv_width = dest.y_width / 2;
+    dest.uv_height = dest.y_height / 2;
+    dest.y_stride = dest.y_width;
+    dest.uv_stride = dest.uv_width;
+    dest.y_buffer = (uint8_t *)malloc(dest.y_width * dest.y_height);
+    dest.u_buffer = (uint8_t *)malloc(dest.uv_width * dest.uv_height);
+    dest.v_buffer = (uint8_t *)malloc(dest.uv_width * dest.uv_height);
+    cm.post_proc_buffer = dest;
+
+    vp8_multiframe_quality_enhance(&cm);
+    free(show.y_buffer);
+    free(show.u_buffer);
+    free(show.v_buffer);
+    free(dest.y_buffer);
+    free(dest.u_buffer);
+    free(dest.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:54:09 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015409.cc[0m
+01:54:09 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015409.cc'.[0m
+01:54:09 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015409 for 30 seconds for project libvpx[0m
+01:54:14 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: expected identifier
+  108 | typedef enum { PLANE_TYPE_Y = 0, PLANE_TYPE_UV = 1, PLANE_TYPES } PLANE_TYPE;
+      |                                  ^
+/src/libvpx/vp8/common/blockd.h:47:23: note: expanded from macro 'PLANE_TYPE_UV'
+   47 | #define PLANE_TYPE_UV 2
+      |                       ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+In file included from /src/libvpx/vp9/common/vp9_blockd.h:22:
+In file included from /src/libvpx/vp9/common/vp9_entropymode.h:15:
+In file included from /src/libvpx/vp9/common/vp9_entropymv.h:18:
+/src/libvpx/vp9/common/vp9_mv.h:27:3: error: typedef redefinition with different types ('struct mv' vs 'struct MV')
+   27 | } MV;
+      |   ^
+/src/libvpx/vp8/common/mv.h:22:3: note: previous definition is here
+   22 | } MV;
+      |   ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+In file included from /src/libvpx/vp9/common/vp9_blockd.h:22:
+In file included from /src/libvpx/vp9/common/vp9_entropymode.h:15:
+In file included from /src/libvpx/vp9/common/vp9_entropymv.h:18:
+/src/libvpx/vp9/common/vp9_mv.h:29:15: error: redefinition of 'int_mv'
+   29 | typedef union int_mv {
+      |               ^
+/src/libvpx/vp8/common/mv.h:24:15: note: previous definition is here
+   24 | typedef union int_mv {
+      |               ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+In file included from /src/libvpx/vp9/common/vp9_blockd.h:22:
+/src/libvpx/vp9/common/vp9_entropymode.h:44:16: error: redefinition of 'frame_contexts'
+   44 | typedef struct frame_contexts {
+      |                ^
+/src/libvpx/vp8/common/onyxc_int.h:40:16: note: previous definition is here
+   40 | typedef struct frame_contexts {
+      |                ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:35:3: error: redefinition of enumerator 'KEY_FRAME'
+   35 |   KEY_FRAME = 0,
+      |   ^
+/src/libvpx/vp8/common/blockd.h:63:16: note: previous definition is here
+   63 | typedef enum { KEY_FRAME = 0, INTER_FRAME = 1 } FRAME_TYPE;
+      |                ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:36:3: error: redefinition of enumerator 'INTER_FRAME'
+   36 |   INTER_FRAME = 1,
+      |   ^
+/src/libvpx/vp8/common/blockd.h:63:31: note: previous definition is here
+   63 | typedef enum { KEY_FRAME = 0, INTER_FRAME = 1 } FRAME_TYPE;
+      |                               ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:38:3: error: typedef redefinition with different types ('enum FRAME_TYPE' vs 'enum FRAME_TYPE')
+   38 | } FRAME_TYPE;
+      |   ^
+/src/libvpx/vp8/common/blockd.h:63:49: note: previous definition is here
+   63 | typedef enum { KEY_FRAME = 0, INTER_FRAME = 1 } FRAME_TYPE;
+      |                                                 ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:51:3: error: typedef redefinition with different types ('struct b_mode_info' vs 'b_mode_info')
+   51 | } b_mode_info;
+      |   ^
+/src/libvpx/vp8/common/blockd.h:128:7: note: previous definition is here
+  128 | union b_mode_info {
+      |       ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:65:16: error: typedef redefinition with different types ('int8_t' (aka 'signed char') vs 'enum MV_REFERENCE_FRAME')
+   65 | typedef int8_t MV_REFERENCE_FRAME;
+      |                ^
+/src/libvpx/vp8/common/blockd.h:139:3: note: previous definition is here
+  139 | } MV_REFERENCE_FRAME;
+      |   ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:74:16: error: definition of type 'MODE_INFO' conflicts with typedef of the same name
+   74 | typedef struct MODE_INFO {
+      |                ^
+/src/libvpx/vp8/common/blockd.h:159:3: note: 'MODE_INFO' declared here
+  159 | } MODE_INFO;
+      |   ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:100:14: error: no member named 'sb_type' in 'modeinfo'
+  100 |   return mi->sb_type < BLOCK_8X8 ? mi->bmi[block].as_mode : mi->mode;
+      |          ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:100:65: error: no member named 'mode' in 'modeinfo'
+  100 |   return mi->sb_type < BLOCK_8X8 ? mi->bmi[block].as_mode : mi->mode;
+      |                                                             ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:104:14: error: no member named 'ref_frame' in 'modeinfo'
+  104 |   return mi->ref_frame[0] > INTRA_FRAME;
+      |          ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:108:14: error: no member named 'ref_frame' in 'modeinfo'
+  108 |   return mi->ref_frame[1] > INTRA_FRAME;
+      |          ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:155:16: error: redefinition of 'macroblockd'
+  155 | typedef struct macroblockd {
+      |                ^
+/src/libvpx/vp8/common/blockd.h:209:16: note: previous definition is here
+  209 | typedef struct macroblockd {
+      |                ^
+In file included from /src/llm_fuzzgen0624015409.cc:9:
+In file included from /src/libvpx/vp9/common/vp9_loopfilter.h:17:
+/src/libvpx/vp9/common/vp9_blockd.h:223:35: error: no member named 'mi' in 'macroblockd'
+  223 |   const MODE_INFO *const mi = xd->mi[0];
+      |                               ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:225:41: error: no member named 'lossless' in 'macroblockd'
+  225 |   if (plane_type != PLANE_TYPE_Y || xd->lossless || is_inter_block(mi))
+      |                                     ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:228:43: error: no member named 'mode' in 'modeinfo'
+  228 |   return intra_mode_to_tx_type_lookup[mi->mode];
+      |                                       ~~  ^
+/src/libvpx/vp9/common/vp9_blockd.h:233:35: error: no member named 'mi' in 'macroblockd'
+  233 |   const MODE_INFO *const mi = xd->mi[0];
+      |                               ~~  ^
+fatal error: too many errors emitted, stopping now [-ferror-limit=]
+20 errors generated.[0m
+01:54:14 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0624015409 for project libvpx failed to build.[0m
+01:54:14 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 1).[0m
+01:54:14 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015409.cc[0m
+01:54:14 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for libvpx[0m
+01:54:14 - __main__.build_fuzz_target:253 - INFO - Build attempt 2/10 for 'libvpx'.[0m
+01:54:14 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `libvpx` library (c++) by **resolving all specified ...[0m
+01:54:14 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:55:17 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    vp9_cm.frame_type = (FRAME_TYPE)fdp.ConsumeIntegralInRange<int>(0, 1);
+    vp9_cm.filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer) {
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, vp9_cm.filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:55:17 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015517.cc[0m
+01:55:17 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015517.cc'.[0m
+01:55:17 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015517 for 30 seconds for project libvpx[0m
+01:55:32 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: no member named 'filter_level' in 'VP9Common'
+   21 |     vp9_cm.filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+      |     ~~~~~~ ^
+/src/llm_fuzzgen0624015517.cc:41:60: error: no member named 'filter_level' in 'VP9Common'
+   41 |         vp9_loop_filter_frame(&frame, &vp9_cm, &xd, vp9_cm.filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+      |                                                     ~~~~~~ ^
+2 errors generated.[0m
+01:55:32 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0624015517 for project libvpx failed to build.[0m
+01:55:32 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 2).[0m
+01:55:32 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015517.cc[0m
+01:55:32 - __main__.build_fuzz_target:253 - INFO - Build attempt 3/10 for 'libvpx'.[0m
+01:55:32 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: error: no member named 'filter_level' in 'VP9Common'
+   21 |     vp9_cm.filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+      |     ~~~~~~ ^
+/src/llm_fuzzgen0624015517.cc:41:60: error: no member named 'filter_level' in 'VP9Common'
+   41 |         vp9_loop_filter_frame(&frame, &vp9_cm, &xd, vp...[0m
+01:55:32 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:55:36 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libvpx'}[0m
+01:55:36 - external.introspector.function_source_code:213 - INFO - Returning cached source code for void vp9_loop_filter_frame(YV12_BUFFER_CONFIG *, VP9_COMMON *, MACROBLOCKD *, int, int, int) in libvpx[0m
+01:55:36 - external.introspector.function_source_code:213 - INFO - Returning cached source code for void vp9_loop_filter_frame_mt(YV12_BUFFER_CONFIG *, VP9_COMMON *, struct macroblockd_plane *, int, int, int, VPxWorker *, int, VP9LfSync *) in libvpx[0m
+01:55:36 - external.introspector.function_source_code:213 - INFO - Returning cached source code for void vp9_loop_filter_frame_init(VP9_COMMON *, int) in libvpx[0m
+01:55:36 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 3 functions matching 'vp9_loop_filter_frame' for libvpx[0m
+01:55:36 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:55:47 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer) {
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:55:47 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015547.cc[0m
+01:55:47 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015547.cc'.[0m
+01:55:47 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015547 for 30 seconds for project libvpx[0m
+01:55:59 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0624015547: 
+ ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x55f5cc678f8b bp 0x7ffefdf360b0 sp 0x7ffefdf35fd0 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x55f5cc678f8b in vp9_adjust_mask /src/libvpx/vp9/common/vp9_loopfilter.c:772
+    #1 0x55f5cc682251 in loop_filter_rows /src/libvpx/vp9/common/vp9_loopfilter.c:1448:7
+    #2 0x55f5cc322efe in LLVMFuzzerTestOneInput /src/llm_fuzzgen0624015547.cc:40:9
+    #3 0x55f5cc1d7330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x55f5cc1d6b55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #5 0x55f5cc1d8335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #6 0x55f5cc1d90c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #7 0x55f5cc1c7f0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #8 0x55f5cc1f32e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #9 0x7f7899cf8082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #10 0x55f5cc1ba78d in _start (/out/llm_fuzzgen0624015547+0xa778d)
+
+DEDUP_TOKEN: vp9_adjust_mask--loop_filter_rows--LLVMFuzzerTestOneInput
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /src/libvpx/vp9/common/vp9_loopfilter.c:772 in vp9_adjust_mask[0m
+01:55:59 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 3).[0m
+01:55:59 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015547.cc[0m
+01:55:59 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/libvpx/llm_fuzzgen0624015547[0m
+01:55:59 - __main__.build_fuzz_target:253 - INFO - Build attempt 4/10 for 'libvpx'.[0m
+01:55:59 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x55f5cc678f8b bp 0x7ffefdf360b0 sp 0x7ffefdf35fd0 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x55f5cc678f8b in vp9_adjust_mask /src...[0m
+01:55:59 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:56:11 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:56:11 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015611.cc[0m
+01:56:11 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015611.cc'.[0m
+01:56:11 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015611 for 30 seconds for project libvpx[0m
+01:56:20 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0624015611: 
+ ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x5560a637ef8b bp 0x7fff40a7ee70 sp 0x7fff40a7ed90 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x5560a637ef8b in vp9_adjust_mask /src/libvpx/vp9/common/vp9_loopfilter.c:772
+    #1 0x5560a6388251 in loop_filter_rows /src/libvpx/vp9/common/vp9_loopfilter.c:1448:7
+    #2 0x5560a6028efe in LLVMFuzzerTestOneInput /src/llm_fuzzgen0624015611.cc:41:9
+    #3 0x5560a5edd330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x5560a5edcb55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #5 0x5560a5ede335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #6 0x5560a5edf0c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #7 0x5560a5ecdf0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #8 0x5560a5ef92e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #9 0x7ff3def22082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #10 0x5560a5ec078d in _start (/out/llm_fuzzgen0624015611+0xa778d)
+
+DEDUP_TOKEN: vp9_adjust_mask--loop_filter_rows--LLVMFuzzerTestOneInput
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /src/libvpx/vp9/common/vp9_loopfilter.c:772 in vp9_adjust_mask[0m
+01:56:20 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 4).[0m
+01:56:20 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015611.cc[0m
+01:56:20 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/libvpx/llm_fuzzgen0624015611[0m
+01:56:20 - __main__.build_fuzz_target:253 - INFO - Build attempt 5/10 for 'libvpx'.[0m
+01:56:20 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x5560a637ef8b bp 0x7fff40a7ee70 sp 0x7fff40a7ed90 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x5560a637ef8b in vp9_adjust_mask /src...[0m
+01:56:20 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:56:39 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.hh"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    for (int i = 0; i < MAX_MB_PLANE; ++i) {
+      xd.plane[i].subsampling_x = 0;
+      xd.plane[i].subsampling_y = 0;
+    }
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:56:39 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015639.cc[0m
+01:56:39 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015639.cc'.[0m
+01:56:39 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015639 for 30 seconds for project libvpx[0m
+01:56:45 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: 'vpx/vpx_decoder.hh' file not found
+    6 | #include "vpx/vpx_decoder.hh"
+      |          ^~~~~~~~~~~~~~~~~~~~
+1 error generated.[0m
+01:56:45 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0624015639 for project libvpx failed to build.[0m
+01:56:45 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 5).[0m
+01:56:45 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015639.cc[0m
+01:56:45 - __main__.build_fuzz_target:253 - INFO - Build attempt 6/10 for 'libvpx'.[0m
+01:56:45 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: error: 'vpx/vpx_decoder.hh' file not found
+    6 | #include "vpx/vpx_decoder.hh"
+      |          ^~~~~~~~~~~~~~~~~~~~
+1 error generated....[0m
+01:56:45 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:56:56 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9__cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    for (int i = 0; i < MAX_MB_PLANE; ++i) {
+      xd.plane[i].subsampling_x = 0;
+      xd.plane[i].subsampling_y = 0;
+    }
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:56:56 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015656.cc[0m
+01:56:56 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015656.cc'.[0m
+01:56:56 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015656 for 30 seconds for project libvpx[0m
+01:57:14 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   19 |     memset(&vp9_cm, 0, sizeof(vp9_cm));
+      |                               ^~~~~~
+      |                               vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:19:13: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   19 |     memset(&vp9_cm, 0, sizeof(vp9_cm));
+      |             ^~~~~~
+      |             vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:21:5: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   21 |     vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+      |     ^~~~~~
+      |     vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:22:5: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   22 |     vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+      |     ^~~~~~
+      |     vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:33:21: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   33 |     frame.y_width = vp9_cm.mi_cols * 8;
+      |                     ^~~~~~
+      |                     vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:34:22: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   34 |     frame.y_height = vp9_cm.mi_rows * 8;
+      |                      ^~~~~~
+      |                      vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:44:37: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   44 |         vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+      |                                     ^~~~~~
+      |                                     vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+/src/llm_fuzzgen0624015656.cc:45:40: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   45 |         vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+      |                                        ^~~~~~
+      |                                        vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON vp9__cm;
+      |                ^
+8 errors generated.[0m
+01:57:14 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0624015656 for project libvpx failed to build.[0m
+01:57:14 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 6).[0m
+01:57:14 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015656.cc[0m
+01:57:14 - __main__.build_fuzz_target:253 - INFO - Build attempt 7/10 for 'libvpx'.[0m
+01:57:14 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: error: use of undeclared identifier 'vp9_cm'; did you mean 'vp9__cm'?
+   19 |     memset(&vp9_cm, 0, sizeof(vp9_cm));
+      |                               ^~~~~~
+      |                               vp9__cm
+/src/llm_fuzzgen0624015656.cc:18:16: note: 'vp9__cm' declared here
+   18 |     VP9_COMMON v...[0m
+01:57:14 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:57:26 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    for (int i = 0; i < MAX_MB_PLANE; ++i) {
+      xd.plane[i].subsampling_x = 0;
+      xd.plane[i].subsampling_y = 0;
+    }
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:57:26 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015726.cc[0m
+01:57:26 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015726.cc'.[0m
+01:57:26 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015726 for 30 seconds for project libvpx[0m
+01:57:32 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0624015726: 
+ ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x562c45a7afdb bp 0x7fff63b6b2b0 sp 0x7fff63b6b1d0 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x562c45a7afdb in vp9_adjust_mask /src/libvpx/vp9/common/vp9_loopfilter.c:772
+    #1 0x562c45a841d6 in loop_filter_rows /src/libvpx/vp9/common/vp9_loopfilter.c:1448:7
+    #2 0x562c45724f2e in LLVMFuzzerTestOneInput /src/llm_fuzzgen0624015726.cc:45:9
+    #3 0x562c455d9330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x562c455d8b55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #5 0x562c455da335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #6 0x562c455db0c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #7 0x562c455c9f0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #8 0x562c455f52e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #9 0x7f027c639082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #10 0x562c455bc78d in _start (/out/llm_fuzzgen0624015726+0xa778d)
+
+DEDUP_TOKEN: vp9_adjust_mask--loop_filter_rows--LLVMFuzzerTestOneInput
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /src/libvpx/vp9/common/vp9_loopfilter.c:772 in vp9_adjust_mask[0m
+01:57:32 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 7).[0m
+01:57:32 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015726.cc[0m
+01:57:32 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/libvpx/llm_fuzzgen0624015726[0m
+01:57:32 - __main__.build_fuzz_target:253 - INFO - Build attempt 8/10 for 'libvpx'.[0m
+01:57:32 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x562c45a7afdb bp 0x7fff63b6b2b0 sp 0x7fff63b6b1d0 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x562c45a7afdb in vp9_adjust_mask /src...[0m
+01:57:32 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:58:24 - external.introspector.get_project_source_code:320 - INFO - Getting source code for project: libvpx, file: /src/libvpx/vp9/common/vp9_loopfilter.c, lines: 760-780[0m
+01:58:24 - external.introspector._query_api:77 - INFO - Querying API: project-source-code with params: {'project': 'libvpx', 'filepath': '/src/libvpx/vp9/common/vp9_loopfilter.c', 'begin_line': 760, 'end_line': 780}[0m
+01:58:24 - llm_interface.tools.project_source_code:184 - INFO - Tool(project_source_code): Retrieved source code for libvpx:/src/libvpx/vp9/common/vp9_loopfilter.c lines 760-780[0m
+01:58:24 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:58:47 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_stride = vp9_cm.mi_cols;
+    vp9_cm.mi_grid_visible = (MODE_INFO **)malloc(sizeof(MODE_INFO *) * vp9_cm.mi_rows * vp9_cm.mi_stride);
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    for (int i = 0; i < MAX_MB_PLANE; ++i) {
+      xd.plane[i].subsampling_x = 0;
+      xd.plane[i].subsampling_y = 0;
+    }
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer && vp9_cm.mi_grid_visible) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+    free(vp9_cm.mi_grid_visible);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:58:47 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015847.cc[0m
+01:58:47 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015847.cc'.[0m
+01:58:47 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015847 for 30 seconds for project libvpx[0m
+01:58:58 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0624015847: 
+ ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x5585426bb00b bp 0x7ffe00cb43f0 sp 0x7ffe00cb4310 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x5585426bb00b in vp9_adjust_mask /src/libvpx/vp9/common/vp9_loopfilter.c:772
+    #1 0x5585426c4206 in loop_filter_rows /src/libvpx/vp9/common/vp9_loopfilter.c:1448:7
+    #2 0x558542364f5e in LLVMFuzzerTestOneInput /src/llm_fuzzgen0624015847.cc:47:9
+    #3 0x558542219330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x558542218b55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #5 0x55854221a335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #6 0x55854221b0c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #7 0x558542209f0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #8 0x5585422352e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #9 0x7fef9ad89082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #10 0x5585421fc78d in _start (/out/llm_fuzzgen0624015847+0xa778d)
+
+DEDUP_TOKEN: vp9_adjust_mask--loop_filter_rows--LLVMFuzzerTestOneInput
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /src/libvpx/vp9/common/vp9_loopfilter.c:772 in vp9_adjust_mask[0m
+01:58:58 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 8).[0m
+01:58:58 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015847.cc[0m
+01:58:58 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/libvpx/llm_fuzzgen0624015847[0m
+01:58:58 - __main__.build_fuzz_target:253 - INFO - Build attempt 9/10 for 'libvpx'.[0m
+01:58:58 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: SEGV on unknown address 0x000000000018 (pc 0x5585426bb00b bp 0x7ffe00cb43f0 sp 0x7ffe00cb4310 T0)
+[1m[0m==11==The signal is caused by a READ memory access.
+==11==Hint: address points to the zero page.
+SCARINESS: 10 (null-deref)
+    #0 0x5585426bb00b in vp9_adjust_mask /src...[0m
+01:58:58 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:59:08 - external.introspector.get_project_source_code:320 - INFO - Getting source code for project: libvpx, file: /src/libvpx/vp9/common/vp9_loopfilter.c, lines: 1440-1460[0m
+01:59:08 - external.introspector._query_api:77 - INFO - Querying API: project-source-code with params: {'project': 'libvpx', 'filepath': '/src/libvpx/vp9/common/vp9_loopfilter.c', 'begin_line': 1440, 'end_line': 1460}[0m
+01:59:08 - llm_interface.tools.project_source_code:184 - INFO - Tool(project_source_code): Retrieved source code for libvpx:/src/libvpx/vp9/common/vp9_loopfilter.c lines 1440-1460[0m
+01:59:08 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:59:24 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_stride = vp9_cm.mi_cols;
+    vp9_cm.mi_grid_visible = (MODE_INFO **)malloc(sizeof(MODE_INFO *) * vp9_cm.mi_rows * vp9_cm.mi_stride);
+    vp9_cm.lf.lfm_stride = (vp9_cm.mi_cols + MI_BLOCK_SIZE - 1) >> MI_BLOCK_SIZE_LOG2;
+    vp9_cm.lf.lfm = (LOOP_FILTER_MASK *)malloc(sizeof(LOOP_FILTER_MASK) * vp9_cm.lf.lfm_stride * (vp9_cm.mi_rows >> MI_BLOCK_SIZE_LOG2));
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    for (int i = 0; i < MAX_MB_PLANE; ++i) {
+      xd.plane[i].subsampling_x = 0;
+      xd.plane[i].subsampling_y = 0;
+    }
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer && vp9_cm.mi_grid_visible && vp9_cm.lf.lfm) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+    free(vp9_cm.mi_grid_visible);
+    free(vp9_cm.lf.lfm);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:59:24 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015924.cc[0m
+01:59:24 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015924.cc'.[0m
+01:59:24 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015924 for 30 seconds for project libvpx[0m
+01:59:30 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0624015924: 
+ ERROR: AddressSanitizer: ABRT on unknown address 0x00000000000b (pc 0x7f2afae6f00b bp 0x7f2afafe4588 sp 0x7ffd04264300 T0)
+[1m[0mSCARINESS: 10 (signal)
+    #0 0x7f2afae6f00b in raise (/lib/x86_64-linux-gnu/libc.so.6+0x4300b) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #1 0x7f2afae4e858 in abort (/lib/x86_64-linux-gnu/libc.so.6+0x22858) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #2 0x7f2afae4e728  (/lib/x86_64-linux-gnu/libc.so.6+0x22728) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #3 0x7f2afae5ffd5 in __assert_fail (/lib/x86_64-linux-gnu/libc.so.6+0x33fd5) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #4 0x5583c12f51fc in vp9_adjust_mask /src/libvpx/vp9/common/vp9_loopfilter.c:862:3
+    #5 0x5583c12fd306 in loop_filter_rows /src/libvpx/vp9/common/vp9_loopfilter.c:1448:7
+    #6 0x5583c0f9dfe4 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0624015924.cc:49:9
+    #7 0x5583c0e52330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #8 0x5583c0e51b55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #9 0x5583c0e53335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #10 0x5583c0e540c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #11 0x5583c0e42f0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #12 0x5583c0e6e2e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #13 0x7f2afae50082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #14 0x5583c0e3578d in _start (/out/llm_fuzzgen0624015924+0xa778d)
+
+DEDUP_TOKEN: raise--abort--
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: ABRT (/lib/x86_64-linux-gnu/libc.so.6+0x4300b) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d) in raise[0m
+01:59:30 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 9).[0m
+01:59:30 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015924.cc[0m
+01:59:30 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/libvpx/llm_fuzzgen0624015924[0m
+01:59:30 - __main__.build_fuzz_target:253 - INFO - Build attempt 10/10 for 'libvpx'.[0m
+01:59:30 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: ABRT on unknown address 0x00000000000b (pc 0x7f2afae6f00b bp 0x7f2afafe4588 sp 0x7ffd04264300 T0)
+[1m[0mSCARINESS: 10 (signal)
+    #0 0x7f2afae6f00b in raise (/lib/x86_64-linux-gnu/libc.so.6+0x4300b) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #1 0x7f2afae4e858...[0m
+01:59:30 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+01:59:48 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <cstddef>
+#include <cstdint>
+#include <stdlib.h>
+#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "vpx/vpx_decoder.h"
+#include "vp9/common/vp9_loopfilter.h"
+#include "vp9/common/vp9_reconinter.h"
+#include "vp9/common/vp9_mvref_common.h"
+#include "vpx_scale/yv12config.h"
+#include "vp9/common/vp9_blockd.h"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  // vp9_loop_filter_frame
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON vp9_cm;
+    memset(&vp9_cm, 0, sizeof(vp9_cm));
+    int filter_level = fdp.ConsumeIntegralInRange<int>(0, 63);
+    vp9_cm.mi_rows = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_cols = fdp.ConsumeIntegralInRange<int>(1, 100);
+    vp9_cm.mi_stride = vp9_cm.mi_cols;
+    const int mi_grid_size = vp9_cm.mi_rows * vp9_cm.mi_stride;
+    vp9_cm.mi_grid_visible = (MODE_INFO **)malloc(sizeof(MODE_INFO *) * mi_grid_size);
+    MODE_INFO *mi = (MODE_INFO *)calloc(1, sizeof(MODE_INFO));
+    if (vp9_cm.mi_grid_visible && mi) {
+      for (int i = 0; i < mi_grid_size; ++i) {
+        vp9_cm.mi_grid_visible[i] = mi;
+      }
+    }
+
+    vp9_cm.lf.lfm_stride = (vp9_cm.mi_cols + MI_BLOCK_SIZE - 1) >> MI_BLOCK_SIZE_LOG2;
+    vp9_cm.lf.lfm = (LOOP_FILTER_MASK *)malloc(sizeof(LOOP_FILTER_MASK) * vp9_cm.lf.lfm_stride * (vp9_cm.mi_rows >> MI_BLOCK_SIZE_LOG2));
+
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    for (int i = 0; i < MAX_MB_PLANE; ++i) {
+      xd.plane[i].subsampling_x = 0;
+      xd.plane[i].subsampling_y = 0;
+    }
+
+    YV12_BUFFER_CONFIG frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.y_width = vp9_cm.mi_cols * 8;
+    frame.y_height = vp9_cm.mi_rows * 8;
+    frame.uv_width = frame.y_width / 2;
+    frame.uv_height = frame.y_height / 2;
+    frame.y_stride = frame.y_width;
+    frame.uv_stride = frame.uv_width;
+    frame.y_buffer = (uint8_t *)malloc(frame.y_width * frame.y_height);
+    frame.u_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+    frame.v_buffer = (uint8_t *)malloc(frame.uv_width * frame.uv_height);
+
+    if (frame.y_buffer && frame.u_buffer && frame.v_buffer && vp9_cm.mi_grid_visible && vp9_cm.lf.lfm && mi) {
+        vp9_loop_filter_frame_init(&vp9_cm, filter_level);
+        vp9_loop_filter_frame(&frame, &vp9_cm, &xd, filter_level, fdp.ConsumeBool(), fdp.ConsumeBool());
+    }
+
+    free(frame.y_buffer);
+    free(frame.u_buffer);
+    free(frame.v_buffer);
+    free(vp9_cm.mi_grid_visible);
+    free(vp9_cm.lf.lfm);
+    free(mi);
+  }
+
+  // vp9_find_mv_refs
+  if (fdp.remaining_bytes() > 1000) {
+    VP9_COMMON cm;
+    memset(&cm, 0, sizeof(cm));
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    MODE_INFO mi;
+    memset(&mi, 0, sizeof(mi));
+    MV_REFERENCE_FRAME ref_frame = (MV_REFERENCE_FRAME)fdp.ConsumeIntegralInRange<int>(0, 3);
+    int_mv mv_ref_list[MAX_MV_REF_CANDIDATES];
+    uint8_t mode_context[MAX_REF_FRAMES];
+    vp9_find_mv_refs(&cm, &xd, &mi, ref_frame, mv_ref_list, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), mode_context);
+  }
+
+  // vp9_build_inter_predictors_sb
+  if (fdp.remaining_bytes() > 1000) {
+    MACROBLOCKD xd;
+    memset(&xd, 0, sizeof(xd));
+    BLOCK_SIZE bsize = (BLOCK_SIZE)fdp.ConsumeIntegralInRange<int>(0, BLOCK_SIZES - 1);
+    vp9_build_inter_predictors_sb(&xd, fdp.ConsumeIntegral<int>(), fdp.ConsumeIntegral<int>(), bsize);
+  }
+
+  return 0;
+}[0m
+01:59:48 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015948.cc[0m
+01:59:48 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015948.cc'.[0m
+01:59:48 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0624015948 for 30 seconds for project libvpx[0m
+01:59:54 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0624015948: 
+ ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5020000fc288 at pc 0x56130d7124c8 bp 0x7ffc4b728800 sp 0x7ffc4b7287f8
+[1m[0m[1m[34mREAD of size 8 at 0x5020000fc288 thread T0[1m[0m
+SCARINESS: 23 (8-byte-read-heap-buffer-overflow)
+    #0 0x56130d7124c7 in vp9_adjust_mask /src/libvpx/vp9/common/vp9_loopfilter.c:772:28
+    #1 0x56130d71a356 in loop_filter_rows /src/libvpx/vp9/common/vp9_loopfilter.c:1448:7
+    #2 0x56130d3bb06e in LLVMFuzzerTestOneInput /src/llm_fuzzgen0624015948.cc:57:9
+    #3 0x56130d26f330 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x56130d26eb55 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #5 0x56130d270335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #6 0x56130d2710c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #7 0x56130d25ff0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #8 0x56130d28b2e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #9 0x7f824aa41082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #10 0x56130d25278d in _start (/out/llm_fuzzgen0624015948+0xa778d)
+
+DEDUP_TOKEN: vp9_adjust_mask--loop_filter_rows--LLVMFuzzerTestOneInput
+[1m[32m0x5020000fc288 is located 8 bytes before 12-byte region [0x5020000fc290,0x5020000fc29c)
+[1m[0m[1m[35mallocated by thread T0 here:[1m[0m
+    #0 0x56130d37b0ff in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x56130d7a64c3 in operator new(unsigned long) cxa_noexception.cpp
+    #2 0x56130d26f846 in assign<unsigned int *, 0> /work/llvm-stage2/runtimes/runtimes-bins/compiler-rt/lib/fuzzer/libcxx_fuzzer_x86_64/include/c++/v1/vector:1326:3
+    #3 0x56130d26f846 in operator= /work/llvm-stage2/runtimes/runtimes-bins/compiler-rt/lib/fuzzer/libcxx_fuzzer_x86_64/include/c++/v1/vector:1297:5
+    #4 0x56130d26f846 in fuzzer::InputCorpus::AddToCorpus(std::__Fuzzer::vector<unsigned char, std::__Fuzzer::allocator<unsigned char>> const&, unsigned long, bool, bool, bool, std::__Fuzzer::chrono::duration<long long, std::__Fuzzer::ratio<1l, 1000000l>>, std::__Fuzzer::vector<unsigned int, std::__Fuzzer::allocator<unsigned int>> const&, fuzzer::DataFlowTrace const&, fuzzer::InputInfo const*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerCorpus.h:227:23
+    #5 0x56130d26edd5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:539:16
+    #6 0x56130d270335 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #7 0x56130d2710c5 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #8 0x56130d25ff0b in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #9 0x56130d28b2e2 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #10 0x7f824aa41082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--operator new(unsigned long)--assign<unsigned int *, 0>
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/libvpx/vp9/common/vp9_loopfilter.c:772:28 in vp9_adjust_mask[0m
+01:59:54 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 10).[0m
+01:59:54 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/libvpx/llm_fuzzgen0624015948.cc[0m
+01:59:54 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/libvpx/llm_fuzzgen0624015948[0m
+01:59:54 - __main__.build_fuzz_target:291 - WARNING - All 10 attempts failed for 'libvpx'.[0m
+01:59:54 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libvpx[0m
+02:02:47 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for libvpx[0m
+02:02:47 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+02:02:54 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+02:03:07 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+02:03:07 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+02:03:07 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+02:03:07 - external.oss_fuzz.get_coverage_summary:417 - INFO - Successfully extracted total coverage summary for libvpx.[0m
+02:03:07 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libvpx (excluding target).[0m
+02:03:07 - __main__.calculate_statistics:435 - INFO - ==================================================[0m
+02:03:07 - __main__.calculate_statistics:436 - INFO - Coverage Growth Statistics:[0m
+02:03:07 - __main__.calculate_statistics:437 - INFO - Regeneration: 0 iterations, Average growth: 0.00%[0m
+02:03:07 - __main__.calculate_statistics:440 - INFO - Mutation: 0 iterations, Average growth: 0.00%[0m
+02:03:07 - __main__.calculate_statistics:441 - INFO - ==================================================[0m
+02:03:07 - __main__.calculate_statistics:442 - INFO - Compilation Success Rate:[0m
+02:03:07 - __main__.calculate_statistics:443 - INFO - Total compilation attempts: 10[0m
+02:03:07 - __main__.calculate_statistics:444 - INFO - Successful compilations: 0[0m
+02:03:07 - __main__.calculate_statistics:445 - INFO - Success rate: 0.00% [0m
+02:03:07 - __main__.calculate_statistics:446 - INFO - ==================================================[0m
+02:03:07 - __main__.calculate_statistics:448 - INFO - Initial coverage: 53.62%[0m
+02:03:07 - __main__.calculate_statistics:450 - INFO - ==================================================[0m
+02:03:07 - __main__.calculate_statistics:451 - INFO - Total Coverage Summary:[0m
+02:03:07 - __main__.calculate_statistics:454 - INFO -   Branches: Count=8152, Covered=4496, Percent=55.15%[0m
+02:03:07 - __main__.calculate_statistics:454 - INFO -   Functions: Count=1627, Covered=860, Percent=52.86%[0m
+02:03:07 - __main__.calculate_statistics:454 - INFO -   Lines: Count=35487, Covered=19053, Percent=53.69%[0m
+02:03:07 - __main__.calculate_statistics:459 - INFO - ==================================================[0m
+02:03:07 - __main__.calculate_statistics:460 - INFO - Total Coverage Summary (excluding fuzz target):[0m
+02:03:07 - __main__.calculate_statistics:463 - INFO -   Branches: Count=8142, Covered=4487, Percent=55.11%[0m
+02:03:07 - __main__.calculate_statistics:463 - INFO -   Functions: Count=1625, Covered=859, Percent=52.86%[0m
+02:03:07 - __main__.calculate_statistics:463 - INFO -   Lines: Count=35450, Covered=19019, Percent=53.65%[0m
+02:03:07 - __main__.calculate_statistics:467 - INFO - ==================================================[0m
+02:03:07 - __main__.main:509 - INFO - Project processed[0m
+02:03:07 - __main__.main:510 - INFO - Successful project: True[0m
+02:03:07 - __main__.main:511 - INFO - Total execution time: 898.57 seconds[0m
+02:03:20 - __main__.main:515 - INFO - Server is still running.[0m

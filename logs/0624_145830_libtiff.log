@@ -1,0 +1,37 @@
+14:58:30 - root.setup_logging:21 - INFO - === Configuration ===[0m
+14:58:30 - root.setup_logging:22 - INFO - Project Name: libtiff[0m
+14:58:30 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
+14:58:30 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
+14:58:30 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+14:58:30 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+14:58:30 - root.setup_logging:27 - INFO - Think Budget Tokens: 8192[0m
+14:58:30 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+14:58:30 - root.setup_logging:29 - INFO - =====================
+[0m
+14:58:30 - __main__.main:491 - INFO - Skipping initial fuzz target generation[0m
+14:58:30 - __main__.main:492 - INFO - Starting introspector webapp for initial analysis of libtiff[0m
+14:58:30 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libtiff[0m
+15:17:35 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for libtiff[0m
+15:17:35 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+15:17:50 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+15:18:00 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+15:18:00 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+15:18:00 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+15:18:00 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libtiff (excluding target).[0m
+15:18:00 - __main__.main:498 - INFO - Initial coverage for libtiff: 55.35%[0m
+15:18:00 - __main__.process_project:337 - INFO - Starting to process project: libtiff[0m
+15:18:00 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libtiff (excluding target).[0m
+15:18:00 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: libtiff, Current coverage: 55.35480492275465[0m
+15:18:00 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [libtiff] Current coverage array: [55.35480492275465][0m
+15:18:00 - __main__.regenerate_fuzz_target:317 - INFO - Regenerating fuzz target for project: libtiff[0m
+15:18:00 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'libtiff'}[0m
+15:18:00 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for libtiff with project[0m
+15:18:00 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for libtiff with existing corpus[0m
+15:20:37 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libtiff (excluding target).[0m
+15:20:37 - external.oss_fuzz.coverage:182 - INFO - Coverage for libtiff with existing corpus: 55.24351924587588%[0m
+15:20:37 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'libtiff'}[0m
+15:20:37 - __main__.build_fuzz_target:253 - INFO - Build attempt 1/10 for 'libtiff'.[0m
+15:20:37 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `libtiff` library (c++) that **maximizes code coverage** by strategically exercis...[0m
+15:20:37 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
