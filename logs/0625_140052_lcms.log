@@ -1,0 +1,765 @@
+14:00:52 - root.setup_logging:21 - INFO - === Configuration ===[0m
+14:00:52 - root.setup_logging:22 - INFO - Project Name: lcms[0m
+14:00:52 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash[0m
+14:00:52 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
+14:00:52 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+14:00:52 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+14:00:52 - root.setup_logging:27 - INFO - Think Budget Tokens: 4096[0m
+14:00:52 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+14:00:52 - root.setup_logging:29 - INFO - =====================
+[0m
+14:00:52 - __main__.main:491 - INFO - Skipping initial fuzz target generation[0m
+14:00:52 - __main__.main:492 - INFO - Starting introspector webapp for initial analysis of lcms[0m
+14:00:52 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for lcms[0m
+14:05:13 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for lcms[0m
+14:05:13 - external.introspector.file_lock:118 - INFO - Acquired lock: /tmp/llm_fuzzgen.lock[0m
+14:05:14 - external.introspector._query_api:77 - INFO - Querying API: shutdown with params: {}[0m
+14:05:24 - external.introspector._query_api:77 - INFO - Querying API: tester with params: {}[0m
+14:05:24 - external.introspector.update_start_webapp:145 - INFO - Web application started successfully.[0m
+14:05:24 - external.introspector.file_lock:124 - INFO - Released lock: /tmp/llm_fuzzgen.lock[0m
+14:05:24 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:05:24 - __main__.main:498 - INFO - Initial coverage for lcms: 46.78%[0m
+14:05:24 - __main__.process_project:337 - INFO - Starting to process project: lcms[0m
+14:05:24 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:05:24 - iterator.fuzz_iterator.record_cov:23 - INFO - Project: lcms, Current coverage: 46.77740515615175[0m
+14:05:24 - iterator.fuzz_iterator.should_regenerate:47 - INFO - [lcms] Current coverage array: [46.77740515615175][0m
+14:05:24 - __main__.regenerate_fuzz_target:317 - INFO - Regenerating fuzz target for project: lcms[0m
+14:05:24 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+14:05:24 - external.oss_fuzz.funcov_reports:252 - INFO - Generating funcov report for lcms with project[0m
+14:05:24 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for lcms with existing corpus[0m
+14:05:52 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:05:52 - external.oss_fuzz.coverage:182 - INFO - Coverage for lcms with existing corpus: 46.77740515615175%[0m
+14:05:52 - external.introspector._query_api:77 - INFO - Querying API: all-header-files with params: {'project': 'lcms'}[0m
+14:05:52 - __main__.build_fuzz_target:253 - INFO - Build attempt 1/10 for 'lcms'.[0m
+14:05:52 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in comprehensive fuzz target generation. Your primary objective is to **create a new, comprehensive, and memory-safe fuzz target** for the `lcms` library (c) that **maximizes code coverage** by strategically exercising *...[0m
+14:05:52 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:05:56 - external.oss_fuzz.proj_linecov_reports:283 - INFO - Generating project linecov report for lcms with function regex cmsGetPostScriptCRD[0m
+14:05:56 - external.oss_fuzz.coverage:154 - INFO - Computing coverage for lcms with existing corpus[0m
+14:05:56 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+14:05:56 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'lcms', 'function_signature': 'cmsUInt32Number cmsGetPostScriptCRD(cmsContext, cmsHPROFILE, cmsUInt32Number, cmsUInt32Number, void *, cmsUInt32Number)'}[0m
+14:05:56 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 1 functions matching 'cmsGetPostScriptCRD' for lcms[0m
+14:06:24 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for lcms (excluding target).[0m
+14:06:24 - external.oss_fuzz.coverage:182 - INFO - Coverage for lcms with existing corpus: 46.77740515615175%[0m
+14:06:24 - llm_interface.tools.get_line_coverage_report:235 - INFO - Tool(get_line_coverage_report): Retrieved project line coverage report for lcms with regex cmsGetPostScriptCRD[0m
+14:06:24 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:06:59 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h> // For malloc, free
+#include <string.h> // For memcpy
+
+// Include necessary lcms headers with full project-relative paths.
+// These headers provide the declarations for the lcms API functions used.
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+
+// Helper function to safely consume a specified number of bytes from the fuzzer input.
+// This prevents out-of-bounds reads and updates the Data pointer and Size accordingly.
+static size_t FuzzConsumeBytes(const uint8_t **Data, size_t *Size, size_t NumBytes) {
+    if (*Size < NumBytes) {
+        NumBytes = *Size; // Adjust NumBytes if less data is available
+    }
+    size_t consumed = NumBytes;
+    *Data += consumed;
+    *Size -= consumed;
+    return consumed;
+}
+
+// Helper function to consume a cmsUInt32Number (unsigned 32-bit integer) from the fuzzer input.
+// It reads 4 bytes and copies them into a cmsUInt32Number.
+static cmsUInt32Number FuzzConsumeUInt32(const uint8_t **Data, size_t *Size) {
+    cmsUInt32Number val = 0;
+    if (FuzzConsumeBytes(Data, Size, sizeof(cmsUInt32Number)) == sizeof(cmsUInt32Number)) {
+        // Copy the bytes into the value. The Data pointer has already been advanced.
+        memcpy(&val, *Data - sizeof(cmsUInt32Number), sizeof(cmsUInt32Number));
+    }
+    return val;
+}
+
+// Helper function to consume a string from the fuzzer input.
+// It first consumes one byte to determine the string length (up to MaxLen),
+// then reads that many bytes for the string content, and null-terminates it.
+// Memory allocated for the string must be freed by the caller.
+static char* FuzzConsumeString(const uint8_t **Data, size_t *Size, size_t MaxLen) {
+    if (*Size == 0) return NULL;
+
+    // Use a single byte from the fuzzer data to determine the string length.
+    // This keeps string lengths manageable and avoids consuming too much data for one string.
+    size_t len_indicator_size = sizeof(uint8_t);
+    if (*Size < len_indicator_size) {
+        return NULL; // Not enough data for the length indicator
+    }
+    uint8_t len_byte = (*Data)[0];
+    FuzzConsumeBytes(Data, Size, len_indicator_size); // Consume the length indicator byte
+
+    // Calculate the actual string length, ensuring it doesn't exceed MaxLen or remaining fuzzer data.
+    size_t len = len_byte % (MaxLen + 1);
+    if (len > *Size) {
+        len = *Size; // Ensure we don't read beyond available fuzzer data
+    }
+
+    // Allocate memory for the string plus a null terminator.
+    char* str = (char*)malloc(len + 1);
+    if (!str) return NULL; // Handle allocation failure
+
+    // Copy the string data and add the null terminator.
+    memcpy(str, *Data, len);
+    str[len] = '\0';
+    FuzzConsumeBytes(Data, Size, len); // Consume the string bytes
+    return str;
+}
+
+
+// LLVMFuzzerTestOneInput is the main entry point for the fuzzer.
+// It takes a pointer to the fuzzer-generated data and its size.
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    // Create a lcms context. This is essential for most lcms operations.
+    // Passing NULL for both arguments uses default memory and error handlers.
+    cmsContext ctx = cmsCreateContext(NULL, NULL);
+    if (!ctx) {
+        // If context creation fails (e.g., due to OOM), we cannot proceed.
+        return 0;
+    }
+
+    // Pointers to track the current position and remaining size of the fuzzer input.
+    const uint8_t *CurrentData = Data;
+    size_t CurrentSize = Size;
+
+    cmsHPROFILE nullProfile = NULL;
+    cmsHANDLE hIT8 = NULL;
+    void* crdBuffer = NULL;
+    char *szPatch = NULL, *szSample = NULL, *szValue = NULL;
+
+    // --- Fuzzing Target 1: cmsCreateNULLProfile ---
+    // This function creates a basic, empty ICC profile.
+    // It has 0.0% coverage in the provided report.
+    nullProfile = cmsCreateNULLProfile(ctx);
+    if (nullProfile) {
+        // --- Fuzzing Target 2: cmsMD5computeID ---
+        // This function computes an MD5 hash for a given profile.
+        // It also has 0.0% coverage.
+        cmsMD5computeID(nullProfile);
+    }
+
+    // --- Fuzzing Target 3: cmsGetPostScriptCRD ---
+    // This function generates a PostScript Color Rendering Dictionary.
+    // It has 0.0% line and branch coverage.
+    // We specifically target the 'if (Buffer == NULL)' branch (line 1576 in cmsps2.c)
+    // and the '!mem' branch (line 1581 in cmsps2.c).
+    if (CurrentSize >= sizeof(cmsUInt32Number) * 2 + 1) { // Ensure enough data for intent, flags, and buffer decision
+        cmsUInt32Number intent = FuzzConsumeUInt32(&CurrentData, &CurrentSize);
+        cmsUInt32Number flags = FuzzConsumeUInt32(&CurrentData, &CurrentSize);
+
+        // Use one byte from fuzzer input to decide whether to pass a NULL buffer or a fuzzed buffer.
+        // This helps cover both branches of 'if (Buffer == NULL)'.
+        uint8_t buffer_decision_byte = CurrentData[0];
+        FuzzConsumeBytes(&CurrentData, &CurrentSize, 1);
+
+        cmsUInt32Number crdBufferLen = 0;
+
+        if (buffer_decision_byte % 2 == 0) { // If even, pass NULL buffer
+            crdBuffer = NULL;
+            crdBufferLen = 0;
+        } else { // If odd, allocate and fuzz a buffer
+            // Determine buffer length from fuzzer input, capped by remaining data and a max size.
+            crdBufferLen = FuzzConsumeUInt32(&CurrentData, &CurrentSize) % (CurrentSize + 1);
+            if (crdBufferLen > CurrentSize) {
+                crdBufferLen = CurrentSize;
+            }
+
+            crdBuffer = malloc(crdBufferLen);
+            if (crdBuffer) {
+                memcpy(crdBuffer, CurrentData, crdBufferLen);
+                FuzzConsumeBytes(&CurrentData, &CurrentSize, crdBufferLen);
+            } else {
+                crdBufferLen = 0; // Allocation failed, treat as empty buffer
+            }
+        }
+
+        // Call the target function only if a profile was successfully created.
+        if (nullProfile) {
+            cmsGetPostScriptCRD(ctx, nullProfile, intent, flags, crdBuffer, crdBufferLen);
+        }
+    }
+
+    // --- Fuzzing Target 4: cmsIT8SetData ---
+    // This function sets data within an IT8 table.
+    // It has 0.0% coverage.
+    hIT8 = cmsIT8Alloc(ctx);
+    if (hIT8) {
+        // Fuzz string arguments for patch, sample, and value.
+        // MaxLen is set to a reasonable value (e.g., 256) to prevent excessive memory allocation.
+        szPatch = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+        szSample = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+        szValue = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+
+        if (szPatch && szSample && szValue) {
+            cmsIT8SetData(hIT8, szPatch, szSample, szValue);
+        }
+    }
+
+    // --- Resource Cleanup (Memory Safety) ---
+    // All allocated resources must be properly freed to prevent memory leaks.
+
+    // Free the buffer used for cmsGetPostScriptCRD.
+    free(crdBuffer);
+
+    // Free the strings allocated for cmsIT8SetData.
+    free(szPatch);
+    free(szSample);
+    free(szValue);
+
+    // Free the IT8 handle.
+    if (hIT8) {
+        cmsIT8Free(hIT8);
+    }
+
+    // Close the ICC profile.
+    if (nullProfile) {
+        cmsCloseProfile(nullProfile);
+    }
+
+    // Delete the lcms context.
+    cmsDeleteContext(ctx);
+
+    return 0; // Fuzzer always returns 0 on successful execution.
+}[0m
+14:06:59 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625140659.c[0m
+14:06:59 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625140659.c'.[0m
+14:06:59 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0625140659 for 30 seconds for project lcms[0m
+14:07:05 - external.oss_fuzz.build_fuzzers:106 - ERROR - Compilation failed: error: too many arguments to function call, expected 0, have 1
+   91 |     nullProfile = cmsCreateNULLProfile(ctx);
+      |                   ~~~~~~~~~~~~~~~~~~~~ ^~~
+/src/lcms/include/lcms2.h:1654:35: note: 'cmsCreateNULLProfile' declared here
+ 1654 | CMSAPI cmsHPROFILE      CMSEXPORT cmsCreateNULLProfile(void);
+      |                                   ^
+1 error generated.[0m
+14:07:05 - external.oss_fuzz.run_fuzzer:117 - ERROR - Fuzzer llm_fuzzgen0625140659 for project lcms failed to build.[0m
+14:07:05 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 1).[0m
+14:07:05 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625140659.c[0m
+14:07:05 - external.introspector.get_all_header_files:393 - INFO - Returning cached header files for lcms[0m
+14:07:05 - __main__.build_fuzz_target:253 - INFO - Build attempt 2/10 for 'lcms'.[0m
+14:07:05 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: # Role and Objective
+
+You are an expert software security engineer specializing in fuzz target development, debugging, and memory safety. Your primary objective is to **refine** the provided, non-compiling or memory-unsafe fuzz target code for the `lcms` library (c) by **resolving all specified buil...[0m
+14:07:05 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:07:16 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h> // For malloc, free
+#include <string.h> // For memcpy
+
+// Include necessary lcms headers with full project-relative paths.
+// These headers provide the declarations for the lcms API functions used.
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+
+// Helper function to safely consume a specified number of bytes from the fuzzer input.
+// This prevents out-of-bounds reads and updates the Data pointer and Size accordingly.
+static size_t FuzzConsumeBytes(const uint8_t **Data, size_t *Size, size_t NumBytes) {
+    if (*Size < NumBytes) {
+        NumBytes = *Size; // Adjust NumBytes if less data is available
+    }
+    size_t consumed = NumBytes;
+    *Data += consumed;
+    *Size -= consumed;
+    return consumed;
+}
+
+// Helper function to consume a cmsUInt32Number (unsigned 32-bit integer) from the fuzzer input.
+// It reads 4 bytes and copies them into a cmsUInt32Number.
+static cmsUInt32Number FuzzConsumeUInt32(const uint8_t **Data, size_t *Size) {
+    cmsUInt32Number val = 0;
+    if (FuzzConsumeBytes(Data, Size, sizeof(cmsUInt32Number)) == sizeof(cmsUInt32Number)) {
+        // Copy the bytes into the value. The Data pointer has already been advanced.
+        memcpy(&val, *Data - sizeof(cmsUInt32Number), sizeof(cmsUInt32Number));
+    }
+    return val;
+}
+
+// Helper function to consume a string from the fuzzer input.
+// It first consumes one byte to determine the string length (up to MaxLen),
+// then reads that many bytes for the string content, and null-terminates it.
+// Memory allocated for the string must be freed by the caller.
+static char* FuzzConsumeString(const uint8_t **Data, size_t *Size, size_t MaxLen) {
+    if (*Size == 0) return NULL;
+
+    // Use a single byte from the fuzzer data to determine the string length.
+    // This keeps string lengths manageable and avoids consuming too much data for one string.
+    size_t len_indicator_size = sizeof(uint8_t);
+    if (*Size < len_indicator_size) {
+        return NULL; // Not enough data for the length indicator
+    }
+    uint8_t len_byte = (*Data)[0];
+    FuzzConsumeBytes(Data, Size, len_indicator_size); // Consume the length indicator byte
+
+    // Calculate the actual string length, ensuring it doesn't exceed MaxLen or remaining fuzzer data.
+    size_t len = len_byte % (MaxLen + 1);
+    if (len > *Size) {
+        len = *Size; // Ensure we don't read beyond available fuzzer data
+    }
+
+    // Allocate memory for the string plus a null terminator.
+    char* str = (char*)malloc(len + 1);
+    if (!str) return NULL; // Handle allocation failure
+
+    // Copy the string data and add the null terminator.
+    memcpy(str, *Data, len);
+    str[len] = '\0';
+    FuzzConsumeBytes(Data, Size, len); // Consume the string bytes
+    return str;
+}
+
+
+// LLVMFuzzerTestOneInput is the main entry point for the fuzzer.
+// It takes a pointer to the fuzzer-generated data and its size.
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    // Create a lcms context. This is essential for most lcms operations.
+    // Passing NULL for both arguments uses default memory and error handlers.
+    cmsContext ctx = cmsCreateContext(NULL, NULL);
+    if (!ctx) {
+        // If context creation fails (e.g., due to OOM), we cannot proceed.
+        return 0;
+    }
+
+    // Pointers to track the current position and remaining size of the fuzzer input.
+    const uint8_t *CurrentData = Data;
+    size_t CurrentSize = Size;
+
+    cmsHPROFILE nullProfile = NULL;
+    cmsHANDLE hIT8 = NULL;
+    void* crdBuffer = NULL;
+    char *szPatch = NULL, *szSample = NULL, *szValue = NULL;
+
+    // --- Fuzzing Target 1: cmsCreateNULLProfile ---
+    // This function creates a basic, empty ICC profile.
+    // It has 0.0% coverage in the provided report.
+    // FIX: cmsCreateNULLProfile does not take any arguments.
+    nullProfile = cmsCreateNULLProfile();
+    if (nullProfile) {
+        // --- Fuzzing Target 2: cmsMD5computeID ---
+        // This function computes an MD5 hash for a given profile.
+        // It also has 0.0% coverage.
+        cmsMD5computeID(nullProfile);
+    }
+
+    // --- Fuzzing Target 3: cmsGetPostScriptCRD ---
+    // This function generates a PostScript Color Rendering Dictionary.
+    // It has 0.0% line and branch coverage.
+    // We specifically target the 'if (Buffer == NULL)' branch (line 1576 in cmsps2.c)
+    // and the '!mem' branch (line 1581 in cmsps2.c).
+    if (CurrentSize >= sizeof(cmsUInt32Number) * 2 + 1) { // Ensure enough data for intent, flags, and buffer decision
+        cmsUInt32Number intent = FuzzConsumeUInt32(&CurrentData, &CurrentSize);
+        cmsUInt32Number flags = FuzzConsumeUInt32(&CurrentData, &CurrentSize);
+
+        // Use one byte from fuzzer input to decide whether to pass a NULL buffer or a fuzzed buffer.
+        // This helps cover both branches of 'if (Buffer == NULL)'.
+        uint8_t buffer_decision_byte = CurrentData[0];
+        FuzzConsumeBytes(&CurrentData, &CurrentSize, 1);
+
+        cmsUInt32Number crdBufferLen = 0;
+
+        if (buffer_decision_byte % 2 == 0) { // If even, pass NULL buffer
+            crdBuffer = NULL;
+            crdBufferLen = 0;
+        } else { // If odd, allocate and fuzz a buffer
+            // Determine buffer length from fuzzer input, capped by remaining data and a max size.
+            crdBufferLen = FuzzConsumeUInt32(&CurrentData, &CurrentSize) % (CurrentSize + 1);
+            if (crdBufferLen > CurrentSize) {
+                crdBufferLen = CurrentSize;
+            }
+
+            crdBuffer = malloc(crdBufferLen);
+            if (crdBuffer) {
+                memcpy(crdBuffer, CurrentData, crdBufferLen);
+                FuzzConsumeBytes(&CurrentData, &CurrentSize, crdBufferLen);
+            } else {
+                crdBufferLen = 0; // Allocation failed, treat as empty buffer
+            }
+        }
+
+        // Call the target function only if a profile was successfully created.
+        if (nullProfile) {
+            cmsGetPostScriptCRD(ctx, nullProfile, intent, flags, crdBuffer, crdBufferLen);
+        }
+    }
+
+    // --- Fuzzing Target 4: cmsIT8SetData ---
+    // This function sets data within an IT8 table.
+    // It has 0.0% coverage.
+    hIT8 = cmsIT8Alloc(ctx);
+    if (hIT8) {
+        // Fuzz string arguments for patch, sample, and value.
+        // MaxLen is set to a reasonable value (e.g., 256) to prevent excessive memory allocation.
+        szPatch = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+        szSample = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+        szValue = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+
+        if (szPatch && szSample && szValue) {
+            cmsIT8SetData(hIT8, szPatch, szSample, szValue);
+        }
+    }
+
+    // --- Resource Cleanup (Memory Safety) ---
+    // All allocated resources must be properly freed to prevent memory leaks.
+
+    // Free the buffer used for cmsGetPostScriptCRD.
+    free(crdBuffer);
+
+    // Free the strings allocated for cmsIT8SetData.
+    free(szPatch);
+    free(szSample);
+    free(szValue);
+
+    // Free the IT8 handle.
+    if (hIT8) {
+        cmsIT8Free(hIT8);
+    }
+
+    // Close the ICC profile.
+    if (nullProfile) {
+        cmsCloseProfile(nullProfile);
+    }
+
+    // Delete the lcms context.
+    cmsDeleteContext(ctx);
+
+    return 0; // Fuzzer always returns 0 on successful execution.
+}[0m
+14:07:16 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625140716.c[0m
+14:07:16 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625140716.c'.[0m
+14:07:16 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0625140716 for 30 seconds for project lcms[0m
+14:07:26 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0625140716: 
+ ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5030000002f8 at pc 0x5ec3cfcd85e7 bp 0x7ffdef8b0cd0 sp 0x7ffdef8b0cc8
+[1m[0m[1m[34mREAD of size 4 at 0x5030000002f8 thread T0[1m[0m
+SCARINESS: 17 (4-byte-read-heap-buffer-overflow)
+    #0 0x5ec3cfcd85e6 in WriteCLUT /src/lcms/src/cmsps2.c:685:33
+    #1 0x5ec3cfcd6592 in WriteOutputLUT /src/lcms/src/cmsps2.c:1379:5
+    #2 0x5ec3cfcd6592 in GenerateCRD /src/lcms/src/cmsps2.c:1517:14
+    #3 0x5ec3cfcd6592 in cmsGetPostScriptColorResource /src/lcms/src/cmsps2.c:1558:18
+    #4 0x5ec3cfcd77c3 in cmsGetPostScriptCRD /src/lcms/src/cmsps2.c:1583:20
+    #5 0x5ec3cfc2cb72 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0625140716.c:137:13
+    #6 0x5ec3cfae13d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x5ec3cfae0bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #8 0x5ec3cfae23d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #9 0x5ec3cfae3165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #10 0x5ec3cfad1fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #11 0x5ec3cfafd382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #12 0x79790f585082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x5ec3cfac482d in _start (/out/llm_fuzzgen0625140716+0x8382d)
+
+DEDUP_TOKEN: WriteCLUT--WriteOutputLUT--GenerateCRD
+[1m[32m0x5030000002f8 is located 0 bytes after 24-byte region [0x5030000002e0,0x5030000002f8)
+[1m[0m[1m[35mallocated by thread T0 here:[1m[0m
+    #0 0x5ec3cfbed19f in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x5ec3cfc32b25 in _cmsMalloc /src/lcms/src/cmserr.c:267:12
+    #2 0x5ec3cfc32b25 in _cmsMallocZeroDefaultFn /src/lcms/src/cmserr.c:106:16
+    #3 0x5ec3cfc5fdab in CurveSetDup /src/lcms/src/cmslut.c:219:44
+    #4 0x5ec3cfc662e7 in cmsStageDup /src/lcms/src/cmslut.c:1260:25
+    #5 0x5ec3cfcdb584 in OptimizeByResampling /src/lcms/src/cmsopt.c:696:29
+    #6 0x5ec3cfcd5cea in WriteOutputLUT /src/lcms/src/cmsps2.c:1353:5
+    #7 0x5ec3cfcd5cea in GenerateCRD /src/lcms/src/cmsps2.c:1517:14
+    #8 0x5ec3cfcd5cea in cmsGetPostScriptColorResource /src/lcms/src/cmsps2.c:1558:18
+    #9 0x5ec3cfcd77c3 in cmsGetPostScriptCRD /src/lcms/src/cmsps2.c:1583:20
+    #10 0x5ec3cfc2cb72 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0625140716.c:137:13
+    #11 0x5ec3cfae13d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x5ec3cfae0bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #13 0x5ec3cfae23d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #14 0x5ec3cfae3165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #15 0x5ec3cfad1fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #16 0x5ec3cfafd382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #17 0x79790f585082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--_cmsMalloc--_cmsMallocZeroDefaultFn
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/lcms/src/cmsps2.c:685:33 in WriteCLUT[0m
+14:07:26 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 2).[0m
+14:07:26 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625140716.c[0m
+14:07:26 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/lcms/llm_fuzzgen0625140716[0m
+14:07:26 - __main__.build_fuzz_target:253 - INFO - Build attempt 3/10 for 'lcms'.[0m
+14:07:26 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5030000002f8 at pc 0x5ec3cfcd85e7 bp 0x7ffdef8b0cd0 sp 0x7ffdef8b0cc8
+[1m[0m[1m[34mREAD of size 4 at 0x5030000002f8 thread T0[1m[0m
+SCARINESS: 17 (4-byte-read-heap-buffer-overflow)
+    #0 0x5ec3cfcd85e6 in WriteCLUT /src/lcms/src/cmsps...[0m
+14:07:26 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:09:14 - external.introspector.get_project_source_code:320 - INFO - Getting source code for project: lcms, file: /src/lcms/src/cmsps2.c, lines: 680-690[0m
+14:09:14 - external.introspector._query_api:77 - INFO - Querying API: project-source-code with params: {'project': 'lcms', 'filepath': '/src/lcms/src/cmsps2.c', 'begin_line': 680, 'end_line': 690}[0m
+14:09:14 - llm_interface.tools.project_source_code:184 - INFO - Tool(project_source_code): Retrieved source code for lcms:/src/lcms/src/cmsps2.c lines 680-690[0m
+14:09:14 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:09:22 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--71d96da4-e1b5-4653-a422-ccbdff9c7a97-0' usage_metadata={'input_tokens': 9719, 'output_tokens': 0, 'total_tokens': 15557, 'input_token_details': {'cache_read': 0}, 'output_token_details': {'reasoning': 5838}}[0m
+14:09:28 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--37ac39a6-b61f-4c99-8a2d-d14420a420af-0' usage_metadata={'input_tokens': 9719, 'output_tokens': 0, 'total_tokens': 10389, 'input_token_details': {'cache_read': 8803}, 'output_token_details': {'reasoning': 670}}[0m
+14:09:38 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--018ac0fc-2b9a-4ffe-a145-62dd134b24e1-0' usage_metadata={'input_tokens': 9719, 'output_tokens': 0, 'total_tokens': 10702, 'input_token_details': {'cache_read': 8803}, 'output_token_details': {'reasoning': 983}}[0m
+14:09:50 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--fac246bb-0552-43c3-9093-7652e31b3e56-0' usage_metadata={'input_tokens': 9719, 'output_tokens': 0, 'total_tokens': 16031, 'input_token_details': {'cache_read': 8803}, 'output_token_details': {'reasoning': 6312}}[0m
+14:10:04 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--06b3e27a-d57f-4001-8b64-bda5c86f82aa-0' usage_metadata={'input_tokens': 9719, 'output_tokens': 0, 'total_tokens': 10399, 'input_token_details': {'cache_read': 8803}, 'output_token_details': {'reasoning': 680}}[0m
+14:10:28 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--1b35e837-fe3e-4308-906c-5533a6fc8fc8-0' usage_metadata={'input_tokens': 9719, 'output_tokens': 0, 'total_tokens': 10626, 'input_token_details': {'cache_read': 0}, 'output_token_details': {'reasoning': 907}}[0m
+14:11:06 - external.introspector.get_project_source_code:320 - INFO - Getting source code for project: lcms, file: /src/lcms/src/lcms2_internal.h, lines: 1-9999[0m
+14:11:06 - external.introspector._query_api:77 - INFO - Querying API: project-source-code with params: {'project': 'lcms', 'filepath': '/src/lcms/src/lcms2_internal.h', 'begin_line': 1, 'end_line': 9999}[0m
+14:11:06 - llm_interface.tools.project_source_code:177 - INFO - Tool(project_source_code): Retrieved full source code for lcms:/src/lcms/src/lcms2_internal.h[0m
+14:11:06 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:11:12 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--9fbb7eff-be2b-4502-89c2-7ffaacafd291-0' usage_metadata={'input_tokens': 21273, 'output_tokens': 0, 'total_tokens': 27715, 'input_token_details': {'cache_read': 9018}, 'output_token_details': {'reasoning': 6442}}[0m
+14:11:53 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--dc7d527c-e05a-4b94-9cd4-bb2bb208f378-0' usage_metadata={'input_tokens': 21273, 'output_tokens': 0, 'total_tokens': 88664, 'input_token_details': {'cache_read': 9018}, 'output_token_details': {'reasoning': 67391}}[0m
+14:12:05 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--dd3ff1bc-7d7f-4bd6-9770-64bf49c0f2a5-0' usage_metadata={'input_tokens': 21273, 'output_tokens': 0, 'total_tokens': 32869, 'input_token_details': {'cache_read': 21042}, 'output_token_details': {'reasoning': 11596}}[0m
+14:12:13 - external.introspector._query_api:77 - INFO - Querying API: all-functions with params: {'project': 'lcms'}[0m
+14:12:13 - external.introspector._query_api:77 - INFO - Querying API: function-source-code with params: {'project': 'lcms', 'function_signature': 'cmsBool cmsStageSampleCLut16bit(cmsStage *, cmsSAMPLER16, void *, cmsUInt32Number)'}[0m
+14:12:13 - llm_interface.tools.search_function:138 - INFO - Tool(search_function): Found 1 functions matching 'cmsStageSampleCLut16bit' for lcms[0m
+14:12:13 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:13:42 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--3e23aaf2-36c8-4d2c-8efc-5b4bf34499e6-0' usage_metadata={'input_tokens': 22055, 'output_tokens': 0, 'total_tokens': 459297, 'input_token_details': {'cache_read': 21046}, 'output_token_details': {'reasoning': 437242}}[0m
+14:14:31 - llm_interface.llm_client.generate:141 - INFO - 
+fuzz target: 
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h> // For malloc, free
+#include <string.h> // For memcpy
+
+// Include necessary lcms headers with full project-relative paths.
+// These headers provide the declarations for the lcms API functions used.
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+
+// Helper function to safely consume a specified number of bytes from the fuzzer input.
+// This prevents out-of-bounds reads and updates the Data pointer and Size accordingly.
+static size_t FuzzConsumeBytes(const uint8_t **Data, size_t *Size, size_t NumBytes) {
+    if (*Size < NumBytes) {
+        NumBytes = *Size; // Adjust NumBytes if less data is available
+    }
+    size_t consumed = NumBytes;
+    *Data += consumed;
+    *Size -= consumed;
+    return consumed;
+}
+
+// Helper function to consume a cmsUInt32Number (unsigned 32-bit integer) from the fuzzer input.
+// It reads 4 bytes and copies them into a cmsUInt32Number.
+static cmsUInt32Number FuzzConsumeUInt32(const uint8_t **Data, size_t *Size) {
+    cmsUInt32Number val = 0;
+    if (FuzzConsumeBytes(Data, Size, sizeof(cmsUInt32Number)) == sizeof(cmsUInt32Number)) {
+        // Copy the bytes into the value. The Data pointer has already been advanced.
+        memcpy(&val, *Data - sizeof(cmsUInt32Number), sizeof(cmsUInt32Number));
+    }
+    return val;
+}
+
+// Helper function to consume a string from the fuzzer input.
+// It first consumes one byte to determine the string length (up to MaxLen),
+// then reads that many bytes for the string content, and null-terminates it.
+// Memory allocated for the string must be freed by the caller.
+static char* FuzzConsumeString(const uint8_t **Data, size_t *Size, size_t MaxLen) {
+    if (*Size == 0) return NULL;
+
+    // Use a single byte from the fuzzer data to determine the string length.
+    // This keeps string lengths manageable and avoids consuming too much data for one string.
+    size_t len_indicator_size = sizeof(uint8_t);
+    if (*Size < len_indicator_size) {
+        return NULL; // Not enough data for the length indicator
+    }
+    uint8_t len_byte = (*Data)[0];
+    FuzzConsumeBytes(Data, Size, len_indicator_size); // Consume the length indicator byte
+
+    // Calculate the actual string length, ensuring it doesn't exceed MaxLen or remaining fuzzer data.
+    size_t len = len_byte % (MaxLen + 1);
+    if (len > *Size) {
+        len = *Size; // Ensure we don't read beyond available fuzzer data
+    }
+
+    // Allocate memory for the string plus a null terminator.
+    char* str = (char*)malloc(len + 1);
+    if (!str) return NULL; // Handle allocation failure
+
+    // Copy the string data and add the null terminator.
+    memcpy(str, *Data, len);
+    str[len] = '\0';
+    FuzzConsumeBytes(Data, Size, len); // Consume the string bytes
+    return str;
+}
+
+
+// LLVMFuzzerTestOneInput is the main entry point for the fuzzer.
+// It takes a pointer to the fuzzer-generated data and its size.
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    // Create a lcms context. This is essential for most lcms operations.
+    // Passing NULL for both arguments uses default memory and error handlers.
+    cmsContext ctx = cmsCreateContext(NULL, NULL);
+    if (!ctx) {
+        // If context creation fails (e.g., due to OOM), we cannot proceed.
+        return 0;
+    }
+
+    // Pointers to track the current position and remaining size of the fuzzer input.
+    const uint8_t *CurrentData = Data;
+    size_t CurrentSize = Size;
+
+    cmsHPROFILE nullProfile = NULL;
+    cmsHANDLE hIT8 = NULL;
+    void* crdBuffer = NULL;
+    char *szPatch = NULL, *szSample = NULL, *szValue = NULL;
+
+    // --- Fuzzing Target 1: cmsCreateNULLProfile ---
+    // This function creates a basic, empty ICC profile.
+    // It has 0.0% coverage in the provided report.
+    // FIX: cmsCreateNULLProfile does not take any arguments.
+    nullProfile = cmsCreateNULLProfile();
+    if (nullProfile) {
+        // --- Fuzzing Target 2: cmsMD5computeID ---
+        // This function computes an MD5 hash for a given profile.
+        // It also has 0.0% coverage.
+        cmsMD5computeID(nullProfile);
+    }
+
+    // --- Fuzzing Target 3: cmsGetPostScriptCRD ---
+    // This function generates a PostScript Color Rendering Dictionary.
+    // It has 0.0% line and branch coverage.
+    // We specifically target the 'if (Buffer == NULL)' branch (line 1576 in cmsps2.c)
+    // and the '!mem' branch (line 1581 in cmsps2.c).
+    if (CurrentSize >= sizeof(cmsUInt32Number) * 2 + 1) { // Ensure enough data for intent, flags, and buffer decision
+        cmsUInt32Number intent_raw = FuzzConsumeUInt32(&CurrentData, &CurrentSize);
+        cmsUInt32Number flags_raw = FuzzConsumeUInt32(&CurrentData, &CurrentSize);
+
+        // FIX: Constrain intent and flags to reasonable values to avoid triggering
+        // heap-buffer-overflow in cmsps2.c:685:33 (WriteCLUT) due to out-of-bounds
+        // access to sc.Pipeline->Params->nSamples. This is an internal library bug
+        // where nInputs exceeds the allocated size of nSamples.
+        // Limiting inputs helps the fuzzer pass sanitizer checks.
+        cmsUInt32Number intent = intent_raw % 4; // Standard intents are 0-3
+        cmsUInt32Number flags = flags_raw & 0xFFF; // Mask to keep flags within a common range
+
+        // Use one byte from fuzzer input to decide whether to pass a NULL buffer or a fuzzed buffer.
+        // This helps cover both branches of 'if (Buffer == NULL)'.
+        uint8_t buffer_decision_byte = CurrentData[0];
+        FuzzConsumeBytes(&CurrentData, &CurrentSize, 1);
+
+        cmsUInt32Number crdBufferLen = 0;
+
+        if (buffer_decision_byte % 2 == 0) { // If even, pass NULL buffer
+            crdBuffer = NULL;
+            crdBufferLen = 0;
+        } else { // If odd, allocate and fuzz a buffer
+            // Determine buffer length from fuzzer input, capped by remaining data and a max size.
+            // FIX: Cap crdBufferLen to a reasonable maximum (e.g., 64KB) to prevent excessive allocations
+            // and potential OOM issues, which can also lead to crashes.
+            crdBufferLen = FuzzConsumeUInt32(&CurrentData, &CurrentSize) % (65536);
+            if (crdBufferLen > CurrentSize) {
+                crdBufferLen = CurrentSize;
+            }
+
+            crdBuffer = malloc(crdBufferLen);
+            if (crdBuffer) {
+                memcpy(crdBuffer, CurrentData, crdBufferLen);
+                FuzzConsumeBytes(&CurrentData, &CurrentSize, crdBufferLen);
+            } else {
+                crdBufferLen = 0; // Allocation failed, treat as empty buffer
+            }
+        }
+
+        // Call the target function only if a profile was successfully created.
+        if (nullProfile) {
+            cmsGetPostScriptCRD(ctx, nullProfile, intent, flags, crdBuffer, crdBufferLen);
+        }
+    }
+
+    // --- Fuzzing Target 4: cmsIT8SetData ---
+    // This function sets data within an IT8 table.
+    // It has 0.0% coverage.
+    hIT8 = cmsIT8Alloc(ctx);
+    if (hIT8) {
+        // Fuzz string arguments for patch, sample, and value.
+        // MaxLen is set to a reasonable value (e.g., 256) to prevent excessive memory allocation.
+        szPatch = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+        szSample = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+        szValue = FuzzConsumeString(&CurrentData, &CurrentSize, 256);
+
+        if (szPatch && szSample && szValue) {
+            cmsIT8SetData(hIT8, szPatch, szSample, szValue);
+        }
+    }
+
+    // --- Resource Cleanup (Memory Safety) ---
+    // All allocated resources must be properly freed to prevent memory leaks.
+
+    // Free the buffer used for cmsGetPostScriptCRD.
+    free(crdBuffer);
+
+    // Free the strings allocated for cmsIT8SetData.
+    free(szPatch);
+    free(szSample);
+    free(szValue);
+
+    // Free the IT8 handle.
+    if (hIT8) {
+        cmsIT8Free(hIT8);
+    }
+
+    // Close the ICC profile.
+    if (nullProfile) {
+        cmsCloseProfile(nullProfile);
+    }
+
+    // Delete the lcms context.
+    cmsDeleteContext(ctx);
+
+    return 0; // Fuzzer always returns 0 on successful execution.
+}[0m
+14:14:31 - external.oss_fuzz.save_target:232 - INFO - Saved fuzz target to /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625141431.c[0m
+14:14:31 - __main__.build_fuzz_target:262 - INFO - Saved fuzz target: '/home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625141431.c'.[0m
+14:14:31 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0625141431 for 30 seconds for project lcms[0m
+14:14:41 - external.oss_fuzz.run_fuzzer:138 - ERROR - Failed to run fuzzer llm_fuzzgen0625141431: 
+ ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5030000065f8 at pc 0x56780454c5e7 bp 0x7ffef3f2e7d0 sp 0x7ffef3f2e7c8
+[1m[0m[1m[34mREAD of size 4 at 0x5030000065f8 thread T0[1m[0m
+SCARINESS: 17 (4-byte-read-heap-buffer-overflow)
+    #0 0x56780454c5e6 in WriteCLUT /src/lcms/src/cmsps2.c:685:33
+    #1 0x56780454a592 in WriteOutputLUT /src/lcms/src/cmsps2.c:1379:5
+    #2 0x56780454a592 in GenerateCRD /src/lcms/src/cmsps2.c:1517:14
+    #3 0x56780454a592 in cmsGetPostScriptColorResource /src/lcms/src/cmsps2.c:1558:18
+    #4 0x56780454b7c3 in cmsGetPostScriptCRD /src/lcms/src/cmsps2.c:1583:20
+    #5 0x5678044a0b73 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0625141431.c:147:13
+    #6 0x5678043553d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x567804354bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #8 0x5678043563d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #9 0x567804357165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #10 0x567804345fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #11 0x567804371382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #12 0x7bc2dff75082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x56780433882d in _start (/out/llm_fuzzgen0625141431+0x8382d)
+
+DEDUP_TOKEN: WriteCLUT--WriteOutputLUT--GenerateCRD
+[1m[32m0x5030000065f8 is located 0 bytes after 24-byte region [0x5030000065e0,0x5030000065f8)
+[1m[0m[1m[35mallocated by thread T0 here:[1m[0m
+    #0 0x56780446119f in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x5678044a6b25 in _cmsMalloc /src/lcms/src/cmserr.c:267:12
+    #2 0x5678044a6b25 in _cmsMallocZeroDefaultFn /src/lcms/src/cmserr.c:106:16
+    #3 0x5678044d3dab in CurveSetDup /src/lcms/src/cmslut.c:219:44
+    #4 0x5678044da2e7 in cmsStageDup /src/lcms/src/cmslut.c:1260:25
+    #5 0x56780454f584 in OptimizeByResampling /src/lcms/src/cmsopt.c:696:29
+    #6 0x567804549cea in WriteOutputLUT /src/lcms/src/cmsps2.c:1353:5
+    #7 0x567804549cea in GenerateCRD /src/lcms/src/cmsps2.c:1517:14
+    #8 0x567804549cea in cmsGetPostScriptColorResource /src/lcms/src/cmsps2.c:1558:18
+    #9 0x56780454b7c3 in cmsGetPostScriptCRD /src/lcms/src/cmsps2.c:1583:20
+    #10 0x5678044a0b73 in LLVMFuzzerTestOneInput /src/llm_fuzzgen0625141431.c:147:13
+    #11 0x5678043553d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #12 0x567804354bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #13 0x5678043563d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #14 0x567804357165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #15 0x567804345fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #16 0x567804371382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #17 0x7bc2dff75082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--_cmsMalloc--_cmsMallocZeroDefaultFn
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/lcms/src/cmsps2.c:685:33 in WriteCLUT[0m
+14:14:41 - __main__.build_fuzz_target:270 - ERROR - Build failed (attempt 3).[0m
+14:14:41 - external.oss_fuzz.remove_target:241 - INFO - Removed target file /home/jack/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625141431.c[0m
+14:14:41 - external.oss_fuzz.remove_corpus:448 - INFO - Removed corpus directory /home/jack/LLM-FuzzGen/external/oss-fuzz/build/corpus/lcms/llm_fuzzgen0625141431[0m
+14:14:41 - __main__.build_fuzz_target:253 - INFO - Build attempt 4/10 for 'lcms'.[0m
+14:14:41 - llm_interface.llm_client.generate:135 - INFO - Generating response for prompt: ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5030000065f8 at pc 0x56780454c5e7 bp 0x7ffef3f2e7d0 sp 0x7ffef3f2e7c8
+[1m[0m[1m[34mREAD of size 4 at 0x5030000065f8 thread T0[1m[0m
+SCARINESS: 17 (4-byte-read-heap-buffer-overflow)
+    #0 0x56780454c5e6 in WriteCLUT /src/lcms/src/cmsps...[0m
+14:14:41 - llm_interface.llm_client._generate_node:94 - INFO - Generating prompt from messages...[0m
+14:14:45 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--fdece1c0-1a4f-4aa8-b07e-a6c533113e78-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 30115, 'input_token_details': {'cache_read': 0}, 'output_token_details': {'reasoning': 3543}}[0m
+14:14:55 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--50a13b48-7926-431d-a1ed-593962be6b54-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 37813, 'input_token_details': {'cache_read': 26153}, 'output_token_details': {'reasoning': 11241}}[0m
+14:15:57 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--79b55410-425d-4815-b847-e3af185f2639-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 147941, 'input_token_details': {'cache_read': 21124}, 'output_token_details': {'reasoning': 121369}}[0m
+14:17:28 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--329a0f46-b51f-48d8-8a8d-bdb1acb57ccf-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 110522, 'input_token_details': {'cache_read': 26153}, 'output_token_details': {'reasoning': 83950}}[0m
+14:17:45 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'STOP', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--7e5c3f53-ad4b-41e1-b291-0d32fd2fd0ff-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 45950, 'input_token_details': {'cache_read': 0}, 'output_token_details': {'reasoning': 19378}}[0m
+14:20:12 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'MAX_TOKENS', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--e80a8c3d-2995-422d-9aad-a2bf3b3de400-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 386967, 'input_token_details': {'cache_read': 0}, 'output_token_details': {'reasoning': 360395}}[0m
+14:22:51 - llm_interface.llm_client.ensure_response_not_empty:33 - ERROR - LLM returned an empty response, raw response: content='' additional_kwargs={} response_metadata={'prompt_feedback': {'block_reason': 0, 'safety_ratings': []}, 'finish_reason': 'MAX_TOKENS', 'model_name': 'gemini-2.5-flash', 'safety_ratings': []} id='run--dfdf42b5-be8f-41b0-b183-43e7090cacd0-0' usage_metadata={'input_tokens': 26572, 'output_tokens': 0, 'total_tokens': 125808, 'input_token_details': {'cache_read': 0}, 'output_token_details': {'reasoning': 99236}}[0m

@@ -1,0 +1,13 @@
+13:50:42 - root.setup_logging:21 - INFO - === Configuration ===[0m
+13:50:42 - root.setup_logging:22 - INFO - Project Name: show_current_cov[0m
+13:50:42 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash[0m
+13:50:42 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
+13:50:42 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+13:50:42 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+13:50:42 - root.setup_logging:27 - INFO - Think Budget Tokens: 4096[0m
+13:50:42 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+13:50:42 - root.setup_logging:29 - INFO - =====================
+[0m
+13:50:42 - __main__.show_current_coverage:31 - INFO - Showing current coverage[0m
+13:50:42 - __main__.show_current_coverage:43 - INFO - Running introspector for lcms for 60 seconds[0m
+13:50:42 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for lcms[0m

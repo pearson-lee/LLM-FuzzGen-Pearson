@@ -1,0 +1,21 @@
+10:20:48 - root.setup_logging:21 - INFO - === Configuration ===[0m
+10:20:48 - root.setup_logging:22 - INFO - Project Name: show_current_cov[0m
+10:20:48 - root.setup_logging:23 - INFO - Model: gemini-2.5-flash[0m
+10:20:48 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
+10:20:48 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
+10:20:48 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
+10:20:48 - root.setup_logging:27 - INFO - Think Budget Tokens: 4096[0m
+10:20:48 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
+10:20:48 - root.setup_logging:29 - INFO - =====================
+[0m
+10:20:48 - __main__.show_current_coverage:31 - INFO - Showing current coverage[0m
+10:20:48 - __main__.show_current_coverage:43 - INFO - Running introspector for lcms for 600 seconds[0m
+10:20:48 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for lcms[0m
+10:34:10 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for lcms[0m
+10:34:10 - __main__.show_current_coverage:107 - INFO - Coverage Summary[0m
+10:34:10 - __main__.show_current_coverage:108 - INFO - ======================================================================================[0m
+10:34:10 - __main__.show_current_coverage:109 - INFO - | Project | Branches (%)      | Functions (%)    | Lines (%)          | Fuzz Targets |[0m
+10:34:10 - __main__.show_current_coverage:110 - INFO - |---------|-------------------|------------------|--------------------|--------------|[0m
+10:34:10 - __main__.show_current_coverage:120 - INFO - | lcms    | 39.10 (3380/8644) | 55.27 (634/1147) | 47.33 (9033/19084) | 16           |[0m
+10:34:10 - __main__.show_current_coverage:122 - INFO - ======================================================================================[0m
+10:34:10 - __main__.main:478 - INFO - Total execution time: 786.06 seconds[0m
