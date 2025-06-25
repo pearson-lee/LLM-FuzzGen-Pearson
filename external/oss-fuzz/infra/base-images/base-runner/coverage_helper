@@ -14,4 +14,6 @@
 # limitations under the License.
 #
 ################################################################################
+echo "coverage_helper args: $@" >&2
 python3 $CODE_COVERAGE_SRC/coverage_utils.py $@
+echo "coverage_helper args: $@----------end----------" >&2
