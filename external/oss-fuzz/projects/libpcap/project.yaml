@@ -1,5 +1,5 @@
 homepage: "https://www.tcpdump.org"
-language: c++
+language: c
 primary_contact: "security@tcpdump.org"
 auto_ccs :
   - "p.antoine@catenacyber.fr"
