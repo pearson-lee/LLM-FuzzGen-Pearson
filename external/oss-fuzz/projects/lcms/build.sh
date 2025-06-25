@@ -48,7 +48,7 @@ for F in $FUZZERS; do
         $SRC/$F.c -o $SRC/$F.o
     $CXX $CXXFLAGS \
         $SRC/$F.o -o $OUT/$F \
-        $LIB_FUZZING_ENGINE src/.libs/liblcms2.a
+        $LIB_FUZZING_ENGINE -Wl,--whole-archive src/.libs/liblcms2.a -Wl,--no-whole-archive
 done
 
 cp $SRC/icc.dict $SRC/*.options $OUT/
