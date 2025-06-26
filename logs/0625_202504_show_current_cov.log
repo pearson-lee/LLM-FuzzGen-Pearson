@@ -1,13 +1,3 @@
-20:25:04 - root.setup_logging:21 - INFO - === Configuration ===[0m
-20:25:04 - root.setup_logging:22 - INFO - Project Name: show_current_cov[0m
-20:25:04 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
-20:25:04 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
-20:25:04 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
-20:25:04 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
-20:25:04 - root.setup_logging:27 - INFO - Think Budget Tokens: 4096[0m
-20:25:04 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
-20:25:04 - root.setup_logging:29 - INFO - =====================
-[0m
-20:25:04 - __main__.show_current_coverage:31 - INFO - Showing current coverage[0m
-20:25:04 - __main__.show_current_coverage:43 - INFO - Running introspector for libpcap for 600 seconds[0m
-20:25:04 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libpcap[0m
+version https://git-lfs.github.com/spec/v1
+oid sha256:bbbeb03c21778cba63069b8a415c155cbcaf661ab2296e8b79fae960754a2da6
+size 913

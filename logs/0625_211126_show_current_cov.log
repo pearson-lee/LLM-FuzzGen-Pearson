@@ -1,21 +1,3 @@
-21:11:26 - root.setup_logging:21 - INFO - === Configuration ===[0m
-21:11:26 - root.setup_logging:22 - INFO - Project Name: show_current_cov[0m
-21:11:26 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
-21:11:26 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
-21:11:26 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
-21:11:26 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
-21:11:26 - root.setup_logging:27 - INFO - Think Budget Tokens: 4096[0m
-21:11:26 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
-21:11:26 - root.setup_logging:29 - INFO - =====================
-[0m
-21:11:26 - __main__.show_current_coverage:31 - INFO - Showing current coverage[0m
-21:11:26 - __main__.show_current_coverage:43 - INFO - Running introspector for libpcap for 300 seconds[0m
-21:11:26 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libpcap[0m
-21:20:21 - external.oss_fuzz.generate_report:203 - INFO - Introspector reports created for libpcap[0m
-21:20:21 - __main__.show_current_coverage:107 - INFO - Coverage Summary[0m
-21:20:21 - __main__.show_current_coverage:108 - INFO - =====================================================================================[0m
-21:20:21 - __main__.show_current_coverage:109 - INFO - | Project | Branches (%)      | Functions (%)   | Lines (%)          | Fuzz Targets |[0m
-21:20:21 - __main__.show_current_coverage:110 - INFO - |---------|-------------------|-----------------|--------------------|--------------|[0m
-21:20:21 - __main__.show_current_coverage:120 - INFO - | libpcap | 64.29 (4774/7426) | 73.18 (393/537) | 61.00 (9982/16363) | 19           |[0m
-21:20:21 - __main__.show_current_coverage:122 - INFO - =====================================================================================[0m
-21:20:21 - __main__.main:478 - INFO - Total execution time: 508.46 seconds[0m
+version https://git-lfs.github.com/spec/v1
+oid sha256:40191d717a425885dab33b7b5f082d7af3297ebd6cbdff3787c8de62323ef5e5
+size 1896

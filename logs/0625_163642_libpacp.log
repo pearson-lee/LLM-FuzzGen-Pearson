@@ -1,18 +1,3 @@
-16:36:42 - root.setup_logging:21 - INFO - === Configuration ===[0m
-16:36:42 - root.setup_logging:22 - INFO - Project Name: libpacp[0m
-16:36:42 - root.setup_logging:23 - INFO - Model: gemini-2.5-pro[0m
-16:36:42 - root.setup_logging:24 - INFO - Iteration loop: 100[0m
-16:36:42 - root.setup_logging:25 - INFO - Temperature: 0.2[0m
-16:36:42 - root.setup_logging:26 - INFO - Max Tokens: 32768[0m
-16:36:42 - root.setup_logging:27 - INFO - Think Budget Tokens: 4096[0m
-16:36:42 - root.setup_logging:28 - INFO - Max Compiler Attempts: 10[0m
-16:36:42 - root.setup_logging:29 - INFO - =====================
-[0m
-16:36:42 - __main__.main:491 - INFO - Skipping initial fuzz target generation[0m
-16:36:42 - __main__.main:492 - INFO - Starting introspector webapp for initial analysis of libpacp[0m
-16:36:42 - external.oss_fuzz.generate_report:190 - INFO - Creating introspector reports for libpacp[0m
-16:36:42 - external.oss_fuzz.generate_report:200 - ERROR - Failed to generate report for libpacp: 
- ERROR:__main__:"libpacp" does not exist.
-ERROR:__main__:Failed to build project with ASAN
-[0m
-16:36:42 - __main__.generate_report_and_start_webapp:210 - ERROR - Failed to generate report for libpacp[0m
+version https://git-lfs.github.com/spec/v1
+oid sha256:343c5ad59b8e450c6b80f3d1e410b503189ff244f754a8a74da6fa973e041a2a
+size 1203
