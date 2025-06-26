@@ -1,0 +1,264 @@
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h> // Required for mkstemp and unlink
+
+/*
+ * Include the main internal pcap header. This is often necessary for
+ * fuzzing, as it provides access to all internal type definitions and
+ * function prototypes that may not be in the public headers.
+ */
+#include "/src/libpcap/pcap-int.h"
+
+/*
+ * A simple callback function for pcap_dispatch and pcap_loop.
+ * It doesn't need to do anything for this fuzzer.
+ */
+static void dummy_callback(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes) {
+    /* Do nothing */
+    (void)user;
+    (void)h;
+    (void)bytes;
+}
+
+#ifdef __cplusplus
+extern "C"
+#endif
+/* The main fuzzing entry point */
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    /*
+     * We need at least enough data for a filter string, a bpf_insn,
+     * and a pcap_pkthdr. This is a rough heuristic.
+     */
+    if (Size < sizeof(struct bpf_insn) + sizeof(struct pcap_pkthdr) + 1) {
+        return 0;
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_create and related option-setting functions ===
+    // Based on coverage reports, functions like pcap_set_tstamp_precision,
+    // pcap_set_snaplen, etc., were not being called because they require a
+    // non-activated pcap handle. pcap_open_dead returns an activated one.
+    // This block creates a handle, calls the setters, and closes it without
+    // activating to specifically target these uncovered functions.
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *p_created = pcap_create("any", errbuf);
+    if (p_created != NULL) {
+        // Use bytes from the input to exercise various setters.
+        if (Size > 6) {
+            pcap_set_snaplen(p_created, Data[0] * 256);
+            pcap_set_promisc(p_created, Data[1] % 2);
+            pcap_set_timeout(p_created, Data[2]);
+            pcap_set_tstamp_type(p_created, Data[3] % 3);
+            pcap_set_immediate_mode(p_created, Data[4] % 2);
+            pcap_set_buffer_size(p_created, Size * 10);
+            pcap_set_tstamp_precision(p_created, Data[5] % 2);
+        }
+        // Close the handle to prevent memory leaks.
+        pcap_close(p_created);
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_findalldevs ===
+    // Based on coverage report, device enumeration functions were not covered.
+    // This exercises the logic for finding available devices.
+    pcap_if_t *alldevs;
+    if (pcap_findalldevs(&alldevs, errbuf) == 0) {
+        // Free the device list allocated by pcap_findalldevs to prevent leaks.
+        pcap_freealldevs(alldevs);
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_nametoaddr ===
+    // Based on coverage report, pcap_nametoaddr was completely uncovered.
+    // This uses a portion of the input as a hostname to resolve.
+    if (Size > 1) {
+        // Create a null-terminated string for the hostname.
+        // Use a small, reasonable max length to avoid long lookups.
+        size_t name_len = Data[0] % 32;
+        if (name_len > 0 && (name_len + 1) < Size) {
+            char *hostname = (char *)malloc(name_len + 1);
+            if (hostname != NULL) {
+                memcpy(hostname, Data + 1, name_len);
+                hostname[name_len] = '\0';
+
+                bpf_u_int32 addr, mask;
+                pcap_nametoaddr(hostname, &addr, &mask, errbuf);
+
+                free(hostname);
+            }
+        }
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_strlcat ===
+    // Based on coverage report, pcap_strlcat was completely uncovered.
+    // This block calls the safe string concatenation utility.
+    if (Size > 2) {
+        size_t dst_size = (Data[0] % 128) + 1;
+        char *dst = (char *)malloc(dst_size);
+        if (dst != NULL) {
+            // Ensure dst is a valid C-string for concatenation.
+            dst[0] = '\0';
+            // Use part of the input as the source string.
+            size_t src_len = Data[1] % (Size - 1);
+            if (src_len > 0 && (src_len + 2) < Size) {
+                 char *src = (char *)malloc(src_len + 1);
+                 if (src != NULL) {
+                    memcpy(src, Data + 2, src_len);
+                    src[src_len] = '\0';
+                    pcap_strlcat(dst, src, dst_size);
+                    free(src);
+                 }
+            }
+            free(dst);
+        }
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_statustostr ===
+    // Based on coverage report, pcap_statustostr had many uncovered error codes.
+    // This calls the function with a wider range of inputs to improve coverage.
+    int error_codes[] = {
+        PCAP_ERROR_ACTIVATED, PCAP_ERROR_NO_SUCH_DEVICE,
+        PCAP_ERROR_RFMON_NOTSUP, PCAP_ERROR_NOT_RFMON,
+        PCAP_ERROR_PERM_DENIED, PCAP_ERROR_IFACE_NOT_UP,
+        PCAP_ERROR_CANTSET_TSTAMP_TYPE, PCAP_ERROR_PROMISC_PERM_DENIED,
+        PCAP_ERROR_TSTAMP_PRECISION_NOTSUP
+    };
+    if (Size > 0) {
+        pcap_statustostr(error_codes[Data[0] % (sizeof(error_codes)/sizeof(int))]);
+    }
+
+    /*
+     * Create a "dead" pcap handle. This is essential for fuzzing because it
+     * allows us to call pcap_compile and other functions without needing a
+     * live network interface, which wouldn't be available in a typical
+     * fuzzing environment.
+     */
+    pcap_t *p = pcap_open_dead(DLT_EN10MB, 65535);
+    if (p == NULL) {
+        /* This should not happen with pcap_open_dead, but check just in case */
+        return 0;
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_list_datalinks and pcap_set_datalink ===
+    // Based on coverage report, pcap_list_datalinks and pcap_set_datalink
+    // were not being called. This explores different link-layer header types.
+    int *dlt_buf;
+    int dlt_count = pcap_list_datalinks(p, &dlt_buf);
+    if (dlt_count > 0) {
+        // Use a byte from the input to select a datalink type to set.
+        pcap_set_datalink(p, dlt_buf[Data[0] % dlt_count]);
+        // Free the list allocated by pcap_list_datalinks to prevent leaks.
+        pcap_free_datalinks(dlt_buf);
+    }
+
+    // === ENHANCEMENT: Fuzz pcap_inject ===
+    // Based on coverage report, pcap_inject was not being called.
+    // This tests the packet injection path, which may have different logic
+    // on a dead handle compared to a live one.
+    pcap_inject(p, Data, Size);
+
+    // === ENHANCEMENT: Fuzz pcap_dump_open_append ===
+    // Based on coverage report, pcap_dump_open_append's logic for appending
+    // to an existing, valid pcap file was not covered. This block creates a
+    // named temporary file, writes a pcap header and one packet to it using
+    // pcap_dump_open, and then calls pcap_dump_open_append to exercise the
+    // append code path.
+    char pcap_template[] = "/tmp/fuzz_pcap_XXXXXX";
+    int pcap_fd = mkstemp(pcap_template);
+    if (pcap_fd != -1) {
+        // The file now exists. We can close the descriptor and use the path.
+        // This is safe because mkstemp guarantees we created the file exclusively.
+        close(pcap_fd);
+
+        // First, open and write to it to create a valid pcap file.
+        pcap_dumper_t *dumper = pcap_dump_open(p, pcap_template);
+        if (dumper != NULL) {
+            struct pcap_pkthdr pkthdr;
+            if (Size > sizeof(struct pcap_pkthdr)) {
+                memcpy(&pkthdr, Data, sizeof(struct pcap_pkthdr));
+                const u_char *pktdata = Data + sizeof(struct pcap_pkthdr);
+                pkthdr.caplen = pkthdr.len = Size - sizeof(struct pcap_pkthdr);
+                pcap_dump((u_char *)dumper, &pkthdr, pktdata);
+            }
+            pcap_dump_close(dumper);
+
+            // Now, try to append to the file we just created. This hits the
+            // uncovered code path for opening an existing file.
+            pcap_dumper_t *appender = pcap_dump_open_append(p, pcap_template);
+            if (appender != NULL) {
+                pcap_dump_close(appender);
+            }
+        }
+
+        // Clean up the temporary file.
+        unlink(pcap_template);
+    }
+
+    /*
+     * Fuzz Target 1: bpf_validate()
+     * This function checks a raw BPF program for validity.
+     * The second argument to bpf_validate is the number of instructions,
+     * not the size in bytes.
+     */
+    const struct bpf_insn *prog_insns = (const struct bpf_insn *)Data;
+    size_t prog_len = Size / sizeof(struct bpf_insn);
+    if (prog_len > 0) {
+        bpf_validate(prog_insns, prog_len);
+    }
+
+    /*
+     * Fuzz Target 2: pcap_compile()
+     * This function compiles a user-supplied filter string into a BPF program.
+     * The filter language is complex and a great candidate for fuzzing.
+     * We create a null-terminated string from the input data.
+     */
+    char *filter_str = (char *)malloc(Size + 1);
+    if (filter_str == NULL) {
+        pcap_close(p);
+        return 0;
+    }
+    memcpy(filter_str, Data, Size);
+    filter_str[Size] = '\0';
+
+    struct bpf_program fcode;
+    /* Attempt to compile the filter string */
+    if (pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN) == 0) {
+        /*
+         * Fuzz Target 3: pcap_offline_filter()
+         * If compilation was successful, we can now test the filter against a
+         * packet. We'll construct a packet header and use the rest of the
+         * input data as the packet itself.
+         */
+        if (Size > sizeof(struct pcap_pkthdr)) {
+            struct pcap_pkthdr pkthdr;
+            memcpy(&pkthdr, Data, sizeof(struct pcap_pkthdr));
+            const u_char *pktdata = Data + sizeof(struct pcap_pkthdr);
+            pkthdr.caplen = pkthdr.len = Size - sizeof(struct pcap_pkthdr);
+            pcap_offline_filter(&fcode, &pkthdr, pktdata);
+        }
+
+        /*
+         * Fuzz Target 4: pcap_setfilter()
+         * Test setting the compiled filter on the handle.
+         */
+        pcap_setfilter(p, &fcode);
+
+        /*
+         * Fuzz Target 5: pcap_dispatch()
+         * Although we don't have a live capture, calling dispatch can still
+         * exercise some logic with the installed filter.
+         */
+        pcap_dispatch(p, 1, dummy_callback, NULL);
+
+        /*
+         * IMPORTANT: Free the memory allocated by pcap_compile to avoid leaks.
+         */
+        pcap_freecode(&fcode);
+    }
+
+    /* Clean up the allocated string and the pcap handle */
+    free(filter_str);
+    pcap_close(p);
+
+    return 0;
+}
