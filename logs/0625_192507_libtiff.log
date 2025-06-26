@@ -29160,3 +29160,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 13:14:42 - __main__.regenerate_fuzz_target:329 - INFO - Regenerated fuzz target for libtiff successfully[0m
 13:14:42 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for libtiff with fuzzer llm_fuzzgen0626131320[0m
 13:14:42 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0626131320 for 60 seconds for project libtiff[0m
+13:16:54 - external.oss_fuzz.run_fuzzer:142 - INFO - Fuzzer llm_fuzzgen0626131320 ran successfully[0m
+13:20:32 - external.oss_fuzz.get_coverage_summary:415 - INFO - Successfully extracted total coverage summary for libtiff (excluding target).[0m
+13:20:32 - external.oss_fuzz.coverage:182 - INFO - Coverage for libtiff with fuzzer llm_fuzzgen0626131320: 65.78292746792354%[0m
+13:20:32 - external.oss_fuzz.coverage:152 - INFO - Computing coverage for libtiff with fuzzer llm_fuzzgen0626131320[0m
+13:20:32 - external.oss_fuzz.run_fuzzer:111 - INFO - Running fuzzer llm_fuzzgen0626131320 for 60 seconds for project libtiff[0m
