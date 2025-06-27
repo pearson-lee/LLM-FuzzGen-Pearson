@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from ast import arg
 import logging
 import sys
 import time
@@ -36,7 +35,9 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
 
     projects_to_process = project_names
     if not projects_to_process:
-        projects_to_process = [p.name for p in build_out_dir.iterdir() if p.is_dir()]
+        projects_to_process = [
+            p.name for p in projects_dir.iterdir() if p.is_dir() and not p.name.startswith("non-test-projects")
+        ]
 
     if run_introspector_seconds:
         for project_name in projects_to_process:
@@ -163,18 +164,21 @@ def _parse_args() -> argparse.Namespace:
     parser_process.add_argument("project_name", help="The name of the project to process.")
     parser_process.add_argument(
         "--initial-fuzz-target",
+        "-i",
         action="store_true",
         default=False,
         help="Generate an initial fuzz target. Default is not to generate.",
     )
     parser_process.add_argument(
         "--seconds",
+        "-s",
         type=int,
         default=60,
         help="The number of seconds to wait for report generation. Default is 60 seconds.",
     )
     parser_process.add_argument(
         "--dict",
+        "-d",
         action="store_true",
         default=False,
         help="Enable dictionary generation.",
@@ -193,6 +197,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser_cov.add_argument(
         "--run_introspector",
+        "-r",
         type=int,
         nargs="?",
         const=15,
