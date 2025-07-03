@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 introspector = Introspector()
 oss_fuzz = OSSFuzz()
-llm_client = LLMClient()
 
 
 def validate_dictionary_content(dict_content: str) -> str:
@@ -127,7 +126,7 @@ def validate_dictionary_content(dict_content: str) -> str:
     return "\n".join(valid_lines)
 
 
-def generate_dict_for_proj(project_name: str):
+def generate_dict_for_proj(project_name: str, llm_client: LLMClient):
     """Generates a dictionary for the project."""
     git_url = oss_fuzz.main_git_repo(project_name)
     prompt = prompt_generator.dict_prompt(proj=project_name, git_url=git_url)
@@ -136,7 +135,7 @@ def generate_dict_for_proj(project_name: str):
     oss_fuzz.add_dict(project_name, dict_content)
 
 
-def generate_seeds_for_fuzzer(project_name: str, fuzzer_name: str, fuzzer_source_code: str):
+def generate_seeds_for_fuzzer(project_name: str, fuzzer_name: str, fuzzer_source_code: str, llm_client: LLMClient):
     """Generates seeds for a specific fuzzer."""
     logger.info(f"Generating seeds for fuzzer: {fuzzer_name}")
 

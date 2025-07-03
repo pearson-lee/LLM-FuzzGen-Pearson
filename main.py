@@ -5,6 +5,7 @@ import time
 import argparse
 import json
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import config.config as config
 import prompts.prompt_generator as prompt_generator
@@ -19,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 oss_fuzz = OSSFuzz()
 introspector = Introspector()
-llm_client = LLMClient()
+# The LLMClient will be initialized in main() after parsing arguments.
+llm_client: LLMClient | None = None
 
 
-def show_current_coverage(project_names: list[str], run_introspector_seconds: int | None):
+def show_current_coverage(project_names: list[str], run_introspector_seconds: int | None, parallel: bool):
     """
     Shows the current coverage for the specified projects.
     Optionally runs the introspector before showing the coverage.
@@ -40,9 +42,28 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
         ]
 
     if run_introspector_seconds:
-        for project_name in projects_to_process:
-            logger.info(f"Running introspector for {project_name} for {run_introspector_seconds} seconds")
-            oss_fuzz.generate_report(project_name, run_introspector_seconds, clean=True)
+        # Determine the number of workers for the executor
+        max_workers = None if parallel else 1
+        log_message = (
+            f"Running introspector for {len(projects_to_process)} projects in parallel..."
+            if parallel
+            else f"Running introspector for {len(projects_to_process)} projects sequentially..."
+        )
+        logger.info(log_message)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_project = {
+                executor.submit(oss_fuzz.generate_report, project_name, run_introspector_seconds, clean=True): project_name
+                for project_name in projects_to_process
+            }
+
+            for future in future_to_project:
+                project_name = future_to_project[future]
+                try:
+                    future.result()  # We don't need the result, but this will raise exceptions if any occurred
+                    logger.info(f"Successfully generated report for {project_name}")
+                except Exception:
+                    logger.exception(f"Failed to generate report for {project_name}")
 
     # Collect data for the table
     table_data = []
@@ -104,7 +125,6 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
     header_line = "| " + " | ".join(f"{h:<{col_widths[h]}}" for h in headers) + " |"
     separator_line = "|-" + "-|-".join("-" * col_widths[h] for h in headers) + "-|"
 
-    print("\n\n")
     logger.info("Coverage Summary")
     logger.info("=" * len(header_line))
     logger.info(header_line)
@@ -189,6 +209,12 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Enable seed generation.",
     )
+    parser_process.add_argument(
+        "--llm",
+        choices=["gemini", "vertexai"],
+        default="gemini",
+        help="Specify the LLM backend to use.",
+    )
 
     # Subparser for showing current coverage
     parser_cov = subparsers.add_parser("show_current_cov", help="Show current coverage for specified projects.")
@@ -205,6 +231,7 @@ def _parse_args() -> argparse.Namespace:
         metavar="SECONDS",
         help="Run introspector for the specified number of seconds before showing coverage. Defaults to 15s if no value is provided.",
     )
+    parser_cov.add_argument("-p", "--parallel", action="store_true", help="Run introspector in parallel for multiple projects.")
 
     args = parser.parse_args()
     return args
@@ -342,7 +369,7 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
         logger.info(f"Starting to process project: {project_name}")
 
         if use_dict:
-            generate_dict_for_proj(project_name)
+            generate_dict_for_proj(project_name, llm_client)
         iterator = FuzzIterator(project_name, oss_fuzz)
         fuzz_target = None  # Will hold the path to the current fuzz target
         iterator.record_cov()  # Record coverage before any fuzz target generation
@@ -374,7 +401,7 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
                 continue
 
             if use_seeds:
-                generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text())
+                generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text(), llm_client)
                 oss_fuzz.remove_corpus(project_name, new_target.stem)
 
             cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
@@ -479,13 +506,17 @@ def main() -> None:
 
         if args.command == "show_current_cov":
             setup_logging("show_current_cov")
-            show_current_coverage(args.project_names, args.run_introspector)
+            show_current_coverage(args.project_names, args.run_introspector, args.parallel)
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
             return
 
-        # Default command is "process"
         project_name = args.project_name
         setup_logging(project_name)
+
+        # Default command is "process"
+        # Initialize the LLM client only when the command is "process"
+        global llm_client
+        llm_client = LLMClient(backend=args.llm)
 
         if args.initial_fuzz_target:
             logger.info("Generating initial fuzz target")

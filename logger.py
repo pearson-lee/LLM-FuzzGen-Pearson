@@ -14,7 +14,7 @@ def setup_logging(project_name: str, log_dir: Path = Path(__file__).parent / "lo
     handlers = [logging.FileHandler(log_file, mode="w"), logging.StreamHandler(sys.stdout)]
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s.%(funcName)s:%(lineno)d - %(levelname)s - %(message)s\033[0m",
+        format="%(asctime)s - %(name)s.%(funcName)s:%(lineno)d - %(levelname)s - %(message)s\033[0m\r",
         datefmt="%H:%M:%S",
         handlers=handlers,
     )
@@ -26,4 +26,4 @@ def setup_logging(project_name: str, log_dir: Path = Path(__file__).parent / "lo
     logging.info(f"Max Tokens: {config.MAX_TOKENS}")
     logging.info(f"Think Budget Tokens: {config.THINK_BUDGET_TOKEN}")
     logging.info(f"Max Compiler Attempts: {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}")
-    logging.info("=====================\n")
+    logging.info("=====================")

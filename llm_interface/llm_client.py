@@ -35,45 +35,49 @@ def ensure_response_not_empty(message: BaseMessage) -> BaseMessage:
 
 
 class LLMClient:
-    def __init__(self):
+    def __init__(self, backend: Literal["gemini", "vertexai"] = "gemini"):
         try:
-            llm_base = langchain_genai.ChatGoogleGenerativeAI(
-                temperature=config.TEMPERATURE,
-                model=config.MODEL_NAME,
-                max_output_tokens=config.MAX_TOKENS,
-                thinking_budget=config.THINK_BUDGET_TOKEN,
-                safety_settings={
-                    langchain_genai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_TOXICITY: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_VIOLENCE: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_DANGEROUS: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_DEROGATORY: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_MEDICAL: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_SEXUAL: langchain_genai.HarmBlockThreshold.OFF,
-                    langchain_genai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_genai.HarmBlockThreshold.OFF,
-                },
-            )
-
-            # llm_base = langchain_vertexai.ChatVertexAI(
-            #     model=config.MODEL_NAME,
-            #     temperature=config.TEMPERATURE,
-            #     max_tokens=config.MAX_TOKENS,
-            #     thinking_budget=config.THINK_BUDGET_TOKEN,
-            #     safety_settings={
-            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_vertexai.HarmBlockThreshold.OFF,
-            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_vertexai.HarmBlockThreshold.OFF,
-            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_vertexai.HarmBlockThreshold.OFF,
-            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_vertexai.HarmBlockThreshold.OFF,
-            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_vertexai.HarmBlockThreshold.OFF,
-            #         langchain_vertexai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_vertexai.HarmBlockThreshold.OFF,
-            #     },
-            #     project="ordinal-oxygen-lz9rc",
-            #     location="global",
-            # )
+            logger.info(f"Initializing LLM with backend: {backend}")
+            if backend == "vertexai":
+                llm_base = langchain_vertexai.ChatVertexAI(
+                    model=config.MODEL_NAME,
+                    temperature=config.TEMPERATURE,
+                    max_tokens=config.MAX_TOKENS,
+                    thinking_budget=config.THINK_BUDGET_TOKEN,
+                    safety_settings={
+                        langchain_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_vertexai.HarmBlockThreshold.OFF,
+                        langchain_vertexai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_vertexai.HarmBlockThreshold.OFF,
+                        langchain_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_vertexai.HarmBlockThreshold.OFF,
+                        langchain_vertexai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_vertexai.HarmBlockThreshold.OFF,
+                        langchain_vertexai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_vertexai.HarmBlockThreshold.OFF,
+                        langchain_vertexai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_vertexai.HarmBlockThreshold.OFF,
+                    },
+                    project="ordinal-oxygen-lz9rc",
+                    location="global",
+                )
+            elif backend == "gemini":
+                llm_base = langchain_genai.ChatGoogleGenerativeAI(
+                    temperature=config.TEMPERATURE,
+                    model=config.MODEL_NAME,
+                    max_output_tokens=config.MAX_TOKENS,
+                    thinking_budget=config.THINK_BUDGET_TOKEN,
+                    safety_settings={
+                        langchain_genai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_TOXICITY: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_VIOLENCE: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_DANGEROUS: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_DEROGATORY: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_MEDICAL: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_SEXUAL: langchain_genai.HarmBlockThreshold.OFF,
+                        langchain_genai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_genai.HarmBlockThreshold.OFF,
+                    },
+                )
+            else:
+                raise ValueError(f"Unsupported LLM backend: {backend}")
 
             validator = RunnableLambda(ensure_response_not_empty)
             retry_attempt = 10
@@ -85,6 +89,7 @@ class LLMClient:
             self._llm = pipeline_with_tools.with_retry(stop_after_attempt=retry_attempt)
 
             self._graph = self._build_graph()
+            logger.info("LLMClient initialized successfully.")
 
         except Exception as e:
             logger.error(f"LLM initialization failed: {e}")
