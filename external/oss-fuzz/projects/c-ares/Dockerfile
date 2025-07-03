@@ -1,4 +1,3 @@
-#!/bin/bash -eu
 # Copyright 2016 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,5 +14,10 @@
 #
 ################################################################################
 
-# Run the OSS-Fuzz script in the curl-fuzzer project.
-./ossfuzz.sh
+FROM gcr.io/oss-fuzz-base/base-builder
+RUN apt-get update && apt-get install -y make autoconf automake libtool
+# c-ares version 1.20.0
+RUN git clone --branch cares-1_20_0 --depth 1 https://github.com/c-ares/c-ares.git
+WORKDIR c-ares
+COPY build.sh $SRC/
+COPY llm_fuzzgen* $SRC/
