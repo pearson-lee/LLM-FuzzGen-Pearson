@@ -396,21 +396,22 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 continue
 
-            if (cov_without_seeds := oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)) <= 0:
+            if (cov := oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)) <= 0:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 continue
+
+            logger.info(f"Coverage : {cov}")
 
             if use_seeds:
                 generate_seeds_for_fuzzer(project_name, new_target.stem, new_target.read_text(), llm_client)
                 oss_fuzz.remove_corpus(project_name, new_target.stem)
+                cov = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
+                logger.info(f"Coverage with seeds: {cov}")
 
-            cov_with_seeds = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
-            coverage_growth = cov_with_seeds - previous_cov
-            logger.info(f"Coverage without seeds: {cov_without_seeds}")
-            logger.info(f"Coverage with seeds: {cov_with_seeds}")
-            logger.info(f"coverage: {previous_cov} -> {cov_with_seeds} (growth: {coverage_growth:.2f})")
+            coverage_growth = cov - previous_cov
+            logger.info(f"coverage: {previous_cov} -> {cov} (growth: {coverage_growth:.2f})")
 
-            if cov_with_seeds <= previous_cov:
+            if cov <= previous_cov:
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 logger.warning(f"Fuzz target's coverage is lower than the previous iteration {iteration + 1}")
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration

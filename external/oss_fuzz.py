@@ -70,9 +70,18 @@ class OSSFuzz:
 
     def _extract_build_error_message(self, output: str) -> str:
         """Extract relevant error message from compiler output."""
-        pattern = r"(error:.*?generated\.|error:.*)"
+        # Define the core error pattern.
+        error_pattern = r"(error:.*?generated\.|error:.*)"
+
+        # If llm_fuzzgen is present, anchor the search to it.
+        prefix = r"llm_fuzzgen[\s\S]*?" if "llm_fuzzgen" in output else ""
+        
+        # Combine the pattern and perform the search once.
+        pattern = prefix + error_pattern
         match = re.search(pattern, output, re.DOTALL | re.IGNORECASE)
-        return match.group(0).strip() if match else output
+
+        # The error message is always in group(1).
+        return match.group(1).strip() if match else output
 
     def _convert_str_to_seed_bytes(self, seed_str: str) -> bytes:
         # 第一層：處理來自 LLM 的、包含 "\\x" 字面文字的字串
