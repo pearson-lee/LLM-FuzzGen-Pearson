@@ -419,6 +419,7 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
                 logger.info(f"No growth count: {no_growth_count}/{config.NO_GROWTH_STOP_THRESHOLD}")
                 continue
 
+            oss_fuzz.minimize_corpus(project_name)
             if not generate_report_and_start_webapp(project_name, seconds=seconds, clean=True):
                 oss_fuzz.remove_target(project_name, new_target.stem)
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration

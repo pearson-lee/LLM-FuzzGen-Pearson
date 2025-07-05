@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -75,7 +76,7 @@ class OSSFuzz:
 
         # If llm_fuzzgen is present, anchor the search to it.
         prefix = r"llm_fuzzgen[\s\S]*?" if "llm_fuzzgen" in output else ""
-        
+
         # Combine the pattern and perform the search once.
         pattern = prefix + error_pattern
         match = re.search(pattern, output, re.DOTALL | re.IGNORECASE)
@@ -457,6 +458,82 @@ class OSSFuzz:
                 logger.info(f"Removed corpus directory {corpus_dir}")
             except Exception as e:
                 logger.error(f"Failed to remove corpus directory {corpus_dir}: {e}", exc_info=True)
+
+    @staticmethod
+    def _minimize_corpus_worker(args):
+        """
+        Worker function to minimize a single fuzzer's corpus by executing a script inside a fresh Docker container.
+        """
+        fuzzer_name, proj_name, oss_fuzz_dir_str = args
+
+        # Define paths as they exist inside the Docker container
+        container_base_path = "/src/oss-fuzz"
+        fuzzer_path = f"{container_base_path}/build/out/{proj_name}/{fuzzer_name}"
+        corpus_path = f"{container_base_path}/build/corpus/{proj_name}/{fuzzer_name}"
+        tmp_corpus_path = f"{corpus_path}_tmp"
+
+        # This script runs entirely inside the container, ensuring correct permissions.
+        script = f"""
+        set -e
+        if [ ! -d "{corpus_path}" ] || [ -z "$(ls -A {corpus_path} 2>/dev/null)" ]; then
+            echo "Corpus for {fuzzer_name} is empty or does not exist. Skipping."
+            exit 0
+        fi
+        echo "Minimizing corpus for {fuzzer_name}..."
+        mkdir -p {tmp_corpus_path}
+        {fuzzer_path} -use_value_profile=1 -set_cover_merge=1 {tmp_corpus_path} {corpus_path}
+        rm -rf {corpus_path}
+        mv {tmp_corpus_path} {corpus_path}
+        echo "Corpus for {fuzzer_name} minimized successfully."
+        """
+
+        image_name = f"gcr.io/oss-fuzz/{proj_name}"
+        volume_mount = f"{oss_fuzz_dir_str}:{container_base_path}"
+
+        cmd = ["docker", "run", "--rm", "-v", volume_mount, image_name, "bash", "-c", script]
+
+        try:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True, errors="ignore")
+            return True, result.stdout
+        except subprocess.CalledProcessError as e:
+            return False, f"Docker command failed: {e.stderr or e.stdout}"
+        except Exception as e:
+            return False, f"An unexpected error occurred: {e}"
+
+    def minimize_corpus(self, proj_name: str) -> None:
+        """Minimizes the corpus for all fuzz targets of a given project in parallel."""
+        logger.info(f"Minimizing corpus for project {proj_name}")
+
+        build_result = self.build_fuzzers(proj_name)
+        if not build_result.success:
+            logger.error(f"Failed to build fuzzers for {proj_name}. Aborting corpus minimization.")
+            return
+
+        project_out_dir = self.build_out_dir / proj_name
+        fuzz_targets = [
+            f
+            for f in project_out_dir.iterdir()
+            if f.is_file() and f.stat().st_mode & 0o111 and "." not in f.name and f.name != "llvm-symbolizer"
+        ]
+
+        if not fuzz_targets:
+            logger.warning(f"No fuzz targets found for project {proj_name}.")
+            return
+
+        tasks = [(target.name, proj_name, str(self.oss_fuzz_dir)) for target in fuzz_targets]
+
+        with ThreadPoolExecutor() as executor:
+            future_to_fuzzer = {executor.submit(OSSFuzz._minimize_corpus_worker, task): task[0] for task in tasks}
+            for future in as_completed(future_to_fuzzer):
+                fuzzer_name = future_to_fuzzer[future]
+                try:
+                    success, message = future.result()
+                    if success:
+                        logger.info(f"Successfully minimized corpus for {fuzzer_name}.")
+                    else:
+                        logger.error(f"Failed to minimize corpus for {fuzzer_name}: {message}")
+                except Exception as exc:
+                    logger.error(f"{fuzzer_name} generated an exception: {exc}")
 
     # def textcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
     #     """Returns the textcov report for the given fuzzer."""
