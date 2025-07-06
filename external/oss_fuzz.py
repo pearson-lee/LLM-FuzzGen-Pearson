@@ -529,11 +529,11 @@ class OSSFuzz:
                 try:
                     success, message = future.result()
                     if success:
-                        logger.info(f"Successfully minimized corpus for {fuzzer_name}.")
+                        logger.info(f"Successfully minimized corpus for {proj_name} - {fuzzer_name}")
                     else:
-                        logger.error(f"Failed to minimize corpus for {fuzzer_name}: {message}")
+                        logger.error(f"Failed to minimize corpus for {proj_name} - {fuzzer_name}: {message}")
                 except Exception as exc:
-                    logger.error(f"{fuzzer_name} generated an exception: {exc}")
+                    logger.error(f"{proj_name} - {fuzzer_name} generated an exception: {exc}")
 
     # def textcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
     #     """Returns the textcov report for the given fuzzer."""

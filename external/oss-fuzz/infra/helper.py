@@ -1381,6 +1381,13 @@ def introspector(args):
   build_fuzzers_command = [
       'build_fuzzers', '--sanitizer=coverage', args.project.name
   ] + args_to_append
+
+  # llm_fuzzgen
+  # We need to clean again to prevent the prepare_corpus step from generating files in the out directory, which would slow down coverage extraction.
+  if args.clean:
+    build_fuzzers_command.append('--clean')
+  #############
+
   if not build_fuzzers(parse_args(parser, build_fuzzers_command)):
     logger.error('Failed to build project with coverage instrumentation')
     return False

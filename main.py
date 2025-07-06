@@ -24,6 +24,12 @@ introspector = Introspector()
 llm_client: LLMClient | None = None
 
 
+def minimize_and_generate_report(proj_name: str, run_introspector_seconds: int, clean: bool):
+    """Helper function to minimize corpus and then generate a report."""
+    oss_fuzz.minimize_corpus(proj_name)
+    return oss_fuzz.generate_report(proj_name, run_introspector_seconds, clean)
+
+
 def show_current_coverage(project_names: list[str], run_introspector_seconds: int | None, parallel: bool):
     """
     Shows the current coverage for the specified projects.
@@ -53,7 +59,7 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_project = {
-                executor.submit(oss_fuzz.generate_report, project_name, run_introspector_seconds, clean=True): project_name
+                executor.submit(minimize_and_generate_report, project_name, run_introspector_seconds, True): project_name
                 for project_name in projects_to_process
             }
 
@@ -529,7 +535,7 @@ def main() -> None:
             logger.info("Skipping initial fuzz target generation")
         logger.info(f"Starting introspector webapp for initial analysis of {project_name}")
 
-        if not generate_report_and_start_webapp(project_name, seconds=args.seconds, clean=True):
+        if not minimize_and_generate_report(project_name, seconds=args.seconds, clean=True):
             sys.exit(1)
 
         initial_coverage_percent = oss_fuzz.get_coverage_summary(project_name, exclude_target=True).lines.percent
@@ -539,7 +545,7 @@ def main() -> None:
 
         result = process_project(project_name, seconds=args.seconds, use_dict=args.dict, use_seeds=args.seeds)
 
-        if not generate_report_and_start_webapp(project_name, seconds=args.seconds, clean=True):
+        if not minimize_and_generate_report(project_name, seconds=args.seconds, clean=True):
             sys.exit(1)
 
         calculate_statistics(project_name, initial_coverage_percent)
