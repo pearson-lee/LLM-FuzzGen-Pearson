@@ -843,10 +843,12 @@ def build_fuzzers_impl(  # pylint: disable=too-many-arguments,too-many-locals,to
     ],
                architecture=architecture)
 
+    # LLM-FuzzGen: Clean up work directory, but keep ccache.
+    # Because we use ccache in the build.sh script
     docker_run([
         '-v',
         '%s:/work' % project.work, '-t',
-        'gcr.io/oss-fuzz/%s' % project.name, '/bin/bash', '-c', 'rm -rf /work/*'
+        'gcr.io/oss-fuzz/%s' % project.name, '/bin/bash', '-O', 'extglob', '-c', 'rm -rf /work/!(ccache)'
     ],
                architecture=architecture)
 
