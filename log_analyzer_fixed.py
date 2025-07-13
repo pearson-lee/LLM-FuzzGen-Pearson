@@ -60,12 +60,12 @@ class LogAnalyzer:
     def _extract_project_name(self, content: str) -> str:
         """從log內容中提取專案名稱"""
         # 尋找 "Project Name: xxx" 的模式
-        project_match = re.search(r"Project Name:\s*(\w+)", content)
+        project_match = re.search(r"Project Name:\s*([\w-]+)", content)
         if project_match:
             return project_match.group(1)
 
         # 尋找 "Build attempt x/y for 'xxx'" 的模式作為備選
-        build_match = re.search(r"Build attempt \d+/\d+ for '(\w+)'", content)
+        build_match = re.search(r"Build attempt \d+/\d+ for '([\w-]+)'", content)
         if build_match:
             return build_match.group(1)
 
@@ -84,7 +84,7 @@ class LogAnalyzer:
 
         for i, line in enumerate(lines, 1):
             # 檢查 Build attempt
-            build_match = re.search(r"Build attempt (\d+)/(\d+) for '(\w+)'", line)
+            build_match = re.search(r"Build attempt (\d+)/(\d+) for '([\w-]+)'", line)
             if build_match and build_match.group(3) == project_name:
                 attempt_num = int(build_match.group(1))
                 max_attempts = int(build_match.group(2))
