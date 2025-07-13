@@ -1384,7 +1384,7 @@ def introspector(args):
       'build_fuzzers', '--sanitizer=coverage', args.project.name
   ] + args_to_append
 
-  # llm_fuzzgen
+  # LLM-FuzzGen
   # We need to clean again to prevent the prepare_corpus step from generating files in the out directory, which would slow down coverage extraction.
   if args.clean:
     build_fuzzers_command.append('--clean')

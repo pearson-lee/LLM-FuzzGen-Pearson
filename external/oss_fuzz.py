@@ -107,7 +107,7 @@ class OSSFuzz:
 
     def build_fuzzers(self, proj_name: str, sanitizer: str = "address") -> CompilationResult:
         """Builds fuzzers for the given project."""
-        success, stdout, stderr = self._run_helper_command(["build_fuzzers", f"--sanitizer={sanitizer}", proj_name])
+        success, stdout, stderr = self._run_helper_command(["build_fuzzers", "--clean", f"--sanitizer={sanitizer}", proj_name])
 
         if success:
             return CompilationResult(success=True)
@@ -116,14 +116,12 @@ class OSSFuzz:
         logger.error(f"Compilation failed: {error_message}")
         return CompilationResult(success=False, error=error_message)
 
-    def run_fuzzer(self, proj_name: str, fuzzer_name: str, seconds: int = 30) -> CompilationResult:
+    def run_fuzzer(self, proj_name: str, fuzzer_name: str, seconds: int = 30, build_fuzzer: bool = True) -> CompilationResult:
         """Runs the fuzzer for the given project and fuzzer name."""
         logger.info(f"Running fuzzer {fuzzer_name} for {seconds} seconds for project {proj_name}")
 
-        # Build the fuzzer
         binary_path = self.build_out_dir / proj_name / fuzzer_name
-        build_result = self.build_fuzzers(proj_name)
-        if not build_result.success:
+        if build_fuzzer and not (build_result := self.build_fuzzers(proj_name)).success:
             logger.error(f"Fuzzer {fuzzer_name} for project {proj_name} failed to build.")
             return CompilationResult(success=False, error=build_result.error)
 
@@ -151,6 +149,31 @@ class OSSFuzz:
 
         logger.info(f"Fuzzer {fuzzer_name} ran successfully")
         return CompilationResult(success=True, error="")
+
+    def run_all_fuzzers(self, project_name: str, seconds: int = 30):
+        """Builds and runs all fuzzers for a given project."""
+        logger.info(f"Building all fuzzers for project {project_name}")
+        build_result = self.build_fuzzers(project_name)
+        if not build_result.success:
+            logger.error(f"Failed to build fuzzers for project {project_name}.")
+            return
+
+        fuzzer_dir = self.build_out_dir / project_name
+        fuzzers_to_run = [
+            f.name for f in fuzzer_dir.iterdir()
+            if f.is_file() and f.name.startswith("llm_fuzzgen") and not f.suffix
+        ]
+
+        with ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(self.run_fuzzer, project_name, fuzzer_name, seconds, build_fuzzer=False)
+                for fuzzer_name in fuzzers_to_run
+            }
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.error(f'Fuzzer execution generated an exception: {exc}')
 
     def coverage(self, proj_name: str, fuzzer_name: str = None, seconds: int = 60, fun_name_regex: str = None) -> float:
         """

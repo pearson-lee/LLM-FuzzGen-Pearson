@@ -135,16 +135,13 @@ def input_prompt(*, fuzz_target: str = "", proj: str = "", coverage_info: str = 
     )
 
 
-def regeneration_prompt(
-    *, signature: str = "", headers: str = "", lang: str = "c++", proj: str = "", fun_coverage_report: str = ""
-) -> str:
+def regeneration_prompt(*, headers: str = "", lang: str = "c++", proj: str = "", fun_coverage_report: str = "") -> str:
     """Generates a prompt for regenerating a fuzz target."""
     output_example = FUZZ_TARGET_EXAMPLES.get(lang.lower(), "")
 
     return _load_and_format_template(
         template_name="regeneration_template",
-        input_variables=["signature", "headers", "lang", "proj", "output_example", "fun_coverage_report"],
-        signature=signature,
+        input_variables=["headers", "lang", "proj", "output_example", "fun_coverage_report"],
         headers=headers,
         lang=lang,
         proj=proj,

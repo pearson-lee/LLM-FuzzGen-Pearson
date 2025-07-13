@@ -30,10 +30,16 @@ def minimize_and_generate_report(proj_name: str, run_introspector_seconds: int, 
     return oss_fuzz.generate_report(proj_name, run_introspector_seconds, clean)
 
 
-def show_current_coverage(project_names: list[str], run_introspector_seconds: int | None, parallel: bool):
+def run_fuzzers_and_get_coverage(proj_name: str, run_seconds: int):
+    """Helper function to run all fuzzers and then get coverage."""
+    oss_fuzz.run_all_fuzzers(proj_name, run_seconds)
+    oss_fuzz.coverage(proj_name)
+
+
+def show_current_coverage(project_names: list[str], run_seconds: int, parallel: int):
     """
     Shows the current coverage for the specified projects.
-    Optionally runs the introspector before showing the coverage.
+    Runs all fuzzers and generates a coverage report before showing the coverage.
     """
     logger.info("Showing current coverage")
 
@@ -47,29 +53,23 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
             p.name for p in projects_dir.iterdir() if p.is_dir() and not p.name.startswith("non-test-projects")
         ]
 
-    if run_introspector_seconds:
-        # Determine the number of workers for the executor
-        max_workers = None if parallel else 1
-        log_message = (
-            f"Running introspector for {len(projects_to_process)} projects in parallel..."
-            if parallel
-            else f"Running introspector for {len(projects_to_process)} projects sequentially..."
-        )
-        logger.info(log_message)
+    # Determine the number of workers for the executor
+    max_workers = parallel
+    logger.info(f"Running all fuzzers for {len(projects_to_process)} projects with {max_workers} parallel worker(s)...")
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_project = {
-                executor.submit(minimize_and_generate_report, project_name, run_introspector_seconds, True): project_name
-                for project_name in projects_to_process
-            }
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_project = {
+            executor.submit(run_fuzzers_and_get_coverage, project_name, run_seconds): project_name
+            for project_name in projects_to_process
+        }
 
-            for future in future_to_project:
-                project_name = future_to_project[future]
-                try:
-                    future.result()  # We don't need the result, but this will raise exceptions if any occurred
-                    logger.info(f"Successfully generated report for {project_name}")
-                except Exception:
-                    logger.exception(f"Failed to generate report for {project_name}")
+        for future in future_to_project:
+            project_name = future_to_project[future]
+            try:
+                future.result()  # We don't need the result, but this will raise exceptions if any occurred
+                logger.info(f"Successfully generated report for {project_name}")
+            except Exception:
+                logger.exception(f"Failed to generate report for {project_name}")
 
     # Collect data for the table
     table_data = []
@@ -149,29 +149,6 @@ def show_current_coverage(project_names: list[str], run_introspector_seconds: in
     logger.info("=" * len(header_line))
 
 
-def _format_all_function_for_prompt(project_name: str, coverage_threshold: float = 50.0) -> str:
-    """
-    Formats function signature data obtained from the introspector into a prompt string.
-    Only includes functions with coverage below the specified threshold.
-    """
-    return "\n".join(
-        f"- Signature: `{sig}`\n"
-        f"- Header(s): {', '.join(headers)}\n"
-        f"- Runtime coverage percent: {coverage}%\n"
-        f"- File path: {file_path}"
-        for func in introspector.get_all_functions(project_name)[:50]
-        for sig, headers, coverage, file_path in [
-            (
-                func.get("function_signature", "N/A"),
-                func.get("possible_header_files", []),
-                func.get("runtime_coverage_percent", 0.0),
-                func.get("function_filename", ""),
-            )
-        ]
-        if coverage < coverage_threshold
-    )
-
-
 # Statistics for tracking coverage growth
 regeneration_growth = []
 mutation_growth = []
@@ -228,16 +205,20 @@ def _parse_args() -> argparse.Namespace:
         "project_names", nargs="*", help="The names of the projects to show coverage for. Shows all if none are provided."
     )
     parser_cov.add_argument(
-        "--run_introspector",
+        "--run-fuzzers",
         "-r",
         type=int,
-        nargs="?",
-        const=15,
-        default=None,
+        default=60,
         metavar="SECONDS",
-        help="Run introspector for the specified number of seconds before showing coverage. Defaults to 15s if no value is provided.",
+        help="Run all fuzzers for the specified number of seconds before showing coverage. Defaults to 60s.",
     )
-    parser_cov.add_argument("-p", "--parallel", action="store_true", help="Run introspector in parallel for multiple projects.")
+    parser_cov.add_argument(
+        "--parallel",
+        "-p",
+        type=int,
+        default=1,
+        help="The number of projects to run in parallel. Defaults to 1.",
+    )
 
     args = parser.parse_args()
     return args
@@ -355,7 +336,6 @@ def regenerate_fuzz_target(project_name: str) -> Path | None:
     logger.info(f"Regenerating fuzz target for project: {project_name}")
 
     prompt = prompt_generator.regeneration_prompt(
-        signature=_format_all_function_for_prompt(project_name),
         fun_coverage_report=oss_fuzz.funcov_reports(project_name),
         headers=", ".join(introspector.get_all_header_files(project_name)),
         proj=project_name,
@@ -425,12 +405,7 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
                 logger.info(f"No growth count: {no_growth_count}/{config.NO_GROWTH_STOP_THRESHOLD}")
                 continue
 
-            oss_fuzz.minimize_corpus(project_name)
-            if not generate_report_and_start_webapp(project_name, seconds=seconds, clean=True):
-                oss_fuzz.remove_target(project_name, new_target.stem)
-                fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
-                logger.warning(f"Fuzz target is failed to generate report {iteration + 1}")
-                continue
+            oss_fuzz.run_all_fuzzers(project_name, seconds=seconds)
 
             no_growth_count = 0
             logger.info(f"No growth count reset, 0/{config.NO_GROWTH_STOP_THRESHOLD}")
@@ -514,7 +489,7 @@ def main() -> None:
 
         if args.command == "show_current_cov":
             setup_logging("show_current_cov")
-            show_current_coverage(args.project_names, args.run_introspector, args.parallel)
+            show_current_coverage(args.project_names, args.run_fuzzers, args.parallel)
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
             return
 
