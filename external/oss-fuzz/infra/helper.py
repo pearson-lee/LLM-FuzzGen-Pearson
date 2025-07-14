@@ -836,10 +836,11 @@ def build_fuzzers_impl(  # pylint: disable=too-many-arguments,too-many-locals,to
   if clean:
     logger.info('Cleaning existing build artifacts.')
 
+    # LLM-FuzzGen: use find to clean out directory. avoid "Argument list too long"
     # Clean old and possibly conflicting artifacts in project's out directory.
     docker_run([
         '-v', f'{project_out}:/out', '-t', f'gcr.io/oss-fuzz/{project.name}',
-        '/bin/bash', '-c', 'rm -rf /out/*'
+        '/bin/bash', '-c', 'find /out -mindepth 1 -delete'
     ],
                architecture=architecture)
 
@@ -1469,7 +1470,7 @@ def run_fuzzer(args):
     ])
 
   custom_args = ['-detect_leaks=0', '-shrink=1', '-max_len=8192',
-                 '-use_value_profile=1', f'-artifact_prefix={args.fuzzer_name}_']
+                 '-use_value_profile=1', f'-artifact_prefix=/out/{args.fuzzer_name}_']
   
   run_args.extend([
       '-v',
