@@ -24,10 +24,10 @@ introspector = Introspector()
 llm_client: LLMClient | None = None
 
 
-def minimize_and_generate_report(proj_name: str, run_introspector_seconds: int, clean: bool):
+def minimize_and_generate_report(proj_name: str, seconds: int, clean: bool):
     """Helper function to minimize corpus and then generate a report."""
     oss_fuzz.minimize_corpus(proj_name)
-    return oss_fuzz.generate_report(proj_name, run_introspector_seconds, clean)
+    return generate_report_and_start_webapp(proj_name, seconds, clean)
 
 
 def run_fuzzers_and_get_coverage(proj_name: str, run_seconds: int):
@@ -194,7 +194,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser_process.add_argument(
         "--llm",
-        choices=["gemini", "vertexai"],
+        choices=["gemini", "vertexai", "openrouter"],
         default="gemini",
         help="Specify the LLM backend to use.",
     )
@@ -405,7 +405,7 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
                 logger.info(f"No growth count: {no_growth_count}/{config.NO_GROWTH_STOP_THRESHOLD}")
                 continue
 
-            oss_fuzz.run_all_fuzzers(project_name, seconds=seconds)
+            run_fuzzers_and_get_coverage(proj_name=project_name, run_seconds=seconds)
 
             no_growth_count = 0
             logger.info(f"No growth count reset, 0/{config.NO_GROWTH_STOP_THRESHOLD}")

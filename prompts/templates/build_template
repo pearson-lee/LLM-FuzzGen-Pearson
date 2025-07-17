@@ -10,8 +10,35 @@ Do not include any copyright or license headers in the generated fuzz target cod
 
 - **Memory Safety First**: All code must be meticulously memory-safe. All allocations must be freed. Prefer RAII/smart pointers in C++.
 - **Preserve Intent**: When enhancing or fixing, modify the minimum amount of code necessary. Do not alter the original fuzzing logic unless required to fix an error or improve coverage.
-- **Determinism & Simplicity**: Ensure the fuzzer is deterministic. Avoid global state, threads, or unnecessary complexity.
-- **Structured Input (C++)**: Utilize `<fuzzer/FuzzedDataProvider.h>` for structured, type-aware input generation where beneficial.
+- **Determinism & State**: The fuzz target must be deterministic and stateless.
+- **Stateless File I/O**: If filesystem interaction is unavoidable, it must be stateless and safe for parallel execution.
+    - **Location**: All temporary files must be in `/tmp`.
+    - **Unique Naming**: Filenames **MUST** be unique by using the `_FUZZ_TARGET_NAME` **compile-time macro** (provided by the build system) to prevent race conditions.
+        - **Forbidden**: Do **NOT** use runtime methods like `getenv()` to get the fuzzer name, as this breaks determinism. Hard-coded names like `/tmp/fuzz.dat` are also forbidden.
+    - **Cleanup**: All temporary files **MUST** be deleted before the fuzzer exits.
+    - **Example (C/C++)**:
+      ```cpp
+      // C++:
+      #include <string>
+      #include <unistd.h>
+      std::string path = std::string("/tmp/") + _FUZZ_TARGET_NAME + ".tmp";
+      // Use path.c_str() for C-style APIs like fopen()
+      // ...
+      unlink(path.c_str());
+
+      // C:
+      #include <stdio.h>
+      #include <string.h>
+      #include <unistd.h>
+      char path[256];
+      snprintf(path, sizeof(path), "/tmp/%s.tmp", _FUZZ_TARGET_NAME);
+      // ...
+      unlink(path);
+      ```
+- **Handle Invalid Inputs**: If using `FuzzedDataProvider` to generate values for enums, flags, or indices, ensure the target API is called in a way that can handle potentially invalid values gracefully.
+- **Memory and Data Safety**:
+    - **CRITICAL**: To prevent using uninitialized memory, you **MUST** verify that `fdp.ConsumeData()` or `fdp.ConsumeBytes()` successfully populated the entire buffer by checking its return value.
+- **Structured Input (C++)**: Utilize `<fuzzer/FuzzedDataProvider.h>` for structured, type-aware input generation.
 - **Correctness**: Ensure all code is syntactically correct for the target language ({lang}) and follows project-specific conventions (e.g., `extern "C"` for C++).
 
 # Task-Specific Strategy: Debugging Build Errors and Memory Leaks
@@ -49,9 +76,8 @@ You have access to the following tools to assist you in generating the fuzz targ
 - **Target Library Name**: `{proj}`
 - **Programming Language**: `{lang}`
 - **Existing Fuzz Target Code (Potentially with Memory Leaks)**:
-```
 {fuzz_target_code}
-```
+
 - **Build Error Messages and/or Memory Leak Report(s)**:
 ```
 {error_messages}
@@ -61,14 +87,16 @@ You have access to the following tools to assist you in generating the fuzz targ
 
 # Output Requirements
 
-- **Final Output Format**: After successfully resolving the build errors through your internal reasoning and iteration, present **only** the complete, corrected fuzz target code in this exact structure. **You MUST return the entire fuzz target code, not just the modified or fixed parts.**
+- **Final Output Format**: After successfully resolving the build errors through your internal reasoning and iteration, present **only** the complete, corrected fuzz target code within a single `<fuzz_target>` XML block. **You MUST return the entire fuzz target code, not just the modified or fixed parts.** Do not wrap the code in markdown code blocks inside the `<fuzz_target>` block.
 
-```{lang}
+<fuzz_target>
 // Your generated fuzz target code here
-```
+</fuzz_target>
 
 Example:
+<fuzz_target>
 {output_example}
+</fuzz_target>
 
 # Execute Task
 

@@ -13,6 +13,7 @@ from langgraph.graph import StateGraph, add_messages
 from langgraph.graph.state import CompiledStateGraph
 import langchain_google_genai as langchain_genai
 import langchain_google_vertexai as langchain_vertexai
+from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def ensure_response_not_empty(message: BaseMessage) -> BaseMessage:
 
 
 class LLMClient:
-    def __init__(self, backend: Literal["gemini", "vertexai"] = "gemini"):
+    def __init__(self, backend: Literal["gemini", "vertexai", "openrouter"] = "gemini"):
         try:
             logger.info(f"Initializing LLM with backend: {backend}")
             if backend == "vertexai":
@@ -54,6 +55,8 @@ class LLMClient:
                     },
                     project="ordinal-oxygen-lz9rc",
                     location="global",
+                    # location="us-central1",
+                    # location="europe-west1",
                 )
             elif backend == "gemini":
                 llm_base = langchain_genai.ChatGoogleGenerativeAI(
@@ -76,6 +79,17 @@ class LLMClient:
                         langchain_genai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_genai.HarmBlockThreshold.OFF,
                     },
                 )
+            elif backend == "openrouter":
+                llm_base = ChatOpenAI(
+                    model_name="deepseek/deepseek-chat-v3-0324:free",
+                    temperature=config.TEMPERATURE,
+                    max_tokens=config.MAX_TOKENS,
+                    openai_api_key="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",
+                    openai_api_base="https://openrouter.ai/api/v1",
+                    # extra_body={
+                    #     "provider": {"only": ["moonshotai"]},
+                    # },
+                )
             else:
                 raise ValueError(f"Unsupported LLM backend: {backend}")
 
@@ -85,7 +99,7 @@ class LLMClient:
             pipeline_without_tools = llm_base | validator
             self._llm_without_tools = pipeline_without_tools.with_retry(stop_after_attempt=retry_attempt)
 
-            pipeline_with_tools = llm_base.bind_tools(tools=tools, tool_choice="auto") | validator
+            pipeline_with_tools = llm_base.bind_tools(tools=tools) | validator
             self._llm = pipeline_with_tools.with_retry(stop_after_attempt=retry_attempt)
 
             self._graph = self._build_graph()
@@ -103,12 +117,18 @@ class LLMClient:
     def _parse_node(self, state: State) -> dict:
         content = state["messages"][-1].content
         if not content:
-            parsed = ""
+            return {"parsed": ""}
+
+        if isinstance(content, list):
+            content = " ".join(str(item) for item in content)
+
+        match = re.search(r"<fuzz_target>(.*?)</fuzz_target>", content, re.DOTALL)
+        if match:
+            parsed = match.group(1).strip()
         else:
-            if isinstance(content, list):
-                content = " ".join(str(item) for item in content)
-            match = re.search(r"```(?:c|cpp|c\+\+)\n(.*?)```", content, re.DOTALL)
-            parsed = match.group(1).strip() if match else content.strip()
+            logger.warning(f"Could not find <fuzz_target> tag in response. Returning full content. Response: {content[:500]}")
+            parsed = content.strip()
+
         return {"parsed": parsed}
 
     def _should_continue(self, state: State) -> Literal["tools", "parse"]:

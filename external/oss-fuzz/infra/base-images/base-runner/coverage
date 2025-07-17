@@ -69,9 +69,9 @@ TIMEOUT=1h
 objects=""
 
 # Number of CPUs available, this is needed for running tests in parallel.
-# Set the max number of parallel jobs to be the CPU count and a max of 10.
+# Set the max number of parallel jobs to be the CPU count and a max of 20.
 NPROC=$(nproc)
-MAX_PARALLEL_COUNT=10
+MAX_PARALLEL_COUNT=20
 
 CORPUS_DIR=${CORPUS_DIR:-"/corpus"}
 
@@ -95,7 +95,8 @@ function run_fuzz_target {
   # because (A) corpuses are already minimized; (B) we do not use sancov, and so
   # libFuzzer always finishes merge with an empty output dir.
   # Use 100s timeout instead of 25s as code coverage builds can be very slow.
-  local args="-merge=1 -timeout=100 $corpus_dummy $corpus_real"
+  # LLM-FuzzGen: use -artifact_prefix=/tmp/ to prevent coverage_helper from analyzing large amounts of crash files
+  local args="-merge=1 -timeout=100 $corpus_dummy $corpus_real -artifact_prefix=/tmp/"
 
   export LLVM_PROFILE_FILE=$profraw_file
   timeout $TIMEOUT $OUT/$target $args &> $LOGS_DIR/$target.log

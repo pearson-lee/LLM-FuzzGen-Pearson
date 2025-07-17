@@ -65,7 +65,6 @@ def search_function(project_name: str, function_name_pattern: str) -> str:
         >>> search_function("tinyxml2", "SetAttribute")
         Function signature: void tinyxml2::XMLElement::SetAttribute(const char *, const char *)
         Possible header files: ['/src/tinyxml2/tinyxml2.h']
-        Runtime coverage percent: 10.5%
         Source location: /src/tinyxml2/tinyxml2.h:1467:1470
         Source code:
         void XMLElement::SetAttribute( const char* name, const char* value )
@@ -82,7 +81,6 @@ def search_function(project_name: str, function_name_pattern: str) -> str:
         str: A formatted string containing all matching functions in the project, with each function represented by:
             - Function signature: The human-readable function signature
             - Possible header files: A list of possible header files for the function
-            - Runtime coverage percent: The runtime coverage percentage. Useful for prioritizing low-coverage functions for testing.
             - Source location: The source file path with line numbers in format "filepath:start_line:end_line"
             - Source code: The complete source code of the function
             Returns empty string if no functions are found.
@@ -126,7 +124,6 @@ def search_function(project_name: str, function_name_pattern: str) -> str:
             [
                 f"Function signature: {function_signature}",
                 f"Possible header files: {func.get('possible_header_files', [])}",
-                f"Runtime coverage percent: {func.get('runtime_coverage_percent', 0.0)}%",
                 f"Source location: {source_location}",
                 "Source code:",
                 source_code if source_code else "(Source code not available)",

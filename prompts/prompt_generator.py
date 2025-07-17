@@ -6,7 +6,6 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
 FUZZ_TARGET_EXAMPLES = {
     "c": """
-```c
 // Please note that in C, you do not need to use `extern "C"` to declare the `LLVMFuzzerTestOneInput` function, as it is a C function, not a C++ function.
 // Additionally, in C, you cannot use FuzzedDataProvider.
 #include <stdint.h>
@@ -16,10 +15,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   DoSomethingInterestingWithMyAPI(Data, Size);
   return 0;
 }
-```
 """,
     "c++": """
-```c++
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -37,7 +34,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
 
   return 0;
 }
-```
 """,
 }
 
