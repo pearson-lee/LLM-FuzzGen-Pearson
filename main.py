@@ -30,18 +30,26 @@ def minimize_and_generate_report(proj_name: str, seconds: int, clean: bool):
     return generate_report_and_start_webapp(proj_name, seconds, clean)
 
 
-def run_fuzzers_and_get_coverage(proj_name: str, run_seconds: int):
-    """Helper function to run all fuzzers and then get coverage."""
+def run_fuzzers_and_get_coverage(proj_name: str, run_seconds: int, minimize_corpus: bool = False, get_coverage: bool = True):
+    """Helper function to run all fuzzers and then optionally get coverage."""
+    if minimize_corpus:
+        oss_fuzz.minimize_corpus(proj_name)
     oss_fuzz.run_all_fuzzers(proj_name, run_seconds)
-    oss_fuzz.coverage(proj_name)
+    if get_coverage:
+        oss_fuzz.coverage(proj_name)
 
 
-def show_current_coverage(project_names: list[str], run_seconds: int, parallel: int):
+def run_all_fuzzer(
+    project_names: list[str],
+    run_seconds: int,
+    parallel: int,
+    minimize_corpus: bool = False,
+    print_coverage: bool = False,
+):
     """
-    Shows the current coverage for the specified projects.
-    Runs all fuzzers and generates a coverage report before showing the coverage.
+    Runs all fuzzers for the specified projects and optionally shows the coverage summary.
     """
-    logger.info("Showing current coverage")
+    logger.info("Running all fuzzers")
 
     # Determine which projects to process
     build_out_dir = Path("./external/oss-fuzz/build/out/")
@@ -57,19 +65,27 @@ def show_current_coverage(project_names: list[str], run_seconds: int, parallel: 
     max_workers = parallel
     logger.info(f"Running all fuzzers for {len(projects_to_process)} projects with {max_workers} parallel worker(s)...")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_project = {
-            executor.submit(run_fuzzers_and_get_coverage, project_name, run_seconds): project_name
-            for project_name in projects_to_process
-        }
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_project = {
+                executor.submit(
+                    run_fuzzers_and_get_coverage, project_name, run_seconds, minimize_corpus, print_coverage
+                ): project_name
+                for project_name in projects_to_process
+            }
 
-        for future in future_to_project:
-            project_name = future_to_project[future]
-            try:
-                future.result()  # We don't need the result, but this will raise exceptions if any occurred
-                logger.info(f"Successfully generated report for {project_name}")
-            except Exception:
-                logger.exception(f"Failed to generate report for {project_name}")
+            for future in future_to_project:
+                project_name = future_to_project[future]
+                try:
+                    future.result()  # We don't need the result, but this will raise exceptions if any occurred
+                    logger.info(f"Successfully generated report for {project_name}")
+                except BaseException:
+                    logger.exception(f"Failed to generate report for {project_name}")
+    except KeyboardInterrupt:
+        logger.info("Fuzzing interrupted by user. Shutting down...")
+
+    if not print_coverage:
+        return
 
     # Collect data for the table
     table_data = []
@@ -194,30 +210,39 @@ def _parse_args() -> argparse.Namespace:
     )
     parser_process.add_argument(
         "--llm",
-        choices=["gemini", "vertexai", "openrouter"],
+        choices=["gemini", "vertexai", "openrouter", "ollama"],
         default="gemini",
         help="Specify the LLM backend to use.",
     )
 
-    # Subparser for showing current coverage
-    parser_cov = subparsers.add_parser("show_current_cov", help="Show current coverage for specified projects.")
-    parser_cov.add_argument(
-        "project_names", nargs="*", help="The names of the projects to show coverage for. Shows all if none are provided."
+    # Subparser for running all fuzzers
+    parser_run = subparsers.add_parser("run_all_fuzzer", help="Run all fuzzers for specified projects.")
+    parser_run.add_argument(
+        "--minimize-corpus", action="store_true", default=False, help="Minimize corpus before running fuzzers."
     )
-    parser_cov.add_argument(
+    parser_run.add_argument(
+        "project_names", nargs="*", help="The names of the projects to run fuzzers for. Runs all if none are provided."
+    )
+    parser_run.add_argument(
         "--run-fuzzers",
         "-r",
         type=int,
         default=60,
         metavar="SECONDS",
-        help="Run all fuzzers for the specified number of seconds before showing coverage. Defaults to 60s.",
+        help="Run all fuzzers for the specified number of seconds. Defaults to 60s.",
     )
-    parser_cov.add_argument(
+    parser_run.add_argument(
         "--parallel",
         "-p",
         type=int,
         default=1,
         help="The number of projects to run in parallel. Defaults to 1.",
+    )
+    parser_run.add_argument(
+        "--print-coverage",
+        action="store_true",
+        default=False,
+        help="Print coverage summary table at the end.",
     )
 
     args = parser.parse_args()
@@ -487,17 +512,21 @@ def main() -> None:
         t0 = time.perf_counter()
         args = _parse_args()
 
-        if args.command == "show_current_cov":
-            setup_logging("show_current_cov")
-            show_current_coverage(args.project_names, args.run_fuzzers, args.parallel)
+        if args.command == "run_all_fuzzer":
+            setup_logging("run_all_fuzzer")
+            run_all_fuzzer(
+                args.project_names,
+                args.run_fuzzers,
+                args.parallel,
+                args.minimize_corpus,
+                args.print_coverage,
+            )
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
             return
 
         project_name = args.project_name
         setup_logging(project_name)
 
-        # Default command is "process"
-        # Initialize the LLM client only when the command is "process"
         global llm_client
         llm_client = LLMClient(backend=args.llm)
 

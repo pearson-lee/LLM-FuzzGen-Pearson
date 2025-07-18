@@ -59,13 +59,14 @@ class OSSFuzz:
         try:
             process = subprocess.run(
                 ["python", str(self.helper_script)] + args,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 check=False,
                 text=True,
                 errors="ignore",
             )
             return process.returncode == 0, process.stdout, process.stderr
-        except Exception as e:
+        except BaseException as e:
             logger.warning(f"Helper command '{args}' failed with exception: {e}")
             return False, "", str(e)
 
@@ -120,7 +121,6 @@ class OSSFuzz:
         """Runs the fuzzer for the given project and fuzzer name."""
         logger.info(f"Running fuzzer {fuzzer_name} for {seconds} seconds for project {proj_name}")
 
-        binary_path = self.build_out_dir / proj_name / fuzzer_name
         if build_fuzzer and not (build_result := self.build_fuzzers(proj_name)).success:
             logger.error(f"Fuzzer {fuzzer_name} for project {proj_name} failed to build.")
             return CompilationResult(success=False, error=build_result.error)
@@ -143,8 +143,7 @@ class OSSFuzz:
             error_pattern = r"ERROR:.*?SUMMARY:[^\n]*"
             match = re.search(error_pattern, full_output, re.DOTALL)
             error_message = match.group(0) if match else full_output
-            logger.error(f"Failed to run fuzzer {fuzzer_name}: \n {error_message}")
-            binary_path.unlink(True)
+            logger.error(f"Failed to run fuzzer {fuzzer_name}: \n{error_message}")
             return CompilationResult(success=False, error=error_message)
 
         logger.info(f"Fuzzer {fuzzer_name} ran successfully")
@@ -160,20 +159,22 @@ class OSSFuzz:
 
         fuzzer_dir = self.build_out_dir / project_name
         fuzzers_to_run = [
-            f.name for f in fuzzer_dir.iterdir()
-            if f.is_file() and f.name.startswith("llm_fuzzgen") and not f.suffix
+            f.name for f in fuzzer_dir.iterdir() if f.is_file() and f.name.startswith("llm_fuzzgen") and not f.suffix
         ]
 
-        with ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(self.run_fuzzer, project_name, fuzzer_name, seconds, build_fuzzer=False)
-                for fuzzer_name in fuzzers_to_run
-            }
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as exc:
-                    logger.error(f'Fuzzer execution generated an exception: {exc}')
+        try:
+            with ThreadPoolExecutor() as executor:
+                futures = {
+                    executor.submit(self.run_fuzzer, project_name, fuzzer_name, seconds, build_fuzzer=False)
+                    for fuzzer_name in fuzzers_to_run
+                }
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except BaseException as exc:
+                        logger.error(f"Fuzzer execution generated an exception: {exc}")
+        except KeyboardInterrupt:
+            logger.info("Fuzzing interrupted by user. Shutting down...")
 
     def coverage(self, proj_name: str, fuzzer_name: str = None, seconds: int = 60, fun_name_regex: str = None) -> float:
         """

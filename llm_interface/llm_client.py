@@ -14,6 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 import langchain_google_genai as langchain_genai
 import langchain_google_vertexai as langchain_vertexai
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def ensure_response_not_empty(message: BaseMessage) -> BaseMessage:
 
 
 class LLMClient:
-    def __init__(self, backend: Literal["gemini", "vertexai", "openrouter"] = "gemini"):
+    def __init__(self, backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini"):
         try:
             logger.info(f"Initializing LLM with backend: {backend}")
             if backend == "vertexai":
@@ -82,13 +83,22 @@ class LLMClient:
             elif backend == "openrouter":
                 llm_base = ChatOpenAI(
                     model_name="deepseek/deepseek-chat-v3-0324:free",
+                    # model_name="qwen/qwen3-235b-a22b:free",
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_TOKENS,
-                    openai_api_key="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",
                     openai_api_base="https://openrouter.ai/api/v1",
                     # extra_body={
                     #     "provider": {"only": ["moonshotai"]},
                     # },
+                )
+            elif backend == "ollama":
+                llm_base = ChatOllama(
+                    # model="qwen3:32b",
+                    model="deepseek-r1:8b",
+                    temperature=config.TEMPERATURE,
+                    num_predict=config.MAX_TOKENS,
+                    num_ctx=config.MAX_TOKENS,
+                    base_url="http://localhost:11434",
                 )
             else:
                 raise ValueError(f"Unsupported LLM backend: {backend}")
