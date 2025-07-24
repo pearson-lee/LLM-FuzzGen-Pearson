@@ -22,19 +22,21 @@ def function_cross_references(project_name: str, function_signature: str) -> str
             Headers: /src/tinyxml2/tinyxml2.h
 
     Args:
-        project_name (str): The target project or library name where the function is defined. Examples: "tinyxml2", "libxml2", "cjson"
+        project_name (str): The target project or library name. Examples: "tinyxml2", "cjson"
         function_signature (str): The signature of the function to analyze.
 
     Returns:
         str: A formatted string containing:
             - Function signature
             - List of caller functions with their signatures and headers
-            Returns empty string if no information is found.
+            Returns a message if no callers are found.
     """
     project_name = project_name.lower()
+    logger.info(f"Tool(function_cross_references): project_name='{project_name}', function_signature='{function_signature}'")
     if not function_signature:
-        logger.info(f"Tool(function_cross_references): No function signature provided")
-        return ""
+        msg = "Tool(function_cross_references): No function signature provided"
+        logger.warning(msg)
+        return msg
 
     # Get cross references (functions that call this function)
     callers = introspector.get_function_cross_references(project_name=project_name, function_signature=function_signature)
@@ -54,7 +56,9 @@ def function_cross_references(project_name: str, function_signature: str) -> str
         result.append("No functions call this function")
 
     final_result = "\n".join(result)
-    logger.info(f"Tool(function_cross_references): Information for {function_signature}: {final_result}")
+    logger.info(
+        f"Retrieved, Tool(function_cross_references): function_signature='{function_signature}', callers_found={len(callers)}"
+    )
     return final_result
 
 
@@ -74,31 +78,29 @@ def search_function(project_name: str, function_name_pattern: str) -> str:
         }
 
     Args:
-        project_name (str): The target project or library name where the functions are defined. Examples: "tinyxml2", "libxml2", "cjson"
+        project_name (str): The target project or library name. Examples: "tinyxml2", "cjson"
         function_name_pattern (str): The pattern to search for in function names. Can be a substring.
 
     Returns:
-        str: A formatted string containing all matching functions in the project, with each function represented by:
-            - Function signature: The human-readable function signature
-            - Possible header files: A list of possible header files for the function
-            - Source location: The source file path with line numbers in format "filepath:start_line:end_line"
-            - Source code: The complete source code of the function
-            Returns empty string if no functions are found.
+        str: A formatted string of all matching functions, including their signature, header files, source location, and source code. Returns a message if no functions are found.
 
     """
     project_name = project_name.lower()
+    logger.info(f"Tool(search_function): project_name='{project_name}', function_name_pattern='{function_name_pattern}'")
     all_functions = introspector.get_all_functions(project_name=project_name)
 
     if not all_functions:
-        logger.info(f"Tool(search_function): No functions found for {project_name}")
-        return ""
+        msg = f"No functions found for {project_name}"
+        logger.info(f"Tool(search_function): {msg}")
+        return msg
 
     # Filter functions based on the name pattern
     matched_functions = [func for func in all_functions if function_name_pattern in func["function_name"]]
 
     if not matched_functions:
-        logger.info(f"Tool(search_function): No functions matching '{function_name_pattern}' found for {project_name}")
-        return ""
+        msg = f"No functions matching '{function_name_pattern}' found for {project_name}"
+        logger.info(f"Tool(search_function): {msg}")
+        return msg
 
     # Format the output
     result = []
@@ -133,13 +135,13 @@ def search_function(project_name: str, function_name_pattern: str) -> str:
 
     final_result = "\n".join(result).strip()
     logger.info(
-        f"Tool(search_function): Found {len(matched_functions)} functions matching '{function_name_pattern}' for {project_name}"
+        f"Retrieved, Tool(search_function): function_name_pattern='{function_name_pattern}', functions_found={len(matched_functions)}"
     )
     return final_result
 
 
 @tool(parse_docstring=True)
-def project_source_code(project_name: str, filepath: str, begin_line: int = None, end_line: int = None) -> str:
+def project_source_code(project_name: str, filepath: str, begin_line: int = 1, end_line: int = 9999) -> str:
     """
     Retrieve the source code of a specific file in a project, with optional line range selection.
 
@@ -153,32 +155,30 @@ def project_source_code(project_name: str, filepath: str, begin_line: int = None
         (returns the source code from line 10 to 20)
 
     Args:
-        project_name (str): Target project or library name, e.g., "tinyxml2", "libxml2", "cjson".
+        project_name (str): The target project or library name. Examples: "tinyxml2", "cjson"
         filepath (str): Path to the file within the project, e.g., "/src/tinyxml2/tinyxml2.cpp".
         begin_line (int, optional): Starting line number (inclusive, 1-based).
         end_line (int, optional): Ending line number (inclusive, 1-based).
 
     Returns:
-        str: The source code of the specified file (or line range), or an empty string if not found.
+        str: The source code of the specified file (or line range). Returns an empty string if the file is not found, or a message if the filepath is not provided.
     """
     project_name = project_name.lower()
+    logger.info(
+        f"Tool(project_source_code): project_name='{project_name}', filepath='{filepath}', begin_line={begin_line}, end_line={end_line}"
+    )
     if not filepath:
-        logger.info(f"Tool(project_source_code): No filepath provided")
-        return ""
-
-    # If no line range is specified, retrieve the entire file
-    if begin_line is None or end_line is None:
-        source_code = introspector.get_project_source_code(
-            project_name=project_name, filepath=filepath, begin_line=1, end_line=9999
-        )
-        logger.info(f"Tool(project_source_code): Retrieved full source code for {project_name}:{filepath}")
-        return source_code
+        msg = "No filepath provided"
+        logger.warning(f"Tool(project_source_code): {msg}")
+        return msg
 
     # Retrieve the specified line range
     source_code = introspector.get_project_source_code(
         project_name=project_name, filepath=filepath, begin_line=begin_line, end_line=end_line
     )
-    logger.info(f"Tool(project_source_code): Retrieved source code for {project_name}:{filepath} lines {begin_line}-{end_line}")
+    logger.info(
+        f"Retrieved, Tool(project_source_code): project_name='{project_name}', filepath='{filepath}', begin_line={begin_line}, end_line={end_line}"
+    )
     return source_code
 
 
@@ -215,22 +215,27 @@ def get_line_coverage_report(project_name: str, function_name_pattern: str) -> s
         550|  84.9k|}
 
     Args:
-        project_name (str): The name of the target project or library.
-        function_name_pattern (str): A regex pattern to filter function names. This is required to prevent excessive output.
+        project_name (str): The target project or library name. Examples: "tinyxml2", "cjson"
+        function_name_pattern (str): A regex pattern to filter function names. Use a '|' separator for multiple functions. This is required to prevent excessive output.
 
     Returns:
-        str: A formatted, line-by-line coverage report for the matching functions, or an empty string if not found.
+        str: A formatted, line-by-line coverage report for the matching functions, or a message if not found.
 
     """
     project_name = project_name.lower()
+    logger.info(f"Tool(get_line_coverage_report): project_name='{project_name}', function_name_pattern='{function_name_pattern}'")
     with coverage_lock:
         if not all((project_name, function_name_pattern)):
-            msg = f"Missing required parameters: project_name={project_name}, function_name_pattern={function_name_pattern}"
-            logger.info(f"Tool(get_line_coverage_report): {msg}")
-            return f"Tool(get_line_coverage_report): {msg}"
+            msg = f"Tool(get_line_coverage_report): Missing required parameters: project_name={project_name}, function_name_pattern={function_name_pattern}"
+            logger.warning(msg)
+            return msg
         report = oss_fuzz.proj_linecov_reports(proj_name=project_name, fun_name_regex=function_name_pattern)
+        if not report:
+            msg = f"No coverage report found for pattern '{function_name_pattern}'. Try using a substring of the function name, e.g., 'SetAttribute' instead of 'tinyxml2::XMLElement::SetAttribute'."
+            logger.info(f"Tool(get_line_coverage_report): {msg}")
+            return msg
         logger.info(
-            f"Tool(get_line_coverage_report): Retrieved project line coverage report for {project_name} with regex {function_name_pattern}"
+            f"Retrieved, Tool(get_line_coverage_report): project_name='{project_name}', function_name_pattern='{function_name_pattern}'"
         )
         return report
 

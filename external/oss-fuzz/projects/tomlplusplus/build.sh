@@ -30,7 +30,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target (for tomlplusplus)
-  $CXX $CXXFLAGS -std=c++17 -DNDEBUG \
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++17 -DNDEBUG \
     -I$SRC/tomlplusplus/include \
     "$target" -o "$OUT/${target_basename}" \
     $LIB_FUZZING_ENGINE

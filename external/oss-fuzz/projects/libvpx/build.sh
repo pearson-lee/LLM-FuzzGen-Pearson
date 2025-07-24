@@ -83,7 +83,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target
-  $CXX $CXXFLAGS -std=c++11 -I$SRC/libvpx -I${build_dir} "$target" \
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++11 -I$SRC/libvpx -I${build_dir} "$target" \
     -o "$OUT/$target_basename" \
     -Wl,--start-group \
     -Wl,--whole-archive ${build_dir}/libvpx.a -Wl,--no-whole-archive \

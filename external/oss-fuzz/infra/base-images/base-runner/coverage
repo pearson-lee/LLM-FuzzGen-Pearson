@@ -95,8 +95,7 @@ function run_fuzz_target {
   # because (A) corpuses are already minimized; (B) we do not use sancov, and so
   # libFuzzer always finishes merge with an empty output dir.
   # Use 100s timeout instead of 25s as code coverage builds can be very slow.
-  # LLM-FuzzGen: use -artifact_prefix=/tmp/ to prevent coverage_helper from analyzing large amounts of crash files
-  local args="-merge=1 -timeout=100 $corpus_dummy $corpus_real -artifact_prefix=/tmp/"
+  local args="-merge=1 -timeout=100 $corpus_dummy $corpus_real"
 
   export LLVM_PROFILE_FILE=$profraw_file
   timeout $TIMEOUT $OUT/$target $args &> $LOGS_DIR/$target.log

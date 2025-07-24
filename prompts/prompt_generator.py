@@ -154,3 +154,29 @@ def dict_prompt(*, proj: str = "", git_url: str = "") -> str:
         proj=proj,
         git_url=git_url,
     )
+
+
+def crash_analysis_prompt(
+    *,
+    project_name: str,
+    lang: str,
+    fuzzer_source_code: str,
+    crash_input_hex: str,
+    stack_trace: str,
+) -> str:
+    """Generates a prompt for analyzing a crash."""
+    return _load_and_format_template(
+        template_name="crash_analysis_template",
+        input_variables=[
+            "project_name",
+            "lang",
+            "fuzzer_source_code",
+            "crash_input_hex",
+            "stack_trace",
+        ],
+        project_name=project_name,
+        lang=lang,
+        fuzzer_source_code=fuzzer_source_code,
+        crash_input_hex=crash_input_hex,
+        stack_trace=stack_trace,
+    )

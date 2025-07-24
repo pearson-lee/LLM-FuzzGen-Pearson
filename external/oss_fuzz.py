@@ -108,7 +108,7 @@ class OSSFuzz:
 
     def build_fuzzers(self, proj_name: str, sanitizer: str = "address") -> CompilationResult:
         """Builds fuzzers for the given project."""
-        success, stdout, stderr = self._run_helper_command(["build_fuzzers", "--clean", f"--sanitizer={sanitizer}", proj_name])
+        success, stdout, stderr = self._run_helper_command(["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"])
 
         if success:
             return CompilationResult(success=True)
@@ -176,7 +176,9 @@ class OSSFuzz:
         except KeyboardInterrupt:
             logger.info("Fuzzing interrupted by user. Shutting down...")
 
-    def coverage(self, proj_name: str, fuzzer_name: str = None, seconds: int = 60, fun_name_regex: str = None) -> float:
+    def coverage(
+        self, proj_name: str, fuzzer_name: str = None, seconds: int = 60, fun_name_regex: str = None
+    ) -> TotalCoverageSummary | None:
         """
         Run fuzzer and return the coverage percentage of the given fuzzer.
         `seconds` only applies if `fuzzer_name` is provided.
@@ -189,15 +191,12 @@ class OSSFuzz:
 
         # If fuzzer_name is provided, run the fuzzer to build the corpus
         if fuzzer_name:
-            run_result = self.run_fuzzer(proj_name, fuzzer_name, seconds)
-            if not run_result.success:
-                logger.error(f"Failed to run fuzzer for coverage computation: {run_result.error}")
-                return 0.0
+            self.run_fuzzer(proj_name, fuzzer_name, seconds)
 
         # Build with coverage instrumentation
         if not self.build_fuzzers(proj_name, "coverage").success:
             logger.error(f"Failed to build coverage for {proj_name}")
-            return 0.0
+            return None
 
         # Generate coverage report
         cmd = ["coverage", "--no-corpus-download", "--no-serve", proj_name]
@@ -207,17 +206,18 @@ class OSSFuzz:
 
         if not success:
             logger.error(f"Coverage computation failed: \n {stdout}{stderr}")
-            return 0.0
+            return None
 
         # Read coverage data
         source_info = f"with fuzzer {fuzzer_name}" if fuzzer_name else "with existing corpus"
         if total_cov := self.get_coverage_summary(proj_name, exclude_target=True):
-            percent = total_cov.lines.percent
-            logger.info(f"Coverage for {proj_name} {source_info}: {percent}%")
-            return percent
+            line_percent = total_cov.lines.percent if total_cov.lines else "N/A"
+            branch_percent = total_cov.branches.percent if total_cov.branches else "N/A"
+            logger.info(f"Coverage for {proj_name} {source_info}: Lines={line_percent}%, Branches={branch_percent}%")
+            return total_cov
 
         logger.error(f"Could not retrieve coverage for {proj_name} {source_info}")
-        return 0.0
+        return None
 
     def generate_report(self, proj_name: str, seconds: int = 10, clean: bool = False) -> bool:
         """Generates an introspector report for the given project."""
@@ -281,8 +281,87 @@ class OSSFuzz:
 
         self.remove_corpus(proj_name, target_name)
 
+    def _format_funcov_report(self, report_content: str) -> str:
+        """
+        Reads the content of an llvm-cov report, filters and formats it,
+        and returns the result as a string.
+
+        Processing logic:
+        1. Removes all columns related to 'Regions'.
+        2. Filters out functions where both Lines Miss and Branches Miss are 0.
+        3. Removes the 'TOTAL' summary line.
+        4. The width of the function name column is dynamically adjusted to ensure alignment.
+
+        :param report_content: The content string of the llvm-cov report.
+        :return: The formatted report string.
+        """
+        lines = report_content.splitlines()
+        NUM_WIDTH, MISS_WIDTH, COVER_WIDTH = 10, 7, 10
+
+        # Regex for parsing data lines (functions or TOTAL)
+        data_line_re = re.compile(
+            r"^(?P<name>.+?)\s+"
+            r"(?P<r_c>\d+)\s+(?P<r_m>\d+)\s+(?P<r_p>[\d.]+%)\s+"  # regions
+            r"(?P<l_c>\d+)\s+(?P<l_m>\d+)\s+(?P<l_p>[\d.]+%)\s+"  # lines
+            r"(?P<b_c>\d+)\s+(?P<b_m>\d+)\s+(?P<b_p>[\d.]+%)\s*$"  # branches
+        )
+
+        # Pass 1: Parse, filter, and find the maximum function name width
+        processed_items = []
+        max_name_width = len("Name")
+
+        for line in lines:
+            line = line.rstrip()
+
+            if "Regions" in line and "Lines" in line and "Branches" in line:
+                processed_items.append({"type": "header"})
+            elif line.startswith("---"):
+                processed_items.append({"type": "separator"})
+            elif match := data_line_re.match(line):
+                data = match.groupdict()
+                name = data["name"].strip()
+
+                # Skip TOTAL line and fully covered functions
+                if name == "TOTAL" or (int(data["l_m"]) == 0 and int(data["b_m"]) == 0):
+                    continue
+
+                processed_items.append({"type": "data", "data": data})
+                max_name_width = max(max_name_width, len(data["name"]))
+            else:
+                # Other info lines (e.g., file paths, blank lines)
+                processed_items.append({"type": "info", "data": line})
+
+        # Pass 2: Format the output
+        name_width = max_name_width + 2  # Add some padding
+        header = (
+            f"{'Name':<{name_width}} "
+            f"{'Lines':>{NUM_WIDTH}} {'Miss':>{MISS_WIDTH}} {'Cover':>{COVER_WIDTH}} "
+            f"{'Branches':>{NUM_WIDTH}} {'Miss':>{MISS_WIDTH}} {'Cover':>{COVER_WIDTH}}"
+        )
+        separator = "-" * len(header)
+
+        output_lines: list[str] = []
+        for item in processed_items:
+            item_type = item["type"]
+            if item_type == "header":
+                output_lines.append(header)
+            elif item_type == "separator":
+                output_lines.append(separator)
+            elif item_type == "info":
+                output_lines.append(item["data"])
+            elif item_type == "data":
+                data = item["data"]
+                line = (
+                    f"{data['name']:<{name_width}} "
+                    f"{data['l_c']:>{NUM_WIDTH}} {data['l_m']:>{MISS_WIDTH}} {data['l_p']:>{COVER_WIDTH}} "
+                    f"{data['b_c']:>{NUM_WIDTH}} {data['b_m']:>{MISS_WIDTH}} {data['b_p']:>{COVER_WIDTH}}"
+                )
+                output_lines.append(line)
+
+        return "\n".join(output_lines)
+
     def funcov_reports(self, proj_name: str, fuzzer_name: str = None) -> str:
-        """Returns the funcov report for the given fuzzer."""
+        """Returns the formatted funcov report for the given fuzzer."""
         logger.info(f"Generating funcov report for {proj_name} with {fuzzer_name if fuzzer_name else 'project'}")
         self.coverage(proj_name)
         if fuzzer_name:
@@ -293,7 +372,8 @@ class OSSFuzz:
             logger.error(f"Report file {report_file} does not exist.")
             return ""
 
-        return report_file.read_text()
+        raw_report = report_file.read_text()
+        return self._format_funcov_report(raw_report)
 
     def linecov_reports(self, proj_name: str, fuzzer_name: str, fun_name_regex: str = "LLVMFuzzerTestOneInput") -> str:
         """
@@ -559,31 +639,23 @@ class OSSFuzz:
                 except Exception as exc:
                     logger.error(f"{proj_name} - {fuzzer_name} generated an exception: {exc}")
 
-    # def textcov_reports(self, proj_name: str, fuzzer_name: str) -> str:
-    #     """Returns the textcov report for the given fuzzer."""
-    #     report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.covreport"
+    def reproduce_crash(self, proj_name: str, fuzzer_name: str, crash_input_path: Path) -> str:
+        """
+        Reproduces a crash and returns the formatted stack trace from the fuzzer's output.
+        """
+        logger.info(f"Reproducing crash for {proj_name} with fuzzer {fuzzer_name} and input {crash_input_path.name}")
+        _, stdout, _ = self._run_helper_command(["reproduce", proj_name, fuzzer_name, str(crash_input_path.resolve())])
 
-    #     if not report_file.exists():
-    #         logger.error(f"Report file {report_file} does not exist.")
-    #         return ""
+        # Dynamically create a regex to find the start of the fuzzer's execution log.
+        # e.g., /out/llm_fuzzgen0719004011 -rss_limit_mb=2560 ...
+        # We escape the fuzzer_name to handle any special regex characters it might contain.
+        crash_log_pattern = re.compile(rf"/out/{re.escape(fuzzer_name)}:.*", re.DOTALL)
+        match = crash_log_pattern.search(stdout)
 
-    #     return report_file.read_text()
+        if match:
+            extracted_log = match.group(0)
+            logger.info(f"Successfully extracted crash log for {fuzzer_name}.")
+            return extracted_log
 
-    # def reachable_functions_covered(self, proj_name: str, fuzzer_name: str) -> float:
-    #     """Returns the percentage of reachable functions covered by the fuzzer."""
-    #     summary_json = self.build_out_dir / proj_name / "inspector" / "summary.json"
-
-    #     if not summary_json.exists():
-    #         logger.error(f"Summary JSON file {summary_json} does not exist.")
-    #         return 0.0
-
-    #     try:
-    #         with open(summary_json) as f:
-    #             data = json.load(f)
-    #             cov = data[fuzzer_name]["coverage-blocker-stats"]["cov-reach-proportion"]
-    #             cov = round(cov, 2)
-    #             logger.info(f"Reachable functions covered by {proj_name}-{fuzzer_name}: {cov}")
-    #             return cov
-    #     except Exception as e:
-    #         logger.error(f"Error parsing coverage data: {e}")
-    #         return 0.0
+        logger.error(f"Could not extract crash log starting with '/out/{fuzzer_name}' from the stdout.")
+        return stdout  # Return the full output as a fallback

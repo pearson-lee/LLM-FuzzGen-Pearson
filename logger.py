@@ -23,7 +23,9 @@ class ConsoleHandler(logging.StreamHandler):
             self.handleError(record)
 
 
-def setup_logging(project_name: str, log_dir: Path = Path(__file__).parent / "logs") -> None:
+def setup_logging(
+    project_name: str, model_name: str | None = None, log_dir: Path = Path(__file__).parent / "logs"
+) -> None:
     """Configure logging with both file and console handlers."""
     log_dir.mkdir(exist_ok=True)
 
@@ -40,7 +42,7 @@ def setup_logging(project_name: str, log_dir: Path = Path(__file__).parent / "lo
     )
     logging.info("=== Configuration ===")
     logging.info(f"Project Name: {project_name}")
-    logging.info(f"Model: {config.MODEL_NAME}")
+    logging.info(f"Model: {model_name or config.MODEL_NAME}")
     logging.info(f"Iteration loop: {config.ITERATION_LOOP}")
     logging.info(f"Temperature: {config.TEMPERATURE}")
     logging.info(f"Max Tokens: {config.MAX_TOKENS}")

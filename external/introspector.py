@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 import fcntl
+import functools
 from pathlib import Path
 from typing import TypedDict, List
 from contextlib import contextmanager
@@ -22,7 +23,6 @@ class FunctionInfo(TypedDict):
     function_name: str
     function_signature: str
     possible_header_files: List[str]
-    runtime_coverage_percent: float
     function_filename: str
     source_line_begin: int
     source_line_end: int
@@ -85,6 +85,29 @@ class Introspector:
                 return {}
             logger.error(f"API request failed: {e} for endpoint: {endpoint}")
             return {}
+
+    def _cacheable(func):
+        """
+        A decorator to cache the results of instance methods of Introspector.
+        It creates a cache key based on the function name and its arguments.
+        """
+
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Create a cache key from the function name and arguments
+            # We skip 'self' which is the first argument
+            key_dict = {"func_name": func.__name__, "args": args, "kwargs": kwargs}
+            cache_key = json.dumps(key_dict, sort_keys=True)
+
+            if cache_key in self._specific_cache:
+                logger.info(f"Returning cached data for {func.__name__}")
+                return self._specific_cache[cache_key]
+
+            result = func(self, *args, **kwargs)
+            self._specific_cache[cache_key] = result
+            return result
+
+        return wrapper
 
     def _webapp_db_update(self) -> bool:
         db_script_path = (
@@ -198,28 +221,14 @@ class Introspector:
         headers = response.get("raw_data", {}).get("possible-header-files", [])
         return signature, headers
 
+    @_cacheable
     def function_source_code(self, project_name: str, function_signature: str) -> str:
         """Get function source code by function signature."""
-        cache_key = json.dumps(
-            {
-                "endpoint": "function-source-code",
-                "project": project_name,
-                "function_signature": function_signature,
-            },
-            sort_keys=True,
-        )
-
-        if cache_key in self._specific_cache:
-            logger.info(f"Returning cached source code for {function_signature} in {project_name}")
-            return self._specific_cache[cache_key]
-
         response = self._query_api(
             "function-source-code",
             {"project": project_name, "function_signature": function_signature},
         )
-        source_code = response.get("source", "")
-        self._specific_cache[cache_key] = source_code
-        return source_code
+        return response.get("source", "")
 
     def function_required_headers(self, project_name: str, function_signature: str) -> str:
         response = self._query_api(
@@ -305,6 +314,7 @@ class Introspector:
         logger.info(f"Found {len(target_names)} fuzz targets for project {project_name}: {target_names}")
         return target_names
 
+    @_cacheable
     def get_project_source_code(self, project_name: str, filepath: str, begin_line: int, end_line: int) -> str:
         """Get source code for a specific file and line range within a project.
 
@@ -330,6 +340,7 @@ class Introspector:
             logger.warning(f"Could not retrieve source code for project: {project_name}, file: {filepath}")
         return source_code
 
+    @_cacheable
     def get_function_cross_references(self, project_name: str, function_signature: str) -> List[CrossReference]:
         """Get detailed cross-reference information for the given function.
 
@@ -343,19 +354,6 @@ class Introspector:
                 - possible_header_files (List[str]): List of possible header files for the source function
                 - src_func_signature (str): The signature of the source function
         """
-        cache_key = json.dumps(
-            {
-                "endpoint": "all-cross-references",
-                "project": project_name,
-                "function_signature": function_signature,
-            },
-            sort_keys=True,
-        )
-
-        if cache_key in self._specific_cache:
-            logger.info(f"Returning cached cross-references for {function_signature} in {project_name}")
-            return self._specific_cache[cache_key]
-
         response = self._query_api(
             "all-cross-references",
             {"project": project_name, "function_signature": function_signature},
@@ -375,9 +373,9 @@ class Introspector:
             }
             for callsite in callsites
         ]
-        self._specific_cache[cache_key] = cross_references
         return cross_references
 
+    @_cacheable
     def get_all_header_files(self, project_name: str) -> list[str]:
         """Get all header files for the project.
 
@@ -387,17 +385,10 @@ class Introspector:
         Returns:
             list[str]: List of header file paths
         """
-        cache_key = json.dumps({"endpoint": "all-header-files", "project": project_name}, sort_keys=True)
-
-        if cache_key in self._specific_cache:
-            logger.info(f"Returning cached header files for {project_name}")
-            return self._specific_cache[cache_key]
-
         response = self._query_api("all-header-files", {"project": project_name})
-        header_files = response.get("all-header-files", [])
-        self._specific_cache[cache_key] = header_files
-        return header_files
+        return response.get("all-header-files", [])
 
+    @_cacheable
     def get_all_functions(self, project_name: str) -> List[FunctionInfo]:
         """Retrieve all functions associated with the specified project.
 
@@ -409,7 +400,6 @@ class Introspector:
                 - function_name (str): The name of the function.
                 - function_signature (str): The demangled function signature.
                 - possible_header_files (List[str]): A list of potential header files.
-                - runtime_coverage_percent (float): The runtime coverage percentage.
                 - function_filename (str): The source file containing the function.
                 - source_line_begin (int): The starting line number of the function in the source file.
                 - source_line_end (int): The ending line number of the function in the source file.
@@ -420,7 +410,6 @@ class Introspector:
                 "function_name": func.get("function_name", ""),
                 "function_signature": func.get("function_signature", ""),
                 "possible_header_files": func.get("debug_summary", {}).get("possible-header-files", []),
-                "runtime_coverage_percent": func.get("runtime_coverage_percent", 0.0),
                 "function_filename": func.get("debug_summary", {}).get("source", {}).get("source_file", ""),
                 "source_line_begin": func.get("source_line_begin", 0),
                 "source_line_end": func.get("source_line_end", 0),

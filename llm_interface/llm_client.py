@@ -1,9 +1,12 @@
+import os
 from langchain_core.runnables import RunnableLambda
+from langchain_deepseek import ChatDeepSeek
 from langgraph.checkpoint.memory import MemorySaver
 import config.config as config
 import logging
 import re
 import time
+import threading
 from typing import Literal, TypedDict, List
 from langchain.schema import HumanMessage, BaseMessage
 from .tools import tools
@@ -13,7 +16,6 @@ from langgraph.graph import StateGraph, add_messages
 from langgraph.graph.state import CompiledStateGraph
 import langchain_google_genai as langchain_genai
 import langchain_google_vertexai as langchain_vertexai
-from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 
 logger = logging.getLogger(__name__)
@@ -37,12 +39,35 @@ def ensure_response_not_empty(message: BaseMessage) -> BaseMessage:
 
 
 class LLMClient:
-    def __init__(self, backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini"):
+    _instances = {}
+    _lock = threading.Lock()
+
+    def __new__(cls, backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini", model_name: str | None = None):
+        config_key = (backend, model_name)
+        if config_key not in cls._instances:
+            with cls._lock:
+                # Double-checked locking to ensure thread safety
+                if config_key not in cls._instances:
+                    logger.info(f"Creating new LLMClient instance for backend: {backend}, model: {model_name}")
+                    instance = super().__new__(cls)
+                    cls._instances[config_key] = instance
+        else:
+            logger.info(f"Reusing existing LLMClient instance for backend: {backend}, model: {model_name}")
+        return cls._instances[config_key]
+
+    def __init__(self, backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini", model_name: str | None = None):
+        # Prevent re-initialization of an already initialized instance
+        if hasattr(self, "_initialized"):
+            return
+
         try:
             logger.info(f"Initializing LLM with backend: {backend}")
             if backend == "vertexai":
+                import vertexai
+
+                vertexai.init(project="ordinal-oxygen-lz9rc", location="global", api_key=os.getenv("VERTEXAI_API_KEY"))
                 llm_base = langchain_vertexai.ChatVertexAI(
-                    model=config.MODEL_NAME,
+                    model=model_name or config.MODEL_NAME,
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_TOKENS,
                     thinking_budget=config.THINK_BUDGET_TOKEN,
@@ -62,7 +87,7 @@ class LLMClient:
             elif backend == "gemini":
                 llm_base = langchain_genai.ChatGoogleGenerativeAI(
                     temperature=config.TEMPERATURE,
-                    model=config.MODEL_NAME,
+                    model=model_name or config.MODEL_NAME,
                     max_output_tokens=config.MAX_TOKENS,
                     thinking_budget=config.THINK_BUDGET_TOKEN,
                     safety_settings={
@@ -81,20 +106,24 @@ class LLMClient:
                     },
                 )
             elif backend == "openrouter":
-                llm_base = ChatOpenAI(
-                    model_name="deepseek/deepseek-chat-v3-0324:free",
-                    # model_name="qwen/qwen3-235b-a22b:free",
+                llm_base = ChatDeepSeek(
+                    model_name=model_name or config.OPENROUTER_MODEL,
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_TOKENS,
-                    openai_api_base="https://openrouter.ai/api/v1",
-                    # extra_body={
-                    #     "provider": {"only": ["moonshotai"]},
-                    # },
+                    include_response_headers=True,
+                    request_timeout=600,
+                    api_key=os.getenv("OPENROUTER_API_KEY"),
+                    api_base="https://openrouter.ai/api/v1",
+                    extra_body={
+                        "provider": {"order": ["chutes/fp8", "novita/fp8"]},
+                        "models": ["qwen/qwen3-235b-a22b:free", "moonshotai/kimi-k2:free"],
+                        "transforms": ["middle-out"],
+                        "reasoning": {"effort": "high"},
+                    },
                 )
             elif backend == "ollama":
                 llm_base = ChatOllama(
-                    # model="qwen3:32b",
-                    model="deepseek-r1:8b",
+                    model=model_name or config.OLLAMA_MODEL,
                     temperature=config.TEMPERATURE,
                     num_predict=config.MAX_TOKENS,
                     num_ctx=config.MAX_TOKENS,
@@ -104,16 +133,20 @@ class LLMClient:
                 raise ValueError(f"Unsupported LLM backend: {backend}")
 
             validator = RunnableLambda(ensure_response_not_empty)
-            retry_attempt = 10
+            retry_params = dict(
+                stop_after_attempt=10,
+                exponential_jitter_params={"max": 60.0, "exp_base": 2.0},
+            )
 
             pipeline_without_tools = llm_base | validator
-            self._llm_without_tools = pipeline_without_tools.with_retry(stop_after_attempt=retry_attempt)
+            self._llm_without_tools = pipeline_without_tools.with_retry(**retry_params)
 
-            pipeline_with_tools = llm_base.bind_tools(tools=tools) | validator
-            self._llm = pipeline_with_tools.with_retry(stop_after_attempt=retry_attempt)
+            pipeline_with_tools = llm_base.bind_tools(tools=tools, tool_choice="auto") | validator
+            self._llm = pipeline_with_tools.with_retry(**retry_params)
 
             self._graph = self._build_graph()
             logger.info("LLMClient initialized successfully.")
+            self._initialized = True
 
         except Exception as e:
             logger.error(f"LLM initialization failed: {e}")
@@ -136,7 +169,6 @@ class LLMClient:
         if match:
             parsed = match.group(1).strip()
         else:
-            logger.warning(f"Could not find <fuzz_target> tag in response. Returning full content. Response: {content[:500]}")
             parsed = content.strip()
 
         return {"parsed": parsed}
@@ -162,22 +194,23 @@ class LLMClient:
 
         return workflow.compile(checkpointer=MemorySaver())
 
-    def generate(self, prompt: str, thread_id: int) -> str | None:
+    def generate(self, prompt: str, thread_id: int | None = None) -> str | None:
         """Generate response using the LangGraph workflow."""
         if not prompt:
             logger.warning("Generate called with empty prompt.")
             return None
         logger.info(f"Generating response for prompt: {prompt[:300]}...")
         try:
-            message = HumanMessage(content=prompt)
-            config_thread_id = thread_id if thread_id else int(time.time())
-            final_state = self._graph.invoke({"messages": [message]}, config={"configurable": {"thread_id": config_thread_id}})
+            final_state = self._graph.invoke(
+                input={"messages": [HumanMessage(prompt)]},
+                config={"configurable": {"thread_id": thread_id or int(time.time())}, "recursion_limit": 50},
+            )
             result = final_state.pop("parsed", "")
-            logger.info(f"\nfuzz target: \n{result}")
+            logger.info(f"\n LLM response: {result}")
 
             return result
         except Exception as e:
-            logger.error(f"LangGraph invocation failed: {e}")
+            logger.error(f"LangGraph invocation failed: {e}", exc_info=True)
             return None
 
     def generate_seeds(self, prompt: str) -> List[str] | None:

@@ -38,7 +38,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target
-  $CXX $CXXFLAGS "$target" -I. \
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" "$target" -I. \
     -o "$OUT/$target_basename" \
     $LIB_FUZZING_ENGINE -Wl,--whole-archive $SRC/cjson/build/libcjson.a -Wl,--no-whole-archive
   ####

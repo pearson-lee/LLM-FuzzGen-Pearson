@@ -66,7 +66,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target
-  $CC $CFLAGS -c -Iinclude \
+  $CC $CFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -c -Iinclude \
       "$target" -o "$OUT/${target_basename}.o"
   $CXX $CXXFLAGS \
       "$OUT/${target_basename}.o" -o "$OUT/${target_basename}" \

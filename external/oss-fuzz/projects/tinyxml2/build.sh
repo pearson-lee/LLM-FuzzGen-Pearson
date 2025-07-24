@@ -50,7 +50,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target
-  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$target" -Wl,--whole-archive $SRC/tinyxml2/libtinyxml2.a -Wl,--no-whole-archive \
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++11 -Iinclude/ "$target" -Wl,--whole-archive $SRC/tinyxml2/libtinyxml2.a -Wl,--no-whole-archive \
     -o "$OUT/$target_basename" $LIB_FUZZING_ENGINE
   ####
 

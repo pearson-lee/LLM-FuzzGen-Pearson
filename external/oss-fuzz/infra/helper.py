@@ -837,10 +837,12 @@ def build_fuzzers_impl(  # pylint: disable=too-many-arguments,too-many-locals,to
     logger.info('Cleaning existing build artifacts.')
 
     # LLM-FuzzGen: use find to clean out directory. avoid "Argument list too long"
+    # Keep the inspector folder to ensure the introspector API can return data correctly
+    # during the LLM-FuzzGen generation process.
     # Clean old and possibly conflicting artifacts in project's out directory.
     docker_run([
         '-v', f'{project_out}:/out', '-t', f'gcr.io/oss-fuzz/{project.name}',
-        '/bin/bash', '-c', 'find /out -mindepth 1 -delete'
+        '/bin/bash', '-c', "find /out -mindepth 1 ! -path '/out/inspector' ! -path '/out/inspector/*' -delete"
     ],
                architecture=architecture)
 
