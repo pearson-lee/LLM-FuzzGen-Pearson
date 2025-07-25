@@ -88,6 +88,7 @@ class CrashAnalyzer:
             original_source_path=source_file,
             crash_input_path=crash_path,
             report_content=report_content,
+            stack_trace=stack_trace,
         )
 
     def _find_source_file(self, project_name: str, fuzzer_binary_name: str) -> Path | None:
@@ -124,17 +125,31 @@ class CrashAnalyzer:
             return None
 
     def _save_artifacts(
-        self, project_name: str, fuzzer_binary_name: str, original_source_path: Path, crash_input_path: Path, report_content: str
+        self,
+        project_name: str,
+        fuzzer_binary_name: str,
+        original_source_path: Path,
+        crash_input_path: Path,
+        report_content: str,
+        stack_trace: str,
     ):
         """
         Saves the analysis report and copies the original source and crash input.
         """
         logger.info(f"Saving artifacts for {fuzzer_binary_name}")
-        artifact_dir = self.crashes_dir / project_name / fuzzer_binary_name
-        artifact_dir.mkdir(parents=True, exist_ok=True)
+        base_artifact_dir = self.crashes_dir / project_name / fuzzer_binary_name
+        artifact_dir = base_artifact_dir
+        counter = 1
+        while artifact_dir.exists():
+            artifact_dir = base_artifact_dir.with_name(f"{base_artifact_dir.name}-{counter}")
+            counter += 1
+        artifact_dir.mkdir(parents=True)
 
         # Save the report from the LLM
         (artifact_dir / "report.md").write_text(report_content)
+
+        # Save the stack trace
+        (artifact_dir / "stack_trace").write_text(stack_trace)
 
         # Copy the original source and crash input for reference
         shutil.copy(original_source_path, artifact_dir / original_source_path.name)
