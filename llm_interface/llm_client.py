@@ -116,7 +116,7 @@ class LLMClient:
                     api_base="https://openrouter.ai/api/v1",
                     extra_body={
                         "provider": {"order": ["chutes/fp8", "novita/fp8"]},
-                        "models": ["qwen/qwen3-235b-a22b:free", "moonshotai/kimi-k2:free"],
+                        "models": ["qwen/qwen3-235b-a22b:free", "moonshotai/kimi-k2:free", "qwen/qwen3-235b-a22b-thinking-2507:floor"],
                         "transforms": ["middle-out"],
                         "reasoning": {"effort": "high"},
                     },

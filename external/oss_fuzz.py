@@ -140,7 +140,7 @@ class OSSFuzz:
 
         if not success:
             full_output = stdout + stderr
-            error_pattern = r"ERROR:.*?SUMMARY:[^\n]*"
+            error_pattern = r"==\d+==\s*ERROR:.*"
             match = re.search(error_pattern, full_output, re.DOTALL)
             error_message = match.group(0) if match else full_output
             logger.error(f"Failed to run fuzzer {fuzzer_name}: \n{error_message}")
@@ -149,7 +149,7 @@ class OSSFuzz:
         logger.info(f"Fuzzer {fuzzer_name} ran successfully")
         return CompilationResult(success=True, error="")
 
-    def run_all_fuzzers(self, project_name: str, seconds: int = 30):
+    def run_all_fuzzers(self, project_name: str, seconds: int = 30, max_workers: int | None = None):
         """Builds and runs all fuzzers for a given project."""
         logger.info(f"Building all fuzzers for project {project_name}")
         build_result = self.build_fuzzers(project_name)
@@ -163,7 +163,7 @@ class OSSFuzz:
         ]
 
         try:
-            with ThreadPoolExecutor() as executor:
+            with ThreadPoolExecutor(max_workers) as executor:
                 futures = {
                     executor.submit(self.run_fuzzer, project_name, fuzzer_name, seconds, build_fuzzer=False)
                     for fuzzer_name in fuzzers_to_run

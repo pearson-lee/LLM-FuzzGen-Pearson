@@ -389,7 +389,7 @@ def extract_local_project_data(project_name, oss_fuzz_path,
         all_header_files_in_project = set()
         for elem in all_files_in_project:
             source_file = elem.get('source_file', '')
-            if source_file.endswith('.h'):
+            if source_file.endswith('.h') or source_file.endswith('.hpp'): # LLM-FuzzGen: add .hpp
                 normalized_file = os.path.normpath(source_file)
                 if '/usr/local/' in normalized_file or '/usr/include/' in normalized_file:
                     continue
@@ -634,7 +634,7 @@ def extract_project_data(project_name, date_str, should_include_details,
         all_header_files_in_project = set()
         for elem in all_files_in_project:
             source_file = elem.get('source_file', '')
-            if source_file.endswith('.h'):
+            if source_file.endswith('.h') or source_file.endswith('.hpp'): # LLM-FuzzGen: add .hpp
                 normalized_file = os.path.normpath(source_file)
                 if '/usr/local/' in normalized_file or '/usr/include/' in normalized_file:
                     continue

@@ -32,14 +32,19 @@ def minimize_and_generate_report(proj_name: str, seconds: int, clean: bool):
 
 
 def run_fuzzers_and_get_coverage(
-    proj_name: str, run_seconds: int, minimize_corpus: bool = False, get_coverage: bool = True, start_webapp: bool = False
+    proj_name: str,
+    run_seconds: int,
+    minimize_corpus: bool = False,
+    get_coverage: bool = True,
+    start_webapp: bool = False,
+    fuzz_targets_parallel: int | None = None,
 ):
     """Helper function to run all fuzzers and then optionally get coverage."""
     if start_webapp:
         generate_report_and_start_webapp(proj_name, 10, clean=True)
     if minimize_corpus:
         oss_fuzz.minimize_corpus(proj_name)
-    oss_fuzz.run_all_fuzzers(proj_name, run_seconds)
+    oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel)
     if get_coverage:
         oss_fuzz.coverage(proj_name)
 
@@ -51,6 +56,7 @@ def run_all_fuzzer(
     minimize_corpus: bool = False,
     print_coverage: bool = False,
     analyze_crashes: bool = False,
+    fuzz_targets_parallel: int | None = None,
 ):
     """
     Runs all fuzzers for the specified projects, optionally analyzes crashes,
@@ -76,7 +82,13 @@ def run_all_fuzzer(
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_project = {
                 executor.submit(
-                    run_fuzzers_and_get_coverage, project_name, run_seconds, minimize_corpus, print_coverage, analyze_crashes
+                    run_fuzzers_and_get_coverage,
+                    project_name,
+                    run_seconds,
+                    minimize_corpus,
+                    print_coverage,
+                    analyze_crashes,
+                    fuzz_targets_parallel,
                 ): project_name
                 for project_name in projects_to_process
             }
@@ -258,6 +270,13 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="The number of projects to run in parallel. Defaults to 1.",
+    )
+    parser_run.add_argument(
+        "--fuzz-targets-parallel",
+        type=int,
+        default=None,
+        help="The number of fuzz targets to run in parallel within a project. "
+        "Defaults to Python's ThreadPoolExecutor default (core-dependent).",
     )
     parser_run.add_argument(
         "--print-coverage",
@@ -595,6 +614,7 @@ def main() -> None:
                 args.minimize_corpus,
                 args.print_coverage,
                 args.analyze_crashes,
+                args.fuzz_targets_parallel,
             )
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
             return

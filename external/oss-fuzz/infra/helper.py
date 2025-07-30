@@ -1471,7 +1471,7 @@ def run_fuzzer(args):
         'CORPUS_DIR=/tmp/{fuzzer}_corpus'.format(fuzzer=args.fuzzer_name)
     ])
 
-  custom_args = ['-detect_leaks=0', '-shrink=1', '-max_len=8192',
+  custom_args = ['-detect_leaks=0', '-max_len=8192',
                  '-use_value_profile=1', f'-artifact_prefix={args.fuzzer_name}_']
   
   run_args.extend([
