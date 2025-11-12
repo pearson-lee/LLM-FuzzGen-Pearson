@@ -206,6 +206,10 @@ class Introspector:
             )
         return targets
 
+    def check_far_reach_low_coverage(self, project_name: str) -> dict:
+        response = self._query_api("far-reach-but-low-coverage", {"project": project_name})
+        return response
+
     def get_function_signature_and_headers(self, project_name: str, func_name: str) -> tuple[str, list[str]]:
         """Get function signature and possible header files by function name.
 

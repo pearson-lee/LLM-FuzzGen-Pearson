@@ -1,0 +1,722 @@
+# 已被 fuzzer 觸及的函數 - tinyxml2
+# 生成時間: 2025-10-10 17:38:21
+# 總計: 12 個已被觸及的函數 (總共 30 個函數)
+
+{
+  "project": "tinyxml2",
+  "timestamp": "2025-10-10T17:38:21.385858",
+  "total_functions": 30,
+  "reached_functions": 12,
+  "functions": [
+    {
+      "accummulated_complexity": 330,
+      "debug_summary": {
+        "args": [
+          "FuzzedDataProvider &",
+          "XMLDocument &"
+        ],
+        "file_location": "/src/llm_fuzzgen0626124637.cc:48",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_reference_type",
+              "DW_TAG_class_type",
+              "FuzzedDataProvider"
+            ],
+            [
+              "DW_TAG_reference_type",
+              "DW_TAG_class_type",
+              "XMLDocument"
+            ]
+          ],
+          "return_type": [
+            "DW_TAG_pointer_type",
+            "DW_TAG_class_type",
+            "XMLNode"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "CreateFuzzedXMLTree",
+        "possible-header-files": [],
+        "raw_name": "CreateFuzzedXMLTree",
+        "return_type": "XMLNode *",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626124637.cc",
+          "source_line": "48"
+        },
+        "type_arguments": [
+          93843973963472,
+          93843973963600,
+          93843973963920
+        ]
+      },
+      "function_argument_names": [
+        "fdp",
+        "doc"
+      ],
+      "function_arguments": [
+        "N/A",
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626124637.cc",
+      "function_name": "CreateFuzzedXMLTree(FuzzedDataProvider&,tinyxml2::XMLDocument&)",
+      "function_signature": "XMLNode * CreateFuzzedXMLTree(FuzzedDataProvider &, XMLDocument &)",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_Z19CreateFuzzedXMLTreeR18FuzzedDataProviderRN8tinyxml211XMLDocumentE",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626124637",
+        "llm_fuzzgen0626125920",
+        "llm_fuzzgen0626130900"
+      ],
+      "return_type": "N/A",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 48,
+      "source_line_end": 151
+    },
+    {
+      "accummulated_complexity": 69,
+      "debug_summary": {
+        "args": [
+          "FuzzedDataProvider &",
+          "XMLDocument &"
+        ],
+        "file_location": "/src/llm_fuzzgen0626124637.cc:10",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_reference_type",
+              "DW_TAG_class_type",
+              "FuzzedDataProvider"
+            ],
+            [
+              "DW_TAG_reference_type",
+              "DW_TAG_class_type",
+              "XMLDocument"
+            ]
+          ],
+          "return_type": [
+            "DW_TAG_pointer_type",
+            "DW_TAG_class_type",
+            "XMLNode"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "CreateFuzzedNode",
+        "possible-header-files": [],
+        "raw_name": "CreateFuzzedNode",
+        "return_type": "XMLNode *",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626124637.cc",
+          "source_line": "10"
+        },
+        "type_arguments": [
+          93843973963472,
+          93843973963600,
+          93843973963920
+        ]
+      },
+      "function_argument_names": [
+        "fdp",
+        "doc"
+      ],
+      "function_arguments": [
+        "N/A",
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626124637.cc",
+      "function_name": "CreateFuzzedNode(FuzzedDataProvider&,tinyxml2::XMLDocument&)",
+      "function_signature": "XMLNode * CreateFuzzedNode(FuzzedDataProvider &, XMLDocument &)",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_Z16CreateFuzzedNodeR18FuzzedDataProviderRN8tinyxml211XMLDocumentE",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626124637",
+        "llm_fuzzgen0626125920",
+        "llm_fuzzgen0626130900"
+      ],
+      "return_type": "N/A",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 10,
+      "source_line_end": 45
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0627185231.cc:12",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "FuzzVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~FuzzVisitor",
+        "possible-header-files": [],
+        "raw_name": "FuzzVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0627185231.cc",
+          "source_line": "12"
+        },
+        "type_arguments": [
+          0,
+          94642849619040
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0627185231.cc",
+      "function_name": "FuzzVisitor::~FuzzVisitor()",
+      "function_signature": "void FuzzVisitor::~FuzzVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN11FuzzVisitorD2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0627185231",
+        "llm_fuzzgen0626140224",
+        "llm_fuzzgen0626115820",
+        "llm_fuzzgen0627190949",
+        "llm_fuzzgen0916173855",
+        "llm_fuzzgen0626115110",
+        "llm_fuzzgen0916191315",
+        "llm_fuzzgen0916183858",
+        "llm_fuzzgen0916181040",
+        "llm_fuzzgen0627183713",
+        "llm_fuzzgen0626122043",
+        "llm_fuzzgen0621230915",
+        "llm_fuzzgen0627211305",
+        "llm_fuzzgen0626120457",
+        "llm_fuzzgen0626121106"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 12,
+      "source_line_end": 12
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [
+          "FuzzedDataProvider &"
+        ],
+        "file_location": "/src/llm_fuzzgen0626140224.cc:15",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "FuzzVisitor"
+            ],
+            [
+              "DW_TAG_reference_type",
+              "DW_TAG_class_type",
+              "FuzzedDataProvider"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "FuzzVisitor",
+        "possible-header-files": [],
+        "raw_name": "FuzzVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626140224.cc",
+          "source_line": "15"
+        },
+        "type_arguments": [
+          0,
+          94045865877680,
+          94045865535520
+        ]
+      },
+      "function_argument_names": [
+        "this",
+        "provider"
+      ],
+      "function_arguments": [
+        "N/A",
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626140224.cc",
+      "function_name": "FuzzVisitor::FuzzVisitor(FuzzedDataProvider&)",
+      "function_signature": "void FuzzVisitor::FuzzVisitor(FuzzedDataProvider &)",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN11FuzzVisitorC2ER18FuzzedDataProvider",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626140224",
+        "llm_fuzzgen0626115820",
+        "llm_fuzzgen0626122043",
+        "llm_fuzzgen0626120457",
+        "llm_fuzzgen0626121106"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 15,
+      "source_line_end": 15
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0921013457.cc:15",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "MyXMLVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~MyXMLVisitor",
+        "possible-header-files": [],
+        "raw_name": "MyXMLVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0921013457.cc",
+          "source_line": "15"
+        },
+        "type_arguments": [
+          0,
+          93903987784656
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0921013457.cc",
+      "function_name": "MyXMLVisitor::~MyXMLVisitor()",
+      "function_signature": "void MyXMLVisitor::~MyXMLVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN12MyXMLVisitorD2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0921013457",
+        "llm_fuzzgen0626104849"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 15,
+      "source_line_end": 15
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0921013457.cc:15",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "MyXMLVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~MyXMLVisitor",
+        "possible-header-files": [],
+        "raw_name": "MyXMLVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0921013457.cc",
+          "source_line": "15"
+        },
+        "type_arguments": [
+          0,
+          93903987784656
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0921013457.cc",
+      "function_name": "MyXMLVisitor::MyXMLVisitor()",
+      "function_signature": "void MyXMLVisitor::~MyXMLVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN12MyXMLVisitorC2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0921013457",
+        "llm_fuzzgen0626104849"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 15,
+      "source_line_end": 15
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0626112723.cc:23",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "CustomVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~CustomVisitor",
+        "possible-header-files": [],
+        "raw_name": "CustomVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626112723.cc",
+          "source_line": "23"
+        },
+        "type_arguments": [
+          0,
+          94892038570368
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626112723.cc",
+      "function_name": "CustomVisitor::~CustomVisitor()",
+      "function_signature": "void CustomVisitor::~CustomVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN13CustomVisitorD2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626112723"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 23,
+      "source_line_end": 23
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0626112723.cc:23",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "CustomVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~CustomVisitor",
+        "possible-header-files": [],
+        "raw_name": "CustomVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626112723.cc",
+          "source_line": "23"
+        },
+        "type_arguments": [
+          0,
+          94892038570368
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626112723.cc",
+      "function_name": "CustomVisitor::CustomVisitor()",
+      "function_signature": "void CustomVisitor::~CustomVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN13CustomVisitorC2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626112723"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 23,
+      "source_line_end": 23
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0627211305.cc:28",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "FuzzPrinter"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~~FuzzPrinter",
+        "possible-header-files": [],
+        "raw_name": "~FuzzPrinter",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0627211305.cc",
+          "source_line": "28"
+        },
+        "type_arguments": [
+          0,
+          94909819902464
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0627211305.cc",
+      "function_name": "FuzzPrinter::~FuzzPrinter()",
+      "function_signature": "void FuzzPrinter::~~FuzzPrinter()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN11FuzzPrinterD2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0627211305"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 28,
+      "source_line_end": 28
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0626134506.cc:14",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "MyVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~MyVisitor",
+        "possible-header-files": [],
+        "raw_name": "MyVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626134506.cc",
+          "source_line": "14"
+        },
+        "type_arguments": [
+          0,
+          94710663666464
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626134506.cc",
+      "function_name": "MyVisitor::~MyVisitor()",
+      "function_signature": "void MyVisitor::~MyVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN9MyVisitorD2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626134506"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 14,
+      "source_line_end": 14
+    },
+    {
+      "accummulated_complexity": 4,
+      "debug_summary": {
+        "args": [],
+        "file_location": "/src/llm_fuzzgen0626134506.cc:14",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "MyVisitor"
+            ]
+          ],
+          "return_type": [
+            "void"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 0,
+        "name": "~MyVisitor",
+        "possible-header-files": [],
+        "raw_name": "MyVisitor",
+        "return_type": "void",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0626134506.cc",
+          "source_line": "14"
+        },
+        "type_arguments": [
+          0,
+          94710663666464
+        ]
+      },
+      "function_argument_names": [
+        "this"
+      ],
+      "function_arguments": [
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0626134506.cc",
+      "function_name": "MyVisitor::MyVisitor()",
+      "function_signature": "void MyVisitor::~MyVisitor()",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN9MyVisitorC2Ev",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626134506"
+      ],
+      "return_type": "void",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 14,
+      "source_line_end": 14
+    },
+    {
+      "accummulated_complexity": 2,
+      "debug_summary": {
+        "args": [
+          "const XMLUnknown &"
+        ],
+        "file_location": "/src/llm_fuzzgen0627185231.cc:22",
+        "func_signature_elems": {
+          "params": [
+            [
+              "DW_TAG_pointer_type",
+              "DW_TAG_class_type",
+              "FuzzVisitor"
+            ],
+            [
+              "DW_TAG_reference_type",
+              "DW_TAG_const_type",
+              "DW_TAG_class_type",
+              "XMLUnknown"
+            ]
+          ],
+          "return_type": [
+            "DW_TAG_base_type",
+            "bool"
+          ]
+        },
+        "is_private": 0,
+        "is_public": 1,
+        "name": "Visit",
+        "possible-header-files": [
+          "/src/tinyxml2/tinyxml2.h"
+        ],
+        "raw_name": "Visit",
+        "return_type": "bool",
+        "source": {
+          "source_file": "/src/llm_fuzzgen0627185231.cc",
+          "source_line": "22"
+        },
+        "type_arguments": [
+          94642849272792,
+          94642849619040,
+          94642849622448
+        ]
+      },
+      "function_argument_names": [
+        "this",
+        ""
+      ],
+      "function_arguments": [
+        "N/A",
+        "N/A"
+      ],
+      "function_filename": "/src/llm_fuzzgen0627185231.cc",
+      "function_name": "FuzzVisitor::Visit(tinyxml2::XMLUnknownconst&)",
+      "function_signature": "bool FuzzVisitor::Visit(const XMLUnknown &)",
+      "is_enum_class": false,
+      "is_reached": true,
+      "project": "tinyxml2",
+      "raw_function_name": "_ZN11FuzzVisitor5VisitERKN8tinyxml210XMLUnknownE",
+      "reached_by_fuzzers": [
+        "llm_fuzzgen0626122043"
+      ],
+      "return_type": "bool",
+      "runtime_coverage_percent": 0.0,
+      "source_line_begin": 22,
+      "source_line_end": 22
+    }
+  ]
+}

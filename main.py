@@ -605,7 +605,7 @@ def main() -> None:
 
         global llm_client
         llm_client = LLMClient(backend=args.llm, model_name=args.model)
-
+        
         if args.command == "run_all_fuzzer":
             run_all_fuzzer(
                 args.project_names,
