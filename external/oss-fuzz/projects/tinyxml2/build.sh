@@ -38,7 +38,7 @@ fi
 make -j$(nproc) clean
 make -j$(nproc) all
 
-fuzz_harness=$(ls -d "$SRC"/*.cpp)
+fuzz_harness=$(ls -d "$SRC"/*.cpp | grep -v "klee_harness")
 for h in $fuzz_harness; do
   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
@@ -65,3 +65,27 @@ cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 #######################
 
 cp $SRC/*.dict $SRC/*.options $OUT/
+
+
+#############################################
+# Export CLEAN Source Tree For KLEE
+#############################################
+
+echo "[KLEE] Dumping clean source tree for symbolic execution..."
+
+mkdir -p $OUT/project_source
+
+# 1. tinyxml2 原始碼
+cp -r $SRC/tinyxml2 $OUT/project_source/
+
+# 2. include/ 資料夾（如果 tinyxml2 使用 include）
+if [ -d "$SRC/include" ]; then
+    cp -r $SRC/include $OUT/project_source/
+fi
+
+# 3. KLEE harness（只複製這類檔案）
+find "$SRC" -maxdepth 1 -type f \( -name "klee_*.c" -o -name "klee_*.cpp" \) \
+    -exec cp {} $OUT/project_source/ \;
+
+echo "[KLEE] Clean source saved to: $OUT/project_source/"
+#############################################

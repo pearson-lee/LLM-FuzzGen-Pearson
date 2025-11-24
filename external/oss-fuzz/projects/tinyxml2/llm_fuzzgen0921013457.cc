@@ -37,6 +37,41 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         xml_string = fdp.ConsumeRemainingBytesAsString();
     }
 
+        /*
+     * ANALYSIS: Line 1170 in XMLNode::ParseDeep requires a scenario where:
+     *           - endTag is not empty (line 1169: else branch)
+     *           - ele->ClosingType() != XMLElement::OPEN
+     *           This happens when there's a self-closing tag followed by an unmatched end tag.
+     * IMPLEMENTATION: Add specific test cases to trigger this XML parsing error scenario.
+     */
+    if (fdp.ConsumeBool() && fdp.remaining_bytes() > 10) {
+        // Generate malformed XML with self-closing tag followed by mismatched end tag
+        std::string tag_name = fdp.ConsumeBytesAsString(fdp.ConsumeIntegralInRange<size_t>(1, 10));
+        if (!tag_name.empty()) {
+            // Create variations of malformed XML
+            switch (fdp.ConsumeIntegralInRange<int>(0, 3)) {
+                case 0:
+                    // Self-closing tag with unexpected end tag
+                    xml_string = "<root><" + tag_name + "/></" + tag_name + "></root>";
+                    break;
+                case 1:
+                    // Nested structure with self-closing and mismatched end
+                    xml_string = "<root><outer><" + tag_name + "/></outer></" + tag_name + "></root>";
+                    break;
+                case 2:
+                    // Empty element with duplicate end tag
+                    xml_string = "<root><" + tag_name + "></" + tag_name + "></" + tag_name + "></root>";
+                    break;
+                case 3:
+                    // Multiple nested self-closing with wrong end
+                    xml_string = "<a><b><c/></b></c></a>";
+                    break;
+            }
+        }
+    }
+
+
+
     doc->Parse(xml_string.c_str());
 
     /*

@@ -14,3 +14,4 @@ external/oss-fuzz/build
 .*$py.class
 *.so
 .DS_Store
+klee_build_output/
