@@ -67,25 +67,35 @@ cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 cp $SRC/*.dict $SRC/*.options $OUT/
 
 
-#############################################
+
 # Export CLEAN Source Tree For KLEE
-#############################################
+PROJECT_NAME="tinyxml2"
+OUT_PROJECT_DIR="$OUT/$PROJECT_NAME/source_code"
 
-echo "[KLEE] Dumping clean source tree for symbolic execution..."
+# Ensure clean dir (and avoid "file exists" if a file was created by mistake)
+if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then
+  rm -f "$OUT_PROJECT_DIR"
+fi
+mkdir -p "$OUT_PROJECT_DIR"
 
-mkdir -p $OUT/project_source
-
-# 1. tinyxml2 原始碼
-cp -r $SRC/tinyxml2 $OUT/project_source/
-
-# 2. include/ 資料夾（如果 tinyxml2 使用 include）
-if [ -d "$SRC/include" ]; then
-    cp -r $SRC/include $OUT/project_source/
+# copy source files
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete --no-perms \
+    --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+    --exclude='build' --exclude='cmake' --exclude='CMakeFiles' \
+    --exclude='*.o' --exclude='*.a' --exclude='*.so' --exclude='*.dll' \
+    "$SRC/tinyxml2/" "$OUT_PROJECT_DIR/"
+else
+  find "$SRC/tinyxml2" -maxdepth 1 -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+    -exec cp {} "$OUT_PROJECT_DIR/" \;
 fi
 
-# 3. KLEE harness（只複製這類檔案）
-find "$SRC" -maxdepth 1 -type f \( -name "klee_*.c" -o -name "klee_*.cpp" \) \
-    -exec cp {} $OUT/project_source/ \;
+# copy include directory if exists
+if [ -d "$SRC/include" ]; then
+  rsync -a --delete --no-perms "$SRC/include/" "$OUT_PROJECT_DIR/include/" 2>/dev/null || \
+    { mkdir -p "$OUT_PROJECT_DIR/include"; cp -r "$SRC/include/." "$OUT_PROJECT_DIR/include/"; }
+fi
 
-echo "[KLEE] Clean source saved to: $OUT/project_source/"
-#############################################
+# copy klee harness files
+find "$SRC" -maxdepth 1 -type f \( -name "klee_*.c" -o -name "klee_*.cpp" \) \
+  -exec cp {} "$OUT_PROJECT_DIR/" \;
