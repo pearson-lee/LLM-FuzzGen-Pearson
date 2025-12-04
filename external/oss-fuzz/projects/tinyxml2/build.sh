@@ -38,7 +38,7 @@ fi
 make -j$(nproc) clean
 make -j$(nproc) all
 
-fuzz_harness=$(ls -d "$SRC"/*.cpp | grep -v "klee_harness")
+fuzz_harness=$(ls -d "$SRC"/*.cpp | grep -v "klee_")
 for h in $fuzz_harness; do
   $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a

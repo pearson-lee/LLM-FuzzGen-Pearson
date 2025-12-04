@@ -41,7 +41,6 @@ mkdir -p /out/klee
 rm -f /out/klee/*.bc
 
 echo "[1/3] Compiling project sources..."
-# 遞迴尋找所有 .cpp (排除 main)
 while IFS= read -r -d "" SRC; do
   if grep -qE "int[[:space:]]+main[[:space:]]*\\(" "$SRC"; then
     echo "  -> Skipping $(basename "$SRC") (contains main)"
@@ -58,10 +57,8 @@ echo "[2/3] Compiling harness..."
 HF="$HARNESS"
 FOUND=""
 
-# 1. 嘗試絕對路徑 (容器內)
 if [ -f "$HF" ]; then
   FOUND="$HF"
-# 2. 嘗試相對路徑：先找 /src/project，再找 /src/source_code (遞迴)
 else
   if [ -f "/src/project/$HF" ]; then
     FOUND="/src/project/$HF"
