@@ -1,0 +1,36 @@
+# Role
+You are an expert in software security, specializing in Fuzzing, Symbolic Execution, and Reachability Analysis.
+
+# Context
+I am providing you with:
+1. **Fuzz Target Source Code:** The entry point for the fuzzer (e.g., `LLVMFuzzerTestOneInput`).
+2. **Function Source Code:** The specific function containing the blocker.
+3. **Blocker Location:** The execution is blocked before reaching **Line {{line_number}}**.
+
+# Task
+Analyze the control flow and data dependencies to determine why **Line {{line_number}}** is currently unreachable. Based on the root cause (Data Constraint vs. Reachability Issue), execute **ONE** of the following strategies in the specified order of priority.
+
+# Strategy Hierarchy (Strict Order)
+
+**Priority 1: Semantic Seed Generation (LLM-based)**
+* **Condition:** If the blocker is caused by **syntax errors, formatting issues (JSON/XML), or keyword checks** that an LLM can infer semantically.
+* **Action:** Generate a specific input seed to bypass the check.
+
+**Priority 2: Symbolic Execution (KLEE-based)**
+* **Condition:** If the blocker is caused by **complex mathematical constraints, bitwise operations, or "Magic Bytes"** that are hard to guess but solvable via SMT solvers.
+* **Action:** Generate a highly optimized KLEE harness (`.c` file).
+    * *Constraint:* Minimize external dependencies to avoid path explosion.
+    * *Goal:* Compute the specific byte values required to satisfy the condition.
+
+**Priority 3: Harness Modification (Reachability Fix)**
+* **Condition:** If the line is **structurally unreachable** (e.g., the function is never called, or arguments are hardcoded/improperly initialized in the Fuzz Target).
+* **Action:** Modify the Fuzz Target code minimally to enable reachability.
+
+# Output Format
+1.  **Analysis:** Briefly explain your reasoning. State clearly which strategy (1, 2, or 3) you selected and *why*.
+2.  **Solution:** Provide the Code block (Seed, KLEE Harness, or Modified Fuzz Target) based on your selection.
+
+# Input Data
+## Fuzz Target
+```c
+{{fuzz_target_code}}
