@@ -10,9 +10,9 @@ echo "Running KLEE on $PROJECT"
 echo "=========================================="
 
 # 檢查 bitcode 是否存在
-if [ ! -f "./klee_build_output/klee/klee_harness_linked.bc" ]; then
+if [ ! -f "./klee_build_output/klee_0921013457_20251210_linked.bc" ]; then
     echo "ERROR: Bitcode not found!"
-    echo "Please run ./build_klee_only.sh first"
+    echo "Please run ./build_klee_harness.sh first"
     exit 1
 fi
 

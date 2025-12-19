@@ -102,6 +102,29 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
             rootElement->DeleteAttribute(attr->Name());
         }
     }
+    // New: Trigger XMLNode::InsertChildPreamble branch where insertThis->_parent != nullptr
+    // Move an already parented node into a new parent in the same document.
+    // This forces InsertChildPreamble to take the unlink path (line 1208).
+    {
+        tinyxml2::XMLElement* root = doc->RootElement();
+        if (root) {
+            // Ensure there is at least one child under root to move.
+            tinyxml2::XMLNode* nodeToMove = root->FirstChild();
+            if (!nodeToMove) {
+                // If no child exists, create one so it gets parented by root.
+                tinyxml2::XMLElement* tempChild = doc->NewElement("TempChild");
+                root->InsertEndChild(tempChild);
+                nodeToMove = tempChild;
+            }
+            // Create a new parent element in the same document.
+            tinyxml2::XMLElement* newParent = doc->NewElement("NewParent");
+            // Insert new parent under root (so it is part of the tree).
+            root->InsertEndChild(newParent);
+            // Now move the existing node into newParent. nodeToMove already has a parent,
+            // so InsertChildPreamble will see insertThis->_parent != nullptr and unlink it.
+            newParent->InsertEndChild(nodeToMove);
+        }
+    }
 
     // Fuzzing XMLDocument::LoadFile(_IO_FILE*)
     // Create a unique temporary file path
@@ -164,5 +187,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         deep_doc.Parse(deep_xml.c_str());
     }
 
+    {
+        tinyxml2::XMLElement* root = doc->RootElement();
+        if (!root) {
+            root = doc->NewElement("root");
+            doc->InsertEndChild(root);
+        }
+        // 建立子元素並以 staticMem=true 設定名稱，觸發 XMLNode::SetValue 的 staticMem 分支
+        tinyxml2::XMLElement* staticElem = doc->NewElement("temp");
+        root->InsertEndChild(staticElem);
+        staticElem->SetName("STATIC_NAME", true);
+    }
+    
     return 0;
 }

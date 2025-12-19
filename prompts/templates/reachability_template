@@ -1,36 +1,111 @@
-# Role
-You are an expert in software security, specializing in Fuzzing, Symbolic Execution, and Reachability Analysis.
+## Role
+You are a senior software testing engineer with deep expertise in LibFuzzer, Clang Sanitizers, and symbolic execution (KLEE).
+Your specialization lies in resolving code coverage bottlenecks in fuzzing workflows through static and dynamic analysis,
+and in fixing logical flaws (blockers) that prevent effective testing.
 
-# Context
-I am providing you with:
-1. **Fuzz Target Source Code:** The entry point for the fuzzer (e.g., `LLVMFuzzerTestOneInput`).
-2. **Function Source Code:** The specific function containing the blocker.
-3. **Blocker Location:** The execution is blocked before reaching **Line {{line_number}}**.
+---
 
-# Task
-Analyze the control flow and data dependencies to determine why **Line {{line_number}}** is currently unreachable. Based on the root cause (Data Constraint vs. Reachability Issue), execute **ONE** of the following strategies in the specified order of priority.
+## Context
 
-# Strategy Hierarchy (Strict Order)
+### Source Code
+<source_code>
+</source_code>
 
-**Priority 1: Semantic Seed Generation (LLM-based)**
-* **Condition:** If the blocker is caused by **syntax errors, formatting issues (JSON/XML), or keyword checks** that an LLM can infer semantically.
-* **Action:** Generate a specific input seed to bypass the check.
+### Coverage Report Summary
+<coverage_report_summary>
+</coverage_report_summary>
 
-**Priority 2: Symbolic Execution (KLEE-based)**
-* **Condition:** If the blocker is caused by **complex mathematical constraints, bitwise operations, or "Magic Bytes"** that are hard to guess but solvable via SMT solvers.
-* **Action:** Generate a highly optimized KLEE harness (`.c` file).
-    * *Constraint:* Minimize external dependencies to avoid path explosion.
-    * *Goal:* Compute the specific byte values required to satisfy the condition.
+### Target Information
+- **Target Line Number**: `<lineNum>`
+- **Related Function**: `[Insert Function Name Here]`
 
-**Priority 3: Harness Modification (Reachability Fix)**
-* **Condition:** If the line is **structurally unreachable** (e.g., the function is never called, or arguments are hardcoded/improperly initialized in the Fuzz Target).
-* **Action:** Modify the Fuzz Target code minimally to enable reachability.
+#### Related Fuzz Target Code
+<fuzz_target_code>
+</fuzz_target_code>
 
-# Output Format
-1.  **Analysis:** Briefly explain your reasoning. State clearly which strategy (1, 2, or 3) you selected and *why*.
-2.  **Solution:** Provide the Code block (Seed, KLEE Harness, or Modified Fuzz Target) based on your selection.
+---
 
-# Input Data
-## Fuzz Target
-```c
-{{fuzz_target_code}}
+## Blocker Taxonomy (Must strictly follow this classification)
+
+### 1. Input Dependent
+- The target path is not triggered due to the absence of extreme or specially structured inputs.
+
+### 2. Input Independent
+- **2.1 Incorrect Parameters**
+  - The fuzz target uses fixed or incorrect parameters (e.g., NULL, TRUE, constants), preventing exploration of other logic branches.
+- **2.2 Missing Function Calls**
+  - 2.2.1 Missing overloading or variant calls
+  - 2.2.2 Missing repeated calls (the function must be called multiple times to trigger the behavior)
+  - 2.2.3 Missing configuration or initialization calls (library setup is incomplete)
+  - 2.2.4 Missing feature-enabling calls (e.g., handling of unknown chunks or optional features)
+- **2.3 Incorrect Call Order**
+  - The error-handling logic is triggered only when functions are invoked in a non-intuitive order.
+- **2.4 Unreachable Code**
+  - Error-handling placeholders that can never be executed in the real execution environment.
+
+---
+
+## Task Instructions (Must be completed in order, do not omit any step)
+
+### Step 1: Analysis and Classification (Summary-Level Explanation)
+Provide a **concise but technically accurate** analysis covering:
+1. Why the target line `<lineNum>` is currently not covered
+2. Which **specific category** in the taxonomy the blocker belongs to (e.g., 1, 2.2.3)
+3. The rationale for this classification (engineering-level summary; no need for detailed reasoning)
+
+---
+
+### Step 2: Decision and Corresponding Action
+
+Based on the classification in Step 1, select and execute the **single correct path** below:
+
+#### Case A: Classified as "1. Input Dependent"
+
+- **Path A1: Solvable by Input Design**
+  - If the path can be triggered directly via crafted inputs, generate the corresponding test input seed.
+
+- **Path A2: Requires Symbolic Execution**
+  - If KLEE is required, write a **KLEE harness**.
+  - The harness must:
+    - Avoid path explosion
+    - Constrain symbolic variables appropriately
+    - Consider execution performance and scalability
+
+---
+
+#### Case B: Classified as "2. Input Independent"
+
+- **Path B1 (2.1, 2.2.x, 2.3)**
+  - Modify the fuzz target code with the **minimum necessary changes** to remove the blocker.
+  - Only change what is strictly required.
+  - Do not introduce unrelated logic.
+
+- **Path B2 (2.4 Unreachable Code)**
+  - Only explain why the code cannot be triggered in the real environment.
+  - **Do not generate any code.**
+
+---
+
+### Step 3: Output Format (Must be followed exactly)
+
+Your response must contain the following three sections, in this exact order:
+
+1. **Brief Analysis Summary**
+   - Use Markdown bullet points
+   - Focus on the blocker cause and classification
+
+2. **Corresponding Artifact (Exactly one)**
+   - Test input seed, or
+   - KLEE harness code, or
+   - Modified fuzz target code
+
+3. **All Code**
+   - Must be enclosed in Markdown code blocks
+   - Do not include explanatory text inside code blocks
+
+---
+
+## Additional Rules
+- If the provided information is insufficient for classification, explicitly state what is missing and any reasonable assumptions made.
+- Do not output multiple solutions.
+- Base your analysis strictly on the provided context and standard engineering knowledge.
