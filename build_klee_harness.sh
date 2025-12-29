@@ -8,7 +8,7 @@ fi
 
 PROJECT="$1"
 HARNESS="$2"
-KLEE_IMAGE="${KLEE_IMAGE:-klee/klee:latest}"
+KLEE_IMAGE="${KLEE_IMAGE:-klee/klee:3.0}"
 
 WORKDIR="$(pwd)"
 
@@ -26,19 +26,31 @@ set -e
 
 echo "=== Inside KLEE Container ==="
 
-if ! command -v clang++ >/dev/null 2>&1 && ! command -v clang++-14 >/dev/null 2>&1; then
-  echo "clang++ not found. Installing..."
-  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y clang llvm || {
-    echo "Failed to install clang/llvm"; exit 1;
-  }
+# Detect LLVM major and pick matching toolchain
+LLVM_MAJOR="$(llvm-config --version 2>/dev/null | cut -d. -f1 || true)"
+CXX=""
+for c in "clang++-$LLVM_MAJOR" "clang-$LLVM_MAJOR" "clang++"; do
+  if command -v "$c" >/dev/null 2>&1; then CXX="$c"; break; fi
+done
+if [ -z "$CXX" ]; then
+  echo "clang++ not found; installing matching version (best effort)..."
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "clang-$LLVM_MAJOR" "llvm-$LLVM_MAJOR" || DEBIAN_FRONTEND=noninteractive apt-get install -y clang llvm
+  CXX="$(command -v "clang++-$LLVM_MAJOR" || command -v clang++)"
 fi
 
-CXX="$(command -v clang++ || command -v clang++-14 || echo /usr/lib/llvm-14/bin/clang++)"
 echo "Using compiler: $CXX"
 $CXX --version || true
-
 mkdir -p /out/klee
-rm -f /out/klee/*.bc
+rm -f /out/klee/*.bc || true
+
+LLVMLINK=""
+for l in "llvm-link-$LLVM_MAJOR" "llvm-link"; do
+  if command -v "$l" >/dev/null 2>&1; then LLVMLINK="$l"; break; fi
+done
+if [ -z "$LLVMLINK" ]; then
+  echo "llvm-link not found"; exit 1
+fi
 
 echo "[1/3] Compiling project sources..."
 while IFS= read -r -d "" SRC; do
@@ -88,6 +100,6 @@ $CXX -emit-llvm -c -g -O0 -Xclang -disable-O0-optnone \
 
 echo "[3/3] Linking bitcode..."
 LINKED_BC="/out/klee/${BASE_NAME}_linked.bc"
-llvm-link /out/klee/*.bc -o "$LINKED_BC"
+"$LLVMLINK" /out/klee/*.bc -o "$LINKED_BC"
 echo "Done. Output: $LINKED_BC"
 '

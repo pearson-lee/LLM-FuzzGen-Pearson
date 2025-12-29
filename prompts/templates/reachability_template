@@ -9,18 +9,21 @@ and in fixing logical flaws (blockers) that prevent effective testing.
 
 ### Source Code
 <source_code>
+{source_code}
 </source_code>
 
 ### Coverage Report Summary
 <coverage_report_summary>
+{coverage_report_summary}
 </coverage_report_summary>
 
 ### Target Information
-- **Target Line Number**: `<lineNum>`
-- **Related Function**: `[Insert Function Name Here]`
+- **Target Line Number**: {lineNum}
+- **Related Function**: {Insert Function Name Here}
 
 #### Related Fuzz Target Code
 <fuzz_target_code>
+{fuzz_target_code}
 </fuzz_target_code>
 
 ---
@@ -49,7 +52,7 @@ and in fixing logical flaws (blockers) that prevent effective testing.
 
 ### Step 1: Analysis and Classification (Summary-Level Explanation)
 Provide a **concise but technically accurate** analysis covering:
-1. Why the target line `<lineNum>` is currently not covered
+1. Why the target line `Target Line Number` is currently not covered
 2. Which **specific category** in the taxonomy the blocker belongs to (e.g., 1, 2.2.3)
 3. The rationale for this classification (engineering-level summary; no need for detailed reasoning)
 

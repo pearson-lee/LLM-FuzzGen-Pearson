@@ -1,79 +1,92 @@
 #!/bin/bash
-
 set -e
 
-PROJECT="tinyxml2"
-KLEE_IMAGE="klee/klee:2.3"
+# Usage: ./run_klee.sh <project_name> <bitcode_file_in_klee_dir>
+# Example: ./run_klee.sh tinyxml2 klee_0921013457_20251210_linked.bc
+
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <project_name> <bitcode_file>"
+  echo "Example: $0 tinyxml2 klee_0921013457_20251210_linked.bc"
+  echo "Available bitcode files under ./klee_build_output/klee/:"
+  ls -1 "./klee_build_output/klee"/*.bc 2>/dev/null | sed 's|.*/||' || true
+  exit 1
+fi
+
+PROJECT="$1"
+BC_NAME="$2"
+
+KLEE_IMAGE="${KLEE_IMAGE:-klee/klee:3.0}"
 
 echo "=========================================="
 echo "Running KLEE on $PROJECT"
 echo "=========================================="
 
-# 檢查 bitcode 是否存在
-if [ ! -f "./klee_build_output/klee_0921013457_20251210_linked.bc" ]; then
-    echo "ERROR: Bitcode not found!"
-    echo "Please run ./build_klee_harness.sh first"
-    exit 1
+BC_DIR="./klee_build_output/klee"
+BC_LOCAL="$BC_DIR/$BC_NAME"
+
+if [ ! -f "$BC_LOCAL" ]; then
+  echo "ERROR: 找不到檔案 '$BC_NAME' 於 $BC_DIR"
+  echo "Available bitcode files:"
+  ls -1 "$BC_DIR"/*.bc 2>/dev/null | sed 's|.*/||' || true
+  exit 1
 fi
 
-echo "✓ Bitcode found"
-echo ""
+echo "✓ Bitcode found: $BC_LOCAL"
 
-# 創建輸出目錄
 mkdir -p ./klee_output
+RUN_ID="$(date +%Y%m%d_%H%M%S)"
+echo "Run ID: $RUN_ID"
 
-# 執行 KLEE
 echo "Running KLEE (max 60 seconds)..."
-echo "Output will be saved to: ./klee_output/"
+echo "Output will be saved to: ./klee_output/$RUN_ID/"
 echo ""
 
-docker run --rm \
-    -v "$(pwd)/klee_build_output:/work" \
-    -v "$(pwd)/klee_output:/output" \
-    $KLEE_IMAGE \
-    bash -c "
-        set -e
-        
-        echo '=== Running KLEE ==='
-        echo ''
-        
-        # 執行 KLEE
-        klee \
-            --output-dir=/output \
-            --max-time=60 \
-            --max-memory=2048 \
-            --search=dfs \
-            --optimize \
-            --libc=uclibc \
-            --posix-runtime \
-            /work/klee/klee_harness_linked.bc
-        
-        echo ''
-        echo '=== KLEE Completed ==='
-        echo ''
-        echo 'Output files:'
-        ls -lh /output/ | head -n 20
-        echo ''
-        
-        # 統計測試案例數量
-        TEST_COUNT=\$(ls /output/*.ktest 2>/dev/null | wc -l)
-        echo \"Generated test cases: \$TEST_COUNT\"
-        
-        # 顯示統計資訊
-        if [ -f /output/run.stats ]; then
-            echo ''
-            echo 'Statistics (last 10 lines):'
-            tail -n 10 /output/run.stats
-        fi
-        
-        # 顯示第一個測試案例
-        if [ \$TEST_COUNT -gt 0 ]; then
-            FIRST_TEST=\$(ls /output/*.ktest 2>/dev/null | head -n 1)
-            echo ''
-            echo 'First test case:'
-            ktest-tool \"\$FIRST_TEST\" 2>/dev/null || echo 'Could not read test case'
-        fi
-    "
+docker run --rm --ulimit=stack=-1:-1 \
+  -v "$(pwd)/klee_build_output:/work" \
+  -v "$(pwd)/klee_output:/output" \
+  "$KLEE_IMAGE" \
+  bash -c "
+    set -e
+    echo '=== Running KLEE ==='
+    klee \
+      --output-dir=\"/output/$RUN_ID\" \
+      --max-time=60 \
+      --max-memory=2048 \
+      --search=dfs \
+      --optimize \
+      --libc=uclibc \
+      --posix-runtime \
+      \"/work/klee/$(basename "$BC_LOCAL")\"
+
+    echo ''
+    echo '=== KLEE Completed ==='
+    echo ''
+    echo 'Output files:'
+    ls -lh \"/output/$RUN_ID\" | head -n 20
+    echo ''
+
+    TEST_COUNT=\$(ls \"/output/$RUN_ID\"/*.ktest 2>/dev/null | wc -l)
+    echo \"Generated test cases: \$TEST_COUNT\"
+
+    if [ -f \"/output/$RUN_ID/run.stats\" ]; then
+      echo ''
+      echo 'Statistics (last 10 lines):'
+      tail -n 10 \"/output/$RUN_ID/run.stats\"
+    fi
+
+    if [ -f \"/output/$RUN_ID/messages.txt\" ]; then
+      echo ''
+      echo 'Messages (last 20 lines):'
+      tail -n 20 \"/output/$RUN_ID/messages.txt\"
+    fi
+
+    if [ \$TEST_COUNT -gt 0 ]; then
+      FIRST_TEST=\$(ls \"/output/$RUN_ID\"/*.ktest 2>/dev/null | head -n 1)
+      echo ''
+      echo 'First test case:'
+      ktest-tool \"\$FIRST_TEST\" 2>/dev/null || echo 'Could not read test case'
+    fi
+  "
 
 echo ""
 echo "=========================================="
@@ -81,22 +94,25 @@ echo "✓ KLEE execution completed!"
 echo "=========================================="
 echo ""
 
-# 顯示本地結果
-if [ -d "./klee_output" ]; then
-    echo "Results saved to: $(pwd)/klee_output/"
+RESULT_DIR="./klee_output/$RUN_ID"
+if [ -d "$RESULT_DIR" ]; then
+  echo "Results saved to: $(pwd)/$RESULT_DIR"
+  echo ""
+  TEST_COUNT=$(ls "$RESULT_DIR"/*.ktest 2>/dev/null | wc -l)
+  echo "Test cases generated: $TEST_COUNT"
+  echo ""
+  if [ "$TEST_COUNT" -gt 0 ]; then
+    echo "Test case files:"
+    ls -lh "$RESULT_DIR"/*.ktest | head -n 10
+  fi
+  if [ -f "$RESULT_DIR/messages.txt" ]; then
     echo ""
-    
-    TEST_COUNT=$(ls ./klee_output/*.ktest 2>/dev/null | wc -l)
-    echo "Test cases generated: $TEST_COUNT"
-    echo ""
-    
-    if [ $TEST_COUNT -gt 0 ]; then
-        echo "Test case files:"
-        ls -lh ./klee_output/*.ktest | head -n 10
-        echo ""
-        echo "To extract inputs for fuzzing, use:"
-        echo "  ./extract_klee_seeds.sh"
-    fi
+    echo "Messages (last 20 lines):"
+    tail -n 20 "$RESULT_DIR/messages.txt"
+  fi
+  echo ""
+  echo "To extract inputs for fuzzing, use:"
+  echo "  ./extract_klee_seeds.sh \"$RESULT_DIR\""
 else
-    echo "WARNING: No output directory found"
+  echo "WARNING: No output directory found at $RESULT_DIR"
 fi
