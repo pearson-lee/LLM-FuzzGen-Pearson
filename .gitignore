@@ -16,3 +16,4 @@ external/oss-fuzz/build
 .DS_Store
 klee_build_output/
 seeds_input/
+klee_output/

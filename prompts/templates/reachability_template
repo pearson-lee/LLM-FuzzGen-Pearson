@@ -9,21 +9,22 @@ and in fixing logical flaws (blockers) that prevent effective testing.
 
 ### Source Code
 <source_code>
-{source_code}
+`{source_code}`
 </source_code>
 
 ### Coverage Report Summary
 <coverage_report_summary>
-{coverage_report_summary}
+`{coverage_report_summary}`
 </coverage_report_summary>
 
 ### Target Information
-- **Target Line Number**: {lineNum}
-- **Related Function**: {Insert Function Name Here}
+- **Language**: `{language}`
+- **Target Line Number**: `{lineNum}`
+- **Related Function**: `{function Name}`
 
 #### Related Fuzz Target Code
 <fuzz_target_code>
-{fuzz_target_code}
+`{fuzz_target_code}`
 </fuzz_target_code>
 
 ---
