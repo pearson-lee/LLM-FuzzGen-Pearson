@@ -16,10 +16,17 @@ import config.config as cfg
 from llm_interface.llm_client import LLMClient
 
 REPO_ROOT = Path(__file__).resolve().parent
-TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "symbolic_template"
+TEMPLATE_PATH_INIT = REPO_ROOT / "prompts" / "templates" / "symbolic_template"
+TEMPLATE_PATH_FIX = REPO_ROOT / "prompts" / "templates" / "symbolic_error_fix_template"
 
 LOG_DIR = REPO_ROOT / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+def load_template(path: Path) -> str:
+    if not path.exists():
+        logging.error(f"Template not found: {path}")
+        sys.exit(1)
+    return path.read_text(encoding="utf-8")
 
 def setup_file_logging(log_path: Path):
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
@@ -45,14 +52,9 @@ def read_text_if_exists(p: Path) -> str:
     except Exception:
         return ""
 
-def load_symbolic_template() -> str:
-    if not TEMPLATE_PATH.exists():
-        logging.error(f"Template not found: {TEMPLATE_PATH}")
-        sys.exit(1)
-    return TEMPLATE_PATH.read_text(encoding="utf-8")
-
 def format_symbolic_prompt(
     *,
+    base_text: str,
     project_name: str,
     project_language: str,
     target_function_name: str,
@@ -63,8 +65,7 @@ def format_symbolic_prompt(
     previous_harness: str = "",
     compiler_errors: str = "",
 ) -> str:
-    base = load_symbolic_template()
-    prompt = base.format(
+    prompt = base_text.format(
         project_name=project_name,
         project_language=project_language,
         target_function_name=target_function_name or "",
@@ -72,28 +73,10 @@ def format_symbolic_prompt(
         source_code=source_code or "",
         blocker_function_name=blocker_function_name or "",
         blocker_line_numbers=blocker_line_numbers or "",
+        original_harness_source=previous_harness or "",
+        error=compiler_errors or ""
     )
-
-    extras = []
-    if previous_harness:
-        extras.append(
-            "\n\n# Previous Harness (for reference only; fix and output a single complete file)\n"
-            "```cpp\n" + previous_harness.strip() + "\n```"
-        )
-    if compiler_errors:
-        extras.append(
-            "\n\n# Compiler Errors\n"
-            "The harness must compile with clang to LLVM bitcode. Fix any issues below.\n"
-            "```\n" + compiler_errors.strip() + "\n```"
-        )
-
-    # Re-assert strict output format
-    tail_rule = (
-        "\n\n# Output Requirement\n"
-        "- Output only the complete C/C++ KLEE harness source code.\n"
-        "- Do not include explanations or markdown except the source code.\n"
-    )
-    return prompt + "".join(extras) + tail_rule
+    return prompt
 
 def extract_code_block(text: str) -> str:
     # Prefer fenced code content, else return full text.
@@ -110,8 +93,16 @@ def write_harness(project: str, filename: str, code: str) -> Path:
 
 def run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     logging.info("Running: %s", " ".join(cmd))
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    return p.returncode, p.stdout, p.stderr
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+    try:
+        out = p.stdout.decode("utf-8", errors="ignore")
+    except Exception:
+        out = p.stdout.decode("cp1252", errors="ignore")
+    try:
+        err = p.stderr.decode("utf-8", errors="ignore")
+    except Exception:
+        err = p.stderr.decode("cp1252", errors="ignore")
+    return p.returncode, out, err
 
 def run_bash_script(script: str, args: list[str]) -> tuple[int, str, str]:
     # Prefer bash if available; user environment must have bash/docker
@@ -132,7 +123,7 @@ def main():
     parser.add_argument("--lang", default="c++", choices=["c", "c++"], help="Harness language")
     parser.add_argument("--target-func", default="", help="Target function name")
     parser.add_argument("--signature", default="", help="Function signature")
-    parser.add_argument("--source-txt", default="", help="Path to a .txt file whose contents will be used in the prompt (overrides --source-file)")
+    parser.add_argument("--source-txt", default="", help="Path to a .txt file whose contents will be used in the prompt")
     parser.add_argument("--blocker-func", default="", help="Blocker function name (coverage blocker)")
     parser.add_argument("--blocker-lines", default="", help="Blocker line number(s), e.g., 123 or 120-140")
     parser.add_argument("--max-iters", type=int, default=cfg.ITERATION_LOOP, help="Max LLM/build iterations")
@@ -160,9 +151,8 @@ def main():
     setup_file_logging(log_path)
     logging.info(f"Log file: {log_path}")
 
-    source_text = read_text_if_exists(Path(args.source_txt)) if args.source_txt else ""
-    source_code = source_text if source_text else (read_text_if_exists(Path(args.source_file)) if args.source_file else "")
-
+    source_code = read_text_if_exists(Path(args.source_txt)) if args.source_txt else ""
+    
     # Init LLM
     llm = LLMClient(backend=args.backend, model_name=args.model)
 
@@ -171,14 +161,18 @@ def main():
     harness_code = ""
     success = False
 
+    symbolic_base = load_template(TEMPLATE_PATH_INIT)
+    error_fix_base = load_template(TEMPLATE_PATH_FIX)
+
     for i in range(1, args.max_iters + 1):
         logging.info(f"=== Iteration {i}/{args.max_iters} ===")
+        base = symbolic_base if i == 1 else error_fix_base
         prompt = format_symbolic_prompt(
+            base_text=base,
             project_name=project,
             project_language=lang,
             target_function_name=args.target_func,
             function_signature=args.signature,
-            # TODO: change to dynamic source input
             source_code=source_code,
             blocker_function_name=args.blocker_func,
             blocker_line_numbers=args.blocker_lines,

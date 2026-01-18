@@ -31,7 +31,7 @@ if [ ! -f "$BC_LOCAL" ]; then
   exit 1
 fi
 
-echo "✓ Bitcode found: $BC_LOCAL"
+echo "Bitcode found: $BC_LOCAL"
 
 mkdir -p ./klee_output
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
@@ -90,7 +90,7 @@ docker run --rm --ulimit=stack=-1:-1 \
 
 echo ""
 echo "=========================================="
-echo "✓ KLEE execution completed!"
+echo "KLEE execution completed!"
 echo "=========================================="
 echo ""
 
