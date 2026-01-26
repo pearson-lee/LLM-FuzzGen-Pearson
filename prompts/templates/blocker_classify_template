@@ -1,0 +1,94 @@
+## Role
+You are a senior software testing engineer with deep expertise in LibFuzzer, Clang Sanitizers, and symbolic execution (KLEE).
+Your specialization lies in resolving code coverage bottlenecks in fuzzing workflows through static and dynamic analysis,
+and in fixing logical flaws (blockers) that prevent effective testing.
+
+---
+
+## Context
+
+### Target Information
+- **Language**: `{language}`
+- **Project Name**: `{project_name}`
+- **Function containing the blocked branch**: `{function_name}`
+- **The line of code corresponding to the blocked branch**: `{branch_line_number}`
+- **List of functions that only the blocked branch side can reach**: `{unique_reachable_functions}`
+- **Call Chain**:
+<call_chain>
+{call_chain}
+</call_chain>
+
+### Source Code
+<source_code>
+{source_code}
+</source_code>
+
+#### Related Fuzz Target Code
+<fuzz_target_code>
+{fuzz_target_code}
+</fuzz_target_code>
+
+---
+
+## Blocker Taxonomy (Must strictly follow this classification)
+
+### 1. Input Dependent
+- The target path is not triggered due to the absence of extreme or specially structured inputs.
+
+### 2. Input Independent
+- **2.1 Incorrect Parameters**
+  - The fuzz target uses fixed or incorrect parameters (e.g., NULL, TRUE, constants), preventing exploration of other logic branches.
+- **2.2 Missing Function Calls**
+  - 2.2.1 Missing overloading or variant calls
+  - 2.2.2 Missing repeated calls (the function must be called multiple times to trigger the behavior)
+  - 2.2.3 Missing configuration or initialization calls (library setup is incomplete)
+  - 2.2.4 Missing feature-enabling calls (e.g., handling of unknown chunks or optional features)
+- **2.3 Incorrect Call Order**
+  - The error-handling logic is triggered only when functions are invoked in a non-intuitive order.
+- **2.4 Unreachable Code**
+  - Error-handling placeholders that can never be executed in the real execution environment.
+
+---
+
+## Task
+
+### Step 1: Analysis and Classification (Summary-Level)
+Provide a concise technical analysis covering:
+1. Why the target line `{branch_line_number}` is currently not covered
+2. The specific taxonomy category (one of: "1", "2.1", "2.2.1", "2.2.2", "2.2.3", "2.2.4", "2.3", "2.4")
+3. Brief rationale (1–2 sentences; if information is insufficient, state the missing pieces)
+
+### Step 2: Decision Only
+Based on the classification, choose exactly one path:
+- "A1": Input Dependent → LLM-designed inputs can directly trigger
+- "A2": Input Dependent → Requires KLEE (symbolic execution) to explore
+- "B1": Input Independent → Minimal fuzz target modification required
+- "B2": Input Independent → Unreachable code (explain only; no code generation)
+Also provide a confidence score (0.0–1.0).
+
+Hard consistency rule (must follow to avoid mismatches):
+
+If the category is "1", the path must be either "A1" or "A2" (choose exactly one).
+If the category is "2.1", "2.2.1", "2.2.2", "2.2.3", "2.2.4", or "2.3", the path must be "B1".
+If the category is "2.4", the path must be "B2".
+---
+
+## Output Format (Strict JSON)
+Return ONLY the following JSON object (no extra text):
+
+{
+  "classification": {
+    "category": "",
+    "reason": ""
+  },
+  "decision": {
+    "path": "",
+    "confidence": 0.0
+  }
+}
+---
+
+## Additional Rules
+- Base the analysis strictly on the provided context and standard engineering knowledge.
+- If information is insufficient, the `reason` must state the missing specifics and the `confidence` should be lowered.
+- Do not output any prose outside the JSON object.
