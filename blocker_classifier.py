@@ -32,6 +32,7 @@ def format_prompt(template: str, args: argparse.Namespace) -> str:
         "project_name": args.project_name or "N/A",
         "function_name": args.function_name or "N/A",
         "branch_line_number": args.branch_line_number or "N/A",
+        "blocker_line_code": args.blocker_line_code or "N/A",
         "unique_reachable_functions": (
             read_optional_file(args.unique_reachable_functions_file)
             if getattr(args, "unique_reachable_functions_file", None)
@@ -102,6 +103,7 @@ def main():
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", required=True)
     parser.add_argument("--branch-line-number", required=True)
+    parser.add_argument("--blocker-line-code", default="", help="The code snippet corresponding to the blocked branch")
     parser.add_argument("--unique-reachable-functions", default="")
     parser.add_argument("--call-chain", default="")
 
@@ -136,12 +138,13 @@ def main():
         print(resp)
         sys.exit(3)
 
+    analysis_trace = result.get("analysis_trace", [])
     classification = result.get("classification", {})
     decision = result.get("decision", {})
     path = decision.get("path", "")
     reason = classification.get("reason", "")
 
-    logging.info("Classification: %s | Path: %s | Confidence: %s", classification.get("category", ""), path, decision.get("confidence", ""))
+    logging.info("Analysis trace:\n\n%s \nClassification: %s | Path: %s | Confidence: %s", analysis_trace,  classification.get("category", ""), path, decision.get("confidence", ""))
 
     if path == "A1":
         # Minimal stub call to confirm execution
