@@ -10,12 +10,10 @@ Your specialization lies in analyzing code coverage bottlenecks (fuzz blockers) 
 - **Language**: {language}
 - **Project Name**: {project_name}
 - **Function containing the blocked branch**: {function_name}
-- **The line of code corresponding to the blocked branch**: {branch_line_number}  (`{blocker_line_code}`)
+- **Branch Line Number (The Condition)**: `{branch_line_number}` (`{blocker_line_code}`)
+- **Blocked Side Line Number (Unreachable Code)**: `{blocked_side_line_number}` (`{blocked_side_line_code}`)
+- **Analysis Objective**: The current blocker condition is evaluated at line `{branch_line_number}`. Please analyze why the execution cannot satisfy this condition to reach the blocked side at line `{blocked_side_line_number}`.
 - **List of functions that only the blocked branch side can reach**: {unique_reachable_functions}
-- **Call Chain**:
-<call_chain>
-{call_chain}
-</call_chain>
 
 ### Source Code
 <source_code>
@@ -39,7 +37,7 @@ If the predicate checks variables that hold byte values directly copied, cast, o
 ### Rule 2: Implicit Flow & Semantic Properties (Input Dependent)
 Do not be fooled by variables that are not direct byte copies. If the predicate relies on **semantic properties of the input**, it is logically **Input Dependent**. Examples include:
 - **Length & Boundaries**: `strlen(value)`, pointer arithmetic `(end - start) < 6`, or size parameters derived from the input buffer.
-- **Structural Properties**: Loop counters (e.g., `depth` or `nesting_level` in AST/document parsing), element counts, or delimiter positions.
+- **Structural Properties**: Variables that track recursion depth, iteration count, state transitions, or nested element counts — regardless of domain (parsing, protocol decoding, graph traversal, etc.).
 *Reasoning: The fuzzer can mutate the input to be longer, shorter, or more deeply nested to satisfy these conditions.*
 
 ### Rule 3: Environmental & Strictly Internal Defensive Checks (Input Independent)
@@ -53,7 +51,8 @@ If the predicate checks states that are strictly internal to the library and mat
 Pay close attention to how `FuzzedDataProvider` (`fdp`) extracts and transforms the raw `Data`.
 - **Case A (Value Restriction - Target Flaw)**: If `fdp` artificially restricts the value space (e.g., `ConsumeInRange(0, 5)`) making a downstream check impossible, this is **Input Independent (Category 2)**.
 - **Case B (Standard Parsing)**: If `fdp` extracts bytes that are subsequently passed to a standard parser or decoder function of the target library, it is **Input Dependent (Category 1)**.
-- **Case C (Disconnected/Mocked Logic - Target Flaw)**: If the fuzz target successfully parses a structured input (e.g., an AST, document, or context object) but then IGNORES it and applies the target API test to a randomly generated "mock" object (e.g., built piece-by-piece via `fdp.Consume...` combined with internal constructor APIs), this is a critical fuzz target flaw. It is **Input Independent (Category 2)** because the actual structured fuzzer input is bypassed by the target's internal logic.
+- **Case C (Disconnected/Mocked Logic - Target Flaw)**: If the fuzz target successfully parses a structured input (e.g., an AST, a structured data object, network message, or binary state object) but then IGNORES it and applies the target API test to a randomly generated "mock" object (e.g., built piece-by-piece via `fdp.Consume...` combined with internal constructor APIs), this is a critical fuzz target flaw. It is **Input Independent (Category 2)** because the actual structured fuzzer input is bypassed by the target's internal logic.
+- **Case D (Data Starvation/Exhaustion - Target Flaw)**: If the fuzz target calls `fdp.ConsumeRemainingBytes...()` BEFORE other `fdp.Consume...()` calls, the FDP is exhausted. Subsequent calls will deterministically return `0`, `false`, or empty strings. If a branch is blocked because a variable is starved of fuzzer data in this manner, it is a critical fuzz target flaw. It is **Input Independent (Category 2, B1)**.
 
 ### Rule 5: Fuzz Target Hardcoded Logic & Incomplete Scope (Input Independent)
 If the branch is unreachable because the fuzz target is architecturally incomplete or too "safe", it is **Input Independent**. This includes:
@@ -61,7 +60,8 @@ If the branch is unreachable because the fuzz target is architecturally incomple
 - **Unexplored API Error States**: The fuzz target is "overly protective" and prevents invalid states from reaching the target API. Instead of hardcoding edge cases, the fuzz target misses the opportunity to use `FuzzedDataProvider` to **probabilistically inject** edge-case arguments (e.g., `API(fdp.ConsumeBool() ? valid_ptr : NULL)`), or it explicitly filters out invalid states before calling the API.
 - **Missing Function Calls (Type-2)**: Failing to call necessary initialization functions, configuration setters, or overloading variants.
 - **Incorrect Call Order (Type-3)**: Calling APIs in an order that mathematically prevents the blocked state.
-*Reasoning: The fuzz target can be easily modified to dynamically inject these specific states or arguments. This is a fixable Fuzz Target Flaw.*
+- **Incomplete State Setup (Type-3 extension)**: For stateful libraries, the fuzz target may fail to initialize required state machines, session contexts, or configuration objects before calling the target API.
+*Reasoning: The fuzz target can be modified to reach these states. When suggesting fixes, prioritize logic changes (B1_PRESERVE) over adding new FDP consumption calls (B1_DESTRUCTIVE) to prevent invalidating the existing fuzzer seed corpus.*
 
 ---
 
@@ -70,16 +70,17 @@ If the branch is unreachable because the fuzz target is architecturally incomple
 ### Category "1": Input Dependent
 - **Definition**: The branch evaluates semantic properties, structure, or values derived from the fuzzer input. It requires specific, "extreme", or highly structured inputs to be reached (Type-5 blockers).
 - **Decision Path**:
-  - `"A1"`: Choose this ONLY IF the fuzz target expects a standard file format (e.g., JSON, XML, PNG). The LLM can act as a structure-aware fuzzer to generate valid text/structured seeds.
+  - `"A1"`: Choose this ONLY IF the fuzz target passes a **structured byte stream** to a top-level parser, decoder, or deserializer API of the target library (e.g., text formats, binary protocols, configuration files, query languages, serialized data). The key criterion: can the LLM generate valid structured seeds that cover the blocked path?
   - `"A2"`: Choose this IF the fuzz target consumes raw bytes programmatically via complex `FuzzedDataProvider` sequences, OR involves deep mathematical constraints. Symbolic Execution (KLEE) is required.
 
 ### Category "2": Input Independent
 - **Definition**: The branch is unreachable due to hardcoded configurations, missing API calls (Type-1, 2, 3), limitations imposed by FDP (Rule 4), or purely environmental/architectural factors (Type-4).
 - **Decision Path**:
-  - `"B1"`: Requires fuzz target modification (e.g., changing hardcoded parameters, removing overly protective checks to allow probabilistic FDP injection, inserting missing initialization calls, removing mock-object wrappers).
-  - `"B2"`: Architecturally unreachable, strictly internal defensive dead-code, or environmental blocks (Type-4, Rule 3). **NO ACTION REQUIRED (Skip)**. It is impossible or impractical to reach this code via fuzz target modifications.
+  - `"B1_PRESERVE"`: (Priority 1) Requires fuzz target logic modification **WITHOUT** altering the `FuzzedDataProvider` (FDP) consumption layout. (e.g., changing hardcoded safe parameters to existing variables, inserting missing initialization calls, fixing API call orders). *This preserves the existing fuzzer corpus.*
+  - `"B1_DESTRUCTIVE"`: (Priority 2) Requires introducing NEW fuzzer input dimensions (e.g., adding, reordering, or modifying `fdp.Consume...` calls) to break the blocker. *Because this alters the FDP byte layout and invalidates existing seeds, the system should generate a NEW, isolated fuzz target for this specific API instead of modifying the old one.*
+  - `"B2"`: Architecturally unreachable, strictly internal defensive dead-code, or environmental blocks (Type-4, Rule 3). **NO ACTION REQUIRED (Skip)**.
 
-*(Hard Consistency Rule: If Category is "1", path must be "A1" or "A2". If Category is "2", path must be "B1" or "B2".)*
+*(Hard Consistency Rule: If Category is "1", path must be "A1" or "A2". If Category is "2", path must be "B1_PRESERVE", "B1_DESTRUCTIVE", or "B2".)*
 
 ---
 
@@ -89,14 +90,22 @@ If the branch is unreachable because the fuzz target is architecturally incomple
 You are STRICTLY FORBIDDEN from assuming a "typical" or "general" fuzzing scenario. You MUST base your analysis EXCLUSIVELY on the provided `<fuzz_target_code>`. 
 You must document your trace in the `analysis_trace` field using the following exact 4-part structure:
 
-[1. Target Variable]: Identify the variable being checked at line `{branch_line_number}`.
-[2. Fuzz Target Call Site]: You MUST quote the exact line of code from `<fuzz_target_code>` where `{function_name}` is called. If you cannot find it, state "Not found".
-[3. Origin Trace]: Trace the argument passed to the function backward within `<fuzz_target_code>`. You MUST quote the exact line where this argument is generated. (e.g., Does it come from a standard parser? Or is it randomly generated via `fdp.Consume...` inside a conditional block?)
+[1. Target Variable]: Identify the variable being checked at the branch line `{branch_line_number}` that prevents execution from reaching line `{blocked_side_line_number}`.
+[2. Fuzz Target Call Site]: Identify the API call in `<fuzz_target_code>` that serves as the entry point leading to this blocked branch. Note that `{function_name}` might be called **INDIRECTLY** (e.g., deeply nested within a core processing API, such as parsing, decoding, packet handling, state machine transitions, or traversal functions like `Parse()`, `Decode()`, `ProcessPacket()`, `Accept()`, etc.). You MUST quote the exact line of code from `<fuzz_target_code>` that triggers the execution path. If it is genuinely completely disconnected, state "Not found".
+[3. Origin Trace]: Trace the variables in the condition backward to their source. 
+- If it is an **Indirect Call** (e.g., triggered by a parser), trace back to the fuzzer input (e.g., the string buffer) fed into that entry point API.
+- **MANDATORY FDP STARVATION CHECK**: You MUST sequentially examine the code *above* the variable generation line. Does `fdp.ConsumeRemainingBytes...()` appear *before* the target variable is consumed by `fdp.Consume...()`? If yes, you MUST explicitly state "DATA STARVATION DETECTED: ConsumeRemainingBytes was called earlier" because the fuzzer data is already exhausted.
 [4. Rule Application]: Based strictly on the origin identified in [3], apply the appropriate Rule (1 to 5). 
-**ANTI-LAZINESS CHECK**: Before classifying a branch as Rule 3 (B2 Skip), you MUST evaluate if the fuzz target could theoretically be modified to expose this state. Could we remove an overly protective `if(valid)` check in the fuzz target? Could we use `FuzzedDataProvider` to probabilistically inject a `NULL` or invalid state? (NOTE: You should recommend probabilistic FDP injection, NEVER hardcoding static values). If it CAN be triggered by altering the fuzz target in a dynamic way, you MUST classify it as Rule 5 (B1). State your reasoning clearly.
+**ANTI-LAZINESS CHECK & CORPUS PRESERVATION**: Before classifying, you MUST evaluate:
+1. **Data Starvation**: Did you state "DATA STARVATION DETECTED" in step 3? If yes, classify as Rule 4 Case D (`B1_DESTRUCTIVE`).
+2. **Corpus Preservation Strategy**: If modifying the target (Rule 5), can the blocker be resolved by purely changing C++ logic (e.g., removing a protective `if`, calling an init function) WITHOUT adding or modifying `fdp.Consume...` calls? 
+   - If YES -> Classify as `B1_PRESERVE`. 
+   - If NO, and new FDP data is strictly required -> Classify as `B1_DESTRUCTIVE`.
+3. If an internal flag is "never set", does the public API allow setting it without new FDP data?
+State your reasoning clearly, explicitly mentioning the impact on the FDP layout.
 
 ### Step 2: Output Strict JSON
-Provide your conclusion in the exact JSON format below. Do not add any text outside the JSON block.
+Provide your conclusion in the exact JSON format below. Your entire response must be a single valid JSON object. Begin your response directly with `{`
 **CRITICAL:** Ensure that your JSON is perfectly valid. If you need to use quotes inside any string field (such as in `analysis_trace` or `reason`), you MUST use single quotes (e.g., 'overly protective') or properly escape double quotes (e.g., \"overly protective\").
 
 ```json
