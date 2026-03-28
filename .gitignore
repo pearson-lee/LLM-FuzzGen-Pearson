@@ -17,3 +17,5 @@ external/oss-fuzz/build
 klee_build_output/
 seeds_input/
 klee_output/
+input_validation_code/
+Judge/

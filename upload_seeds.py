@@ -3,6 +3,8 @@ import logging
 import sys
 import os
 
+# TODO: check oss_fuzz add_seeds() func can replace this script
+
 # Ensure we can import from external modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 

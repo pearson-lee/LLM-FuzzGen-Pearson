@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 from external.introspector import Introspector
 from llm_interface.llm_client import LLMClient
+from external.oss_fuzz import OSSFuzz, TotalCoverageSummary
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 REPO_ROOT = Path(__file__).resolve().parent
@@ -112,25 +113,20 @@ def main():
     parser.add_argument("--backend", default="gemini", choices=["gemini"])
     parser.add_argument("--model", default=None)
 
-    parser.add_argument("--language", required=True)
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", required=True)
     parser.add_argument("--branch-line-number", required=True)
     parser.add_argument("--blocked-side-line-number", required=True) 
     parser.add_argument("--source-file", required=True, help="Path to source code file to embed")
     parser.add_argument("--fuzz-file", required=True, help="Path to fuzz target code file to embed")
-
-    # TODO: not use
-    parser.add_argument("--source-code", default="", help="Inline source code if not using --source-file")
-    parser.add_argument("--fuzz-target-code", default="", help="Inline fuzz target code if not using --fuzz-file")
-
   
     args = parser.parse_args()
 
+    oss_fuzz = OSSFuzz()
     api_filepath = to_api_filepath(args.source_file or "")
     branch_line = int(args.branch_line_number)
     blocked_side_line = int(args.blocked_side_line_number)
-
+    args.language = oss_fuzz.proj_lang(args.project_name)
     args.blocker_line_code = fetch_line_code(args.project_name, api_filepath, branch_line) or "N/A"
     args.blocked_side_line_code = fetch_line_code(args.project_name, api_filepath, blocked_side_line) or "N/A"
             
