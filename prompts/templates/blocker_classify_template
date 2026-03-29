@@ -110,13 +110,19 @@ Provide your conclusion in the exact JSON format below. Your entire response mus
 
 ```json
 {
-  "analysis_trace": "[1. Target Variable]: ... \n[2. Fuzz Target Call Site]: `...` \n[3. Origin Trace]: The argument originates at `...`. \n[4. Rule Application]: ...",
+  "analysis_trace": [
+    "[1. Target Variable]: ...",
+    "[2. Fuzz Target Call Site]: `...`",
+    "[3. Origin Trace]: The argument originates at `...`",
+    "[4. Rule Application]: ..."
+  ],
   "classification": {
     "category": "",
-    "reason": ""
+    "reason": "Ensure you do not use unescaped double quotes here. Use single quotes instead."
   },
   "decision": {
     "path": "",
     "confidence": 0.0
   }
 }
+```

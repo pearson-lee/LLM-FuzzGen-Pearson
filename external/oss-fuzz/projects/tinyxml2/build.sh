@@ -40,7 +40,7 @@ make -j$(nproc) all
 
 fuzz_harness=$(ls -d "$SRC"/*.cpp | grep -v "klee_")
 for h in $fuzz_harness; do
-  $CXX $CXXFLAGS -std=c++17 -Iinclude/ "$h" \
+  $CXX $CXXFLAGS -std=c++11 -Iinclude/ "$h" \
     -o "$OUT/$(basename "$h" .cpp)" $LIB_FUZZING_ENGINE $SRC/tinyxml2/libtinyxml2.a
 done
 
@@ -50,7 +50,7 @@ find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*
   target_basename=$(basename "${target%.*}")
 
   #### compile the fuzz target
-  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++17 -Iinclude/ "$target" -Wl,--whole-archive $SRC/tinyxml2/libtinyxml2.a -Wl,--no-whole-archive \
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++11 -Iinclude/ "$target" -Wl,--whole-archive $SRC/tinyxml2/libtinyxml2.a -Wl,--no-whole-archive \
     -o "$OUT/$target_basename" $LIB_FUZZING_ENGINE
   ####
 

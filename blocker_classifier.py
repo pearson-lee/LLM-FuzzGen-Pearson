@@ -10,6 +10,7 @@ import re
 from external.introspector import Introspector
 from llm_interface.llm_client import LLMClient
 from external.oss_fuzz import OSSFuzz, TotalCoverageSummary
+from json_repair import repair_json
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 REPO_ROOT = Path(__file__).resolve().parent
@@ -67,38 +68,45 @@ def fetch_line_code(project_name: str, filepath: str, line_no: int) -> str:
         end_line=line_no,
     ).strip()
 
+# def extract_json(text: str) -> dict:
+#     text = text.strip()
+#     # Try direct JSON
+#     try:
+#         return json.loads(text)
+#     except Exception:
+#         pass
+#     # Try fenced code
+#     import re
+#     m = re.search(r"```(?:json|text)?\n(.*?)\n```", text, re.DOTALL)
+#     if m:
+#         block = m.group(1).strip()
+#         try:
+#             return json.loads(block)
+#         except Exception:
+#             pass
+#     # Try first balanced {...}
+#     start = text.find("{")
+#     if start != -1:
+#         depth = 0
+#         for i in range(start, len(text)):
+#             if text[i] == "{":
+#                 depth += 1
+#             elif text[i] == "}":
+#                 depth -= 1
+#                 if depth == 0:
+#                     candidate = text[start:i+1]
+#                     try:
+#                         return json.loads(candidate)
+#                     except Exception:
+#                         break
+#     raise ValueError("Failed to parse JSON from LLM output.")
+
 def extract_json(text: str) -> dict:
-    text = text.strip()
-    # Try direct JSON
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-    # Try fenced code
-    import re
-    m = re.search(r"```(?:json|text)?\n(.*?)\n```", text, re.DOTALL)
-    if m:
-        block = m.group(1).strip()
-        try:
-            return json.loads(block)
-        except Exception:
-            pass
-    # Try first balanced {...}
-    start = text.find("{")
-    if start != -1:
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[start:i+1]
-                    try:
-                        return json.loads(candidate)
-                    except Exception:
-                        break
-    raise ValueError("Failed to parse JSON from LLM output.")
+    # repair_json 會自動處理 Markdown、未跳脫引號、遺失的括號與換行符號
+    parsed = repair_json(text, return_objects=True)
+    if not isinstance(parsed, dict):
+         raise ValueError("Failed to parse JSON into dictionary.")
+    return parsed
 
 def run_program(script: Path, extra_args: list[str] = None) -> int:
     cmd = [sys.executable, str(script)]
@@ -156,7 +164,16 @@ def main():
     path = decision.get("path", "")
     reason = classification.get("reason", "")
 
-    logging.info("Analysis trace:\n\n%s \nClassification: %s | Path: %s | Confidence: %s", analysis_trace,  classification.get("category", ""), path, decision.get("confidence", ""))
+    if isinstance(analysis_trace, list):
+        formatted_trace = "\n\n".join(analysis_trace)
+    else:
+        formatted_trace = str(analysis_trace)
+
+    logging.info("Analysis trace:\n\n%s\n\n------------------------\nClassification: %s | Path: %s | Confidence: %s\n", 
+                 formatted_trace,  
+                 classification.get("category", ""), 
+                 path, 
+                 decision.get("confidence", ""))    
     
     if path == "A1":
         # Minimal stub call to confirm execution

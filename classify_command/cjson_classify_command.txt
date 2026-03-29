@@ -1,0 +1,43 @@
+
+python ./blocker_classifier.py \
+  --project-name cjson \
+  --function-name 'cJSON_ParseWithLengthOpts' \
+  --branch-line-number 1113 \
+  --blocked-side-line-number 1115 \
+  --fuzz-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/cjson/fuzzing/cjson_read_fuzzer.c \
+  --source-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/cjson/cJSON.c
+
+
+python ./blocker_classifier.py \
+  --project-name cjson \
+  --function-name 'cJSON_InitHooks' \
+  --branch-line-number 211 \
+  --blocked-side-line-number 214 \
+  --fuzz-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/llm_fuzzgen0626140453.cc \
+  --source-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/cjson/cJSON.c
+
+
+python ./blocker_classifier.py \
+  --project-name cjson \
+  --function-name 'cJSON_Compare' \
+  --branch-line-number 3034 \
+  --blocked-side-line-number 3036 \
+  --fuzz-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/llm_fuzzgen0626140453.cc \
+  --source-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/cjson/cJSON.c
+
+python ./blocker_classifier.py \
+  --project-name cjson \
+  --function-name 'cJSON_CreateString' \
+  --branch-line-number 2485 \
+  --blocked-side-line-number 2487 \
+  --fuzz-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/llm_fuzzgen0627183216.cc \
+  --source-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/cjson/cJSON.c
+
+
+python ./blocker_classifier.py \
+  --project-name cjson \
+  --function-name 'add_item_to_object' \
+  --branch-line-number 2039 \
+  --blocked-side-line-number 2041 \
+  --fuzz-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/llm_fuzzgen0627183216.cc \
+  --source-file ./external/oss-fuzz/build/out/cjson/introspector-report/inspector/source-code/src/cjson/cJSON.c
