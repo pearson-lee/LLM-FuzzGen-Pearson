@@ -11,6 +11,8 @@ from external.introspector import Introspector
 from llm_interface.llm_client import LLMClient
 from external.oss_fuzz import OSSFuzz, TotalCoverageSummary
 from json_repair import repair_json
+import time
+import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 REPO_ROOT = Path(__file__).resolve().parent
@@ -68,39 +70,6 @@ def fetch_line_code(project_name: str, filepath: str, line_no: int) -> str:
         end_line=line_no,
     ).strip()
 
-# def extract_json(text: str) -> dict:
-#     text = text.strip()
-#     # Try direct JSON
-#     try:
-#         return json.loads(text)
-#     except Exception:
-#         pass
-#     # Try fenced code
-#     import re
-#     m = re.search(r"```(?:json|text)?\n(.*?)\n```", text, re.DOTALL)
-#     if m:
-#         block = m.group(1).strip()
-#         try:
-#             return json.loads(block)
-#         except Exception:
-#             pass
-#     # Try first balanced {...}
-#     start = text.find("{")
-#     if start != -1:
-#         depth = 0
-#         for i in range(start, len(text)):
-#             if text[i] == "{":
-#                 depth += 1
-#             elif text[i] == "}":
-#                 depth -= 1
-#                 if depth == 0:
-#                     candidate = text[start:i+1]
-#                     try:
-#                         return json.loads(candidate)
-#                     except Exception:
-#                         break
-#     raise ValueError("Failed to parse JSON from LLM output.")
-
 def extract_json(text: str) -> dict:
     # repair_json 會自動處理 Markdown、未跳脫引號、遺失的括號與換行符號
     parsed = repair_json(text, return_objects=True)
@@ -116,6 +85,79 @@ def run_program(script: Path, extra_args: list[str] = None) -> int:
     p = subprocess.run(cmd)
     return p.returncode
 
+def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str) -> str:
+    """
+    Retrieves the line coverage report for a specific function within a given fuzz target.
+    It automatically translates the demangled function name to its mangled regex.
+    """
+    introspector = Introspector()
+    oss_fuzz = OSSFuzz()
+    
+    # 1. Look up the mangled function name (raw_function_name)
+    func_name_list = introspector.get_all_functions(project_name)
+    function_regex = ""
+    for func in func_name_list:
+        # Remove spaces to ensure robust string matching
+        target_name = func.get('function_name', '').replace(' ', '')
+        query_name = func_name.replace(' ', '')
+        
+        if target_name == query_name:
+            function_regex = func.get('raw_function_name', '')
+            break  # Found the matching function
+
+    if not function_regex:
+        logging.warning(f"Could not find heavily mangled name for '{func_name}' in project '{project_name}'")
+        return ""
+
+    logging.info(f"Matched '{func_name}' to regex: '{function_regex}'. Checking coverage...")
+    
+    # 2. Extract the coverage report
+    report = oss_fuzz.linecov_reports(
+        proj_name=project_name, 
+        fuzzer_name=fuzzer_name, 
+        fun_name_regex=function_regex
+    )
+    
+    return report
+
+def get_line_execution_count(report: str, line_no: int) -> str:
+    """
+    Parses the line coverage report and extracts the execution count for a specific line number.
+    Returns the execution count as a string (e.g., "202k", "0", ""), or "" if the line is not found.
+    """
+    if not report:
+        return ""
+    
+    # 尋找以指定行號和 '|' 結尾的特徵字串，例如 " 753|" 或 "\n753|"
+    # 因為 llvm-cov 行號前面可能會補空白，所以我們直接找該行特徵
+    target_prefix = f"{line_no}|"
+    
+    for line in report.splitlines():
+        # 如果該行清掉前面的空白後，剛好是以 "753|" 開頭
+        if line.lstrip().startswith(target_prefix):
+            # 找到後，將這行最多切對半兩次: [行號, 次數, 程式碼]
+            parts = line.split('|', 2)
+            if len(parts) >= 2:
+                return parts[1].strip()  # 回傳去頭去尾的次數部分
+                
+    return ""  # 完全找不到該行時回傳空字串
+
+
+def setup_file_logging(func_name: str) -> None:
+    safe_func_name = func_name.replace("::", "_").replace(" ", "_")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f"{timestamp}_{safe_func_name}.log"
+
+    log_dir = REPO_ROOT / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_filepath = log_dir / log_filename
+
+    file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logging.getLogger().addHandler(file_handler)
+    logging.info(f"Log file create: {log_filepath}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Classify blocker via template and dispatch to appropriate program.")
     parser.add_argument("--backend", default="gemini", choices=["gemini"])
@@ -130,6 +172,8 @@ def main():
   
     args = parser.parse_args()
 
+    setup_file_logging(args.function_name)
+
     oss_fuzz = OSSFuzz()
     api_filepath = to_api_filepath(args.source_file or "")
     branch_line = int(args.branch_line_number)
@@ -137,7 +181,7 @@ def main():
     args.language = oss_fuzz.proj_lang(args.project_name)
     args.blocker_line_code = fetch_line_code(args.project_name, api_filepath, branch_line) or "N/A"
     args.blocked_side_line_code = fetch_line_code(args.project_name, api_filepath, blocked_side_line) or "N/A"
-            
+
     if not TEMPLATE_PATH.exists():
         logging.error("Template missing: %s", TEMPLATE_PATH)
         sys.exit(1)
@@ -158,43 +202,38 @@ def main():
         print(resp)
         sys.exit(3)
 
+    # 提取新版 JSON 結構的值
     analysis_trace = result.get("analysis_trace", [])
     classification = result.get("classification", {})
-    decision = result.get("decision", {})
-    path = decision.get("path", "")
-    reason = classification.get("reason", "")
+    dependency_result = classification.get("dependency", "")
+    reason = result.get("reason", "")
 
     if isinstance(analysis_trace, list):
         formatted_trace = "\n\n".join(analysis_trace)
     else:
         formatted_trace = str(analysis_trace)
 
-    logging.info("Analysis trace:\n\n%s\n\n------------------------\nClassification: %s | Path: %s | Confidence: %s\n", 
+    # 更新 logging 輸出格式，使其更符合新版的 Binary 分類
+    logging.info("Analysis trace:\n\n%s\n\n------------------------\nDependency: %s\nReason: %s\n", 
                  formatted_trace,  
-                 classification.get("category", ""), 
-                 path, 
-                 decision.get("confidence", ""))    
+                 dependency_result, 
+                 reason)    
     
-    if path == "A1":
-        # Minimal stub call to confirm execution
-        returncode = run_program(REPO_ROOT / "llm_seeds_generation.py")
+    # 根據新的二元分類進行腳本派發 (Pipeline 迭代起點)
+    if dependency_result == "Input Dependent":
+        logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
+        # 將任務交給專門處理 Dependent 的迭代腳本 (第一步先生 Seed)
+        returncode = run_program(REPO_ROOT / "seeds_generation.py")
         sys.exit(returncode)
-    elif path == "A2":
-        # Ensure symbolic script exits early with --dry-run and minimal required args
-        returncode = run_program(REPO_ROOT / "symbolic_execution_iteration.py")
-        sys.exit(returncode)
-    elif path == "B1_PRESERVE":
+        
+    elif dependency_result == "Input Independent":
+        logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
+        # 將任務交給專門處理 Independent 的迭代腳本 (第一步先微調 Fuzz Target)
         returncode = run_program(REPO_ROOT / "blocker_iteration.py")
         sys.exit(returncode)
-    elif path == "B1_DESTRUCTIVE":
-        returncode = run_program(REPO_ROOT / "harness_generator.py")
-        sys.exit(returncode)
-    elif path == "B2":
-        # Do nothing, only print reason
-        print(reason or "No reason provided.")
-        sys.exit(0)
+        
     else:
-        logging.error("Unknown decision path: %s", path)
+        logging.error("Unknown dependency classification: %s", dependency_result)
         print(reason or "No reason provided.")
         sys.exit(4)
 

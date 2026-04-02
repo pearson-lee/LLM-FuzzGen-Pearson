@@ -412,6 +412,7 @@ class Introspector:
         return [
             {
                 "function_name": func.get("function_name", ""),
+                "raw_function_name": func.get("raw_function_name", ""),
                 "function_signature": func.get("function_signature", ""),
                 "possible_header_files": func.get("debug_summary", {}).get("possible-header-files", []),
                 "function_filename": func.get("debug_summary", {}).get("source", {}).get("source_file", ""),

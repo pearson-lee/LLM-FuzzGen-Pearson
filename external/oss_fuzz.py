@@ -381,7 +381,7 @@ class OSSFuzz:
         `fun_name_regex` is the regex to filter function names for coverage. (default: "LLVMFuzzerTestOneInput")
         """
         logger.info(f"Generating linecov report for {proj_name} with fuzzer {fuzzer_name} and function regex {fun_name_regex}")
-        self.coverage(proj_name, fun_name_regex=fun_name_regex)
+        self.coverage(proj_name, fuzzer_name=fuzzer_name, fun_name_regex=fun_name_regex)
         report_file = self.build_out_dir / proj_name / "textcov_reports" / f"{fuzzer_name}.linecovreport"
         if not report_file.exists():
             logger.error(f"Report file {report_file} does not exist.")
