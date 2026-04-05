@@ -202,6 +202,9 @@ def main():
     template = load_text(TEMPLATE_PATH)
     prompt = format_prompt(template, args)
 
+    logging.info("================ Generated Prompt ================\n%s\n",
+                  prompt)
+
     llm = LLMClient(backend=args.backend, model_name=args.model)
     resp = llm.generate(prompt)
     if not resp:
