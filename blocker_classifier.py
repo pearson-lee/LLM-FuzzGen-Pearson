@@ -41,6 +41,7 @@ def format_prompt(template: str, args: argparse.Namespace) -> str:
         "blocked_side_line_code": getattr(args, "blocked_side_line_code", "N/A") or "N/A",
         "source_code": read_optional_file(args.source_file) if getattr(args, "source_file", None) else (getattr(args, "source_code", "") or "N/A"),
         "fuzz_target_code": read_optional_file(args.fuzz_file) if getattr(args, "fuzz_file", None) else (getattr(args, "fuzz_target_code", "") or "N/A"),
+        "branch_hit_count": getattr(args, "branch_hit_count", "N/A") or "N/A",
     }
 
     def repl(m: re.Match) -> str:
@@ -55,7 +56,7 @@ def to_api_filepath(path_str: str) -> str:
     p = path_str.replace("\\", "/")
     marker = "/inspector/source-code"
     if marker in p:
-        # 例如 .../inspector/source-code/src/tinyxml2/tinyxml2.cpp -> /src/tinyxml2/tinyxml2.cpp
+        # e.g. .../inspector/source-code/src/tinyxml2/tinyxml2.cpp -> /src/tinyxml2/tinyxml2.cpp
         return p.split(marker, 1)[1]
     return p
 
@@ -71,7 +72,7 @@ def fetch_line_code(project_name: str, filepath: str, line_no: int) -> str:
     ).strip()
 
 def extract_json(text: str) -> dict:
-    # repair_json 會自動處理 Markdown、未跳脫引號、遺失的括號與換行符號
+    # repair_json automatically handles Markdown, unescaped quotes, missing brackets, and newline characters
     parsed = repair_json(text, return_objects=True)
     if not isinstance(parsed, dict):
          raise ValueError("Failed to parse JSON into dictionary.")
@@ -128,19 +129,19 @@ def get_line_execution_count(report: str, line_no: int) -> str:
     if not report:
         return ""
     
-    # 尋找以指定行號和 '|' 結尾的特徵字串，例如 " 753|" 或 "\n753|"
-    # 因為 llvm-cov 行號前面可能會補空白，所以我們直接找該行特徵
+    # Find the target line by matching the line number followed by '|', e.g., " 753|" or "\n753|"
+    # Since llvm-cov may pad spaces before the line number, we directly match the line pattern
     target_prefix = f"{line_no}|"
     
     for line in report.splitlines():
-        # 如果該行清掉前面的空白後，剛好是以 "753|" 開頭
+        # If the line starts with "753|" after removing leading whitespace
         if line.lstrip().startswith(target_prefix):
-            # 找到後，將這行最多切對半兩次: [行號, 次數, 程式碼]
+            # Once found, split the line at most twice by '|': [line_number, count, code]
             parts = line.split('|', 2)
             if len(parts) >= 2:
-                return parts[1].strip()  # 回傳去頭去尾的次數部分
-                
-    return ""  # 完全找不到該行時回傳空字串
+                return parts[1].strip()  # Return the execution count part with whitespace trimmed
+            
+    return ""  # Return empty string if the line is not found at all
 
 
 def setup_file_logging(func_name: str) -> None:
@@ -182,6 +183,18 @@ def main():
     args.blocker_line_code = fetch_line_code(args.project_name, api_filepath, branch_line) or "N/A"
     args.blocked_side_line_code = fetch_line_code(args.project_name, api_filepath, blocked_side_line) or "N/A"
 
+    if getattr(args, "fuzz_file", None):
+        fuzzer_name = Path(args.fuzz_file).stem 
+        try:
+            cov_report = check_function_coverage(args.project_name, fuzzer_name, args.function_name)
+            args.branch_hit_count = get_line_execution_count(cov_report, branch_line)
+        except Exception as e:
+            logging.warning(f"Failed to get branch hit count: {e}")
+            args.branch_hit_count = "N/A"
+    else:
+        args.branch_hit_count = "N/A"
+
+
     if not TEMPLATE_PATH.exists():
         logging.error("Template missing: %s", TEMPLATE_PATH)
         sys.exit(1)
@@ -202,7 +215,7 @@ def main():
         print(resp)
         sys.exit(3)
 
-    # 提取新版 JSON 結構的值
+    # extract json
     analysis_trace = result.get("analysis_trace", [])
     classification = result.get("classification", {})
     dependency_result = classification.get("dependency", "")
@@ -213,22 +226,20 @@ def main():
     else:
         formatted_trace = str(analysis_trace)
 
-    # 更新 logging 輸出格式，使其更符合新版的 Binary 分類
+    # log the analysis trace, dependency classification, and reason for classification
     logging.info("Analysis trace:\n\n%s\n\n------------------------\nDependency: %s\nReason: %s\n", 
                  formatted_trace,  
                  dependency_result, 
                  reason)    
     
-    # 根據新的二元分類進行腳本派發 (Pipeline 迭代起點)
+   
     if dependency_result == "Input Dependent":
         logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
-        # 將任務交給專門處理 Dependent 的迭代腳本 (第一步先生 Seed)
         returncode = run_program(REPO_ROOT / "seeds_generation.py")
         sys.exit(returncode)
         
     elif dependency_result == "Input Independent":
         logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
-        # 將任務交給專門處理 Independent 的迭代腳本 (第一步先微調 Fuzz Target)
         returncode = run_program(REPO_ROOT / "blocker_iteration.py")
         sys.exit(returncode)
         

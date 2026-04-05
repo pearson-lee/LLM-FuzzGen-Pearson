@@ -11,9 +11,8 @@ Your specialization lies in analyzing code coverage bottlenecks (fuzz blockers) 
 - **Project Name**: {project_name}
 - **Function containing the blocked branch**: {function_name}
 - **Branch Line Number (The Condition)**: `{branch_line_number}` (`{blocker_line_code}`)
+- **Branch Line Hit Count**: `{branch_hit_count}` (Number of times line `{branch_line_number}` was executed during fuzzing)
 - **Blocked Side Line Number (Unreachable Code)**: `{blocked_side_line_number}` (`{blocked_side_line_code}`)
-- **Analysis Objective**: The current blocker condition is evaluated at line `{branch_line_number}`. Please analyze why the execution cannot satisfy this condition to reach the blocked side at line `{blocked_side_line_number}`.
-
 
 ### Source Code
 <source_code>
@@ -39,6 +38,7 @@ Do not be fooled by variables that are not direct byte copies. If the predicate 
 - **Length & Boundaries**: `strlen(value)`, pointer arithmetic `(end - start) < 6`, or size parameters derived from the input buffer.
 - **Structural Properties**: Variables that track recursion depth, iteration count, state transitions, or nested element counts — regardless of domain (parsing, protocol decoding, graph traversal, etc.).
 *Reasoning: The fuzzer can mutate the input to be longer, shorter, or more deeply nested to satisfy these conditions.*
+**Note on FDP + Parser Pattern**: If `fdp` extracts raw bytes that are passed directly to a library's top-level parser/decoder API (with no artificial restriction), apply Rule 1 or Rule 2. This is the standard Input Dependent pattern — the fuzzer must generate structured input to satisfy the downstream condition.
 
 ### Rule 3: Environmental & Strictly Internal Defensive Checks (Input Independent)
 If the predicate checks states that are strictly internal to the library and mathematically impossible to reach via external API manipulation, it is **Input Independent**. Examples include:
@@ -62,23 +62,20 @@ If the branch is unreachable because the fuzz target is architecturally incomple
 
 ---
 
-## Blocker Taxonomy
-
-### Category: Input Dependent
-- **Definition**: The fuzz target is correctly passing data to the target API, but the fuzzer has not yet generated the specific, "extreme", or highly structured input bytes required to satisfy the condition. The blocker evaluates semantic properties, structure, or values derived directly from the fuzzer input.
-
-### Category: Input Independent
-- **Definition**: The branch is unreachable regardless of what bytes the fuzzer generates. This is due to fuzz target flaws (hardcoded configurations, missing API calls, FDP starvation/misuse) or purely environmental/architectural dead-code within the library.
-
----
-
 ## Task Execution
 
 ### Step 1: Trace and Analyze (Mandatory Code Extraction)
 You are STRICTLY FORBIDDEN from assuming a "typical" or "general" fuzzing scenario. You MUST base your analysis EXCLUSIVELY on the provided `<fuzz_target_code>`. 
 You must document your trace in the `analysis_trace` field using the following exact 4-part structure:
 
-[1. Target Variable]: Identify the variable being checked at the branch line `{branch_line_number}` that prevents execution from reaching line `{blocked_side_line_number}`.
+[1. Target Variable]: First, interpret the Branch Line Hit Count:
+- If `{branch_hit_count}` == 0: Line `{branch_line_number}` was NEVER executed.
+  This may mean the enclosing function is never called (check [2]),
+  OR an earlier condition always short-circuits before reaching this line (check [3]).
+  Do NOT skip steps [2] and [3].
+- If `{branch_hit_count}` > 0: The branch IS being evaluated repeatedly.
+  Do NOT classify as 'Missing Function Calls'. The problem is condition satisfaction.
+Then, identify the variable being checked at line `{branch_line_number}`.
 [2. Fuzz Target Call Site]: Identify the API call in `<fuzz_target_code>` that serves as the entry point leading to this blocked branch. Note that `{function_name}` might be called **INDIRECTLY** (e.g., nested within a core processing API like `Parse()`, `Decode()`, `ProcessPacket()`, `Accept()`, etc.). You MUST quote the exact line of code from `<fuzz_target_code>` that triggers the execution path. If not found, state "Not found".
 [3. Origin Trace]: Trace the variables in the condition backward to their source.
 - **MANDATORY FDP STARVATION CHECK**: You MUST sequentially examine the code *above* the variable generation line. Does `fdp.ConsumeRemainingBytes...()` appear *before* the target variable is consumed by `fdp.Consume...()`? If yes, you MUST explicitly state "DATA STARVATION DETECTED: ConsumeRemainingBytes was called earlier".
@@ -86,11 +83,17 @@ You must document your trace in the `analysis_trace` field using the following e
 
 **ANTI-LAZINESS CHECK**: Before classifying as "Input Dependent", you MUST strictly evaluate:
 1. **Data Starvation**: Did you state "DATA STARVATION DETECTED" in step 3? If yes, the subsequent `Consume...` calls will deterministically fail. This is a Fuzz Target Flaw. You MUST classify it as **Input Independent**.
-2. **Target Flaw vs. Complex Condition**: Can the blocker be resolved by changing the C++ logic of the fuzz target (e.g., changing hardcoded parameters, adding an initialization call, fixing `FuzzedDataProvider` extraction order)? If YES, the blocker is caused by the target's design, NOT the fuzzer's lack of complex inputs. You MUST classify it as **Input Independent**.
+2. **Target Flaw vs. Complex Condition**: Can the blocker be resolved by 
+   changing the fuzz target's C++ logic ALONE — WITHOUT requiring the 
+   fuzzer to generate any specific byte pattern?
+   (e.g., removing a guard, calling a missing init function, fixing FDP order)
+   If YES → Input Independent.
+   If the fix requires the fuzzer to generate a particular structure or value 
+   to satisfy the condition → Input Dependent.
 
 ### Step 2: Output Strict JSON
 Provide your conclusion in the exact JSON format below. Your entire response must be a single valid JSON object. Begin your response directly with `{`.
-**CRITICAL:** Ensure that your JSON is perfectly valid. Use single quotes inside string fields.
+**CRITICAL:** Ensure that your JSON is perfectly valid. Use single quotes inside string fields. In the `reason` field, use only single quotes for any internal quotations. The `dependency` field MUST be exactly "Input Dependent" or "Input Independent".
 
 ```json
 {
@@ -103,5 +106,5 @@ Provide your conclusion in the exact JSON format below. Your entire response mus
   "classification": {
     "dependency": "Input Dependent"
   },
-  "reason": "Ensure you do not use unescaped double quotes here."
+  "reason": "<your classification reasoning here>"
 }
