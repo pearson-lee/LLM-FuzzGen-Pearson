@@ -1,6 +1,6 @@
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLDocument::LoadFile" \
+    --function-name "tinyxml2::XMLDocument::LoadFile(_IO_FILE*)" \
     --branch-line-number 2405 \
     --blocked-side-line-number 2406 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
@@ -8,7 +8,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "StrPair::GetStr" \
+    --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 317 \
     --blocked-side-line-number 323 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
@@ -16,7 +16,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::SetValue" \
+    --function-name "tinyxml2::XMLNode::SetValue(char const*, bool)" \
     --branch-line-number 857 \
     --blocked-side-line-number 858 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
@@ -24,7 +24,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLElement::GetText" \
+    --function-name "tinyxml2::XMLElement::GetText() const" \
     --branch-line-number 1693 \
     --blocked-side-line-number 1694 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104302.cc \
@@ -32,7 +32,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLUtil::ToInt" \
+    --function-name "tinyxml2::XMLUtil::ToInt(char const*, int*)" \
     --branch-line-number 605 \
     --blocked-side-line-number 613 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104302.cc \
@@ -40,7 +40,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::ParseDeep" \
+    --function-name "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
     --branch-line-number 1170 \
     --blocked-side-line-number 1171 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest2.cpp \
@@ -48,7 +48,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLText::ParseDeep" \
+    --function-name "tinyxml2::XMLText::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
     --branch-line-number 1244 \
     --blocked-side-line-number 1245 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest2.cpp \
@@ -56,7 +56,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLPrinter::Write" \
+    --function-name "tinyxml2::XMLPrinter::Write(char const*, unsigned long)" \
     --branch-line-number 2632 \
     --blocked-side-line-number 2633 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626120457.cc \
@@ -64,7 +64,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "StrPair::GetStr" \
+    --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 372 \
     --blocked-side-line-number 373 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626120457.cc \
@@ -72,7 +72,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLAttribute::ParseDeep" \
+    --function-name "tinyxml2::XMLAttribute::ParseDeep(char*, bool, int*)" \
     --branch-line-number 1458 \
     --blocked-side-line-number 1462 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916181040.cc \
@@ -80,7 +80,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::ToElementWithName" \
+    --function-name "tinyxml2::XMLNode::ToElementWithName(char const*) const" \
     --branch-line-number 1223 \
     --blocked-side-line-number 1226 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115110.cc \
@@ -88,7 +88,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::SetValue" \
+    --function-name "tinyxml2::XMLNode::SetValue(char const*, bool)" \
     --branch-line-number 857 \
     --blocked-side-line-number 858 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0621230915.cc \
@@ -96,7 +96,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLDocument::Print" \
+    --function-name "tinyxml2::XMLDocument::Print(tinyxml2::XMLPrinter*) const" \
     --branch-line-number 2480 \
     --blocked-side-line-number 2484 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626134506.cc \
@@ -104,7 +104,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "StrPair::GetStr" \
+    --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 372 \
     --blocked-side-line-number 373 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626112015.cc \
@@ -112,7 +112,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLDocument::DeleteNode" \
+    --function-name "tinyxml2::XMLDocument::DeleteNode(tinyxml2::XMLNode*)" \
     --branch-line-number 2329 \
     --blocked-side-line-number 2330 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
@@ -120,7 +120,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLPrinter::PrintString" \
+    --function-name "tinyxml2::XMLPrinter::PrintString(char const*, bool)" \
     --branch-line-number 2669 \
     --blocked-side-line-number 2714 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
@@ -128,7 +128,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLElement::SetText" \
+    --function-name "tinyxml2::XMLElement::SetText(char const*)" \
     --branch-line-number 1709 \
     --blocked-side-line-number 1710 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
@@ -136,7 +136,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLPrinter::Write" \
+    --function-name "tinyxml2::XMLPrinter::Write(char const*, unsigned long)" \
     --branch-line-number 2632 \
     --blocked-side-line-number 2633 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626125920.cc \
@@ -144,7 +144,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "StrPair::GetStr" \
+    --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 298 \
     --blocked-side-line-number 299 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627211305.cc \
@@ -152,7 +152,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLElement::Attribute" \
+    --function-name "tinyxml2::XMLElement::Attribute(char const*, char const*) const" \
     --branch-line-number 1630 \
     --blocked-side-line-number 1633 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627211305.cc \
@@ -160,7 +160,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLUtil::GetCharacterRef" \
+    --function-name "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
     --branch-line-number 500 \
     --blocked-side-line-number 501 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
@@ -168,7 +168,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "StrPair::TransferTo" \
+    --function-name "tinyxml2::StrPair::TransferTo(tinyxml2::StrPair*)" \
     --branch-line-number 160 \
     --blocked-side-line-number 161 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
@@ -176,7 +176,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::ParseDeep" \
+    --function-name "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
     --branch-line-number 1092 \
     --blocked-side-line-number 1093 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
@@ -184,7 +184,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLElement::DeleteAttribute" \
+    --function-name "tinyxml2::XMLElement::DeleteAttribute(char const*)" \
     --branch-line-number 1944 \
     --blocked-side-line-number 1954 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104849.cc \
@@ -192,7 +192,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::InsertAfterChild" \
+    --function-name "tinyxml2::XMLNode::InsertAfterChild(tinyxml2::XMLNode*, tinyxml2::XMLNode*)" \
     --branch-line-number 1008 \
     --blocked-side-line-number 1012 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104849.cc \
@@ -200,7 +200,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLNode::InsertChildPreamble" \
+    --function-name "tinyxml2::XMLNode::InsertChildPreamble(tinyxml2::XMLNode*) const" \
     --branch-line-number 1208 \
     --blocked-side-line-number 1209 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
@@ -208,7 +208,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLDocument::Parse" \
+    --function-name "tinyxml2::XMLDocument::Parse(char const*, unsigned long)" \
     --branch-line-number 2455 \
     --blocked-side-line-number 2456 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
@@ -216,7 +216,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLElement::ParseAttributes" \
+    --function-name "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
     --branch-line-number 1990 \
     --blocked-side-line-number 1991 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
@@ -224,7 +224,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLDocument::Identify" \
+    --function-name "tinyxml2::XMLDocument::Identify(char*, tinyxml2::XMLNode**, bool)" \
     --branch-line-number 756 \
     --blocked-side-line-number 757 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
@@ -232,7 +232,7 @@ python3 blocker_classifier.py \
 
 python3 blocker_classifier.py \
     --project-name tinyxml2 \
-    --function-name "XMLUtil::GetCharacterRef" \
+    --function-name "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
     --branch-line-number 522 \
     --blocked-side-line-number 523 \
     --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
