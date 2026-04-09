@@ -16,6 +16,7 @@ PROJECT="$1"
 BC_NAME="$2"
 
 KLEE_IMAGE="${KLEE_IMAGE:-klee/klee:3.0}"
+MAX_TESTS="${MAX_TESTS:-10}"
 
 echo "=========================================="
 echo "Running KLEE on $PROJECT"
@@ -37,7 +38,7 @@ mkdir -p ./klee_output
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
 echo "Run ID: $RUN_ID"
 
-echo "Running KLEE (max 60 seconds)..."
+echo "Running KLEE (max 60 seconds, up to ${MAX_TESTS} tests)..."
 echo "Output will be saved to: ./klee_output/$RUN_ID/"
 echo ""
 
@@ -49,14 +50,15 @@ docker run --rm --ulimit=stack=-1:-1 \
     set -e
     echo '=== Running KLEE ==='
     klee \
-      --output-dir=\"/output/$RUN_ID\" \
+      --output-dir="/output/$RUN_ID" \
       --max-time=60 \
       --max-memory=2048 \
+      --max-tests="$MAX_TESTS" \
       --search=dfs \
       --optimize \
       --libc=uclibc \
       --posix-runtime \
-      \"/work/klee/$(basename "$BC_LOCAL")\"
+      "/work/klee/$(basename "$BC_LOCAL")"
 
     echo ''
     echo '=== KLEE Completed ==='

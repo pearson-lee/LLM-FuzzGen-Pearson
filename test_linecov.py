@@ -50,12 +50,16 @@ def main():
 
     # 2. 測試執行：呼叫 linecov_reports
     # 它底層會自動去編譯這個 Fuzzer、產生 Coverage Report 並把特定 function 濾出來
-    report = oss_fuzz.linecov_reports(
-        proj_name=project_name, 
-        fuzzer_name=fuzzer_name, 
-        fun_name_regex=function_regex
-    )
+    # report = oss_fuzz.linecov_reports(
+    #     proj_name=project_name, 
+    #     fuzzer_name=fuzzer_name, 
+    #     fun_name_regex=function_regex
+    # )
     
+    report = oss_fuzz.proj_linecov_reports(
+        proj_name=project_name, 
+        fun_name_regex=function_regex
+        )
 
 
     print("\n" + "="*50)
