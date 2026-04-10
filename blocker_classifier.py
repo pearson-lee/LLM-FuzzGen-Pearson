@@ -41,6 +41,7 @@ def format_prompt(template: str, args: argparse.Namespace) -> str:
         "blocked_side_line_code": getattr(args, "blocked_side_line_code", "N/A") or "N/A",
         "source_code": read_optional_file(args.source_file) if getattr(args, "source_file", None) else (getattr(args, "source_code", "") or "N/A"),
         "fuzz_target_code": read_optional_file(args.fuzz_file) if getattr(args, "fuzz_file", None) else (getattr(args, "fuzz_target_code", "") or "N/A"),
+        "header_code": read_optional_file(args.header_file) if getattr(args, "header_file", None) else "N/A",
         "branch_hit_count": getattr(args, "branch_hit_count", "N/A") or "N/A",
     }
 
@@ -170,7 +171,7 @@ def main():
     parser.add_argument("--blocked-side-line-number", required=True) 
     parser.add_argument("--source-file", required=True, help="Path to source code file to embed")
     parser.add_argument("--fuzz-file", required=True, help="Path to fuzz target code file to embed")
-  
+    parser.add_argument("--header-file", default=None, help="Path to related header file to embed")
     args = parser.parse_args()
 
     setup_file_logging(args.function_name)

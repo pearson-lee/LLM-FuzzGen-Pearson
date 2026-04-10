@@ -40,7 +40,7 @@ def extract_dependencies(log_dir, output_filepath):
 # 執行設定區
 # ==========================================
 if __name__ == "__main__":
-    LOG_DIRECTORY = "./Judge/tinyxml2/cov_count_1" 
+    LOG_DIRECTORY = "./Judge/tinyxml2/change_prompt" 
     OUTPUT_FILE = "all_dependencies_summary.txt"
     
     extract_dependencies(LOG_DIRECTORY, OUTPUT_FILE)
