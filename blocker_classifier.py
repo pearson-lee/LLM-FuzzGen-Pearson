@@ -162,7 +162,7 @@ def setup_file_logging(func_name: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Classify blocker via template and dispatch to appropriate program.")
-    parser.add_argument("--backend", default="gemini", choices=["gemini"])
+    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
     parser.add_argument("--model", default=None)
 
     parser.add_argument("--project-name", required=True)

@@ -64,23 +64,24 @@ class LLMClient:
             logger.info(f"Initializing LLM with backend: {backend}")
             if backend == "vertexai":
                 import vertexai
+                import langchain_google_vertexai
+                PROJECT_ID = "modern-binder-493613-e7" 
+                LOCATION = "us-central1"
 
-                vertexai.init(project="ordinal-oxygen-lz9rc", location="global", api_key=os.getenv("VERTEXAI_API_KEY"))
-                llm_base = langchain_vertexai.ChatVertexAI(
+                vertexai.init(project=PROJECT_ID, location=LOCATION)
+                llm_base = langchain_google_vertexai.ChatVertexAI(
                     model=model_name or config.MODEL_NAME,
                     temperature=config.TEMPERATURE,
-                    max_tokens=config.MAX_TOKENS,
-                    thinking_budget=config.THINK_BUDGET_TOKEN,
+                    max_tokens=config.MAX_TOKENS,                    
+                    thinking_budget=getattr(config, 'THINK_BUDGET_TOKEN', None),
                     safety_settings={
-                        langchain_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_vertexai.HarmBlockThreshold.OFF,
-                        langchain_vertexai.HarmCategory.HARM_CATEGORY_UNSPECIFIED: langchain_vertexai.HarmBlockThreshold.OFF,
-                        langchain_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_vertexai.HarmBlockThreshold.OFF,
-                        langchain_vertexai.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY: langchain_vertexai.HarmBlockThreshold.OFF,
-                        langchain_vertexai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_vertexai.HarmBlockThreshold.OFF,
-                        langchain_vertexai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_vertexai.HarmBlockThreshold.OFF,
+                        langchain_google_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
+                        langchain_google_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
+                        langchain_google_vertexai.HarmCategory.HARM_CATEGORY_HARASSMENT: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
+                        langchain_google_vertexai.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
                     },
-                    project="ordinal-oxygen-lz9rc",
-                    location="global",
+                    project=PROJECT_ID,
+                    location=LOCATION,
                     # location="us-central1",
                     # location="europe-west1",
                 )
