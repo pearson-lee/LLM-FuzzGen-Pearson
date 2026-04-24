@@ -3,5 +3,8 @@
         "stdexcept": "cpp",
         "string": "cpp",
         "*.inc": "cpp"
-    }
+    },
+    "python.analysis.extraPaths": [
+    "${workspaceFolder}/external/fuzz-introspector/src"
+  ]
 }

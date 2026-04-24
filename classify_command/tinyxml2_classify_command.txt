@@ -1,4 +1,6 @@
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLDocument::LoadFile(_IO_FILE*)" \
     --branch-line-number 2405 \
@@ -8,6 +10,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 317 \
@@ -17,6 +21,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLAttribute::ParseDeep(char*, bool, int*)" \
     --branch-line-number 1452 \
@@ -26,6 +32,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 289 \
@@ -36,6 +44,8 @@ python3 blocker_classifier.py \
 
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLNode::SetValue(char const*, bool)" \
     --branch-line-number 857 \
@@ -45,6 +55,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::GetText() const" \
     --branch-line-number 1693 \
@@ -54,6 +66,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLUtil::ToInt(char const*, int*)" \
     --branch-line-number 605 \
@@ -63,6 +77,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
     --branch-line-number 1170 \
@@ -72,6 +88,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
     --branch-line-number 1980 \
@@ -81,6 +99,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLAttribute::ParseDeep(char*, bool, int*)" \
     --branch-line-number 1458 \
@@ -90,6 +110,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLNode::ToElementWithName(char const*) const" \
     --branch-line-number 1223 \
@@ -99,6 +121,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 323 \
@@ -108,6 +132,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLDocument::DeleteNode(tinyxml2::XMLNode*)" \
     --branch-line-number 2329 \
@@ -117,6 +143,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLPrinter::PrintString(char const*, bool)" \
     --branch-line-number 2669 \
@@ -126,6 +154,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::SetText(char const*)" \
     --branch-line-number 1709 \
@@ -135,6 +165,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 328 \
@@ -144,6 +176,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
     --branch-line-number 488 \
@@ -153,6 +187,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::StrPair::GetStr()" \
     --branch-line-number 298 \
@@ -162,6 +198,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::Attribute(char const*, char const*) const" \
     --branch-line-number 1630 \
@@ -171,6 +209,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
     --branch-line-number 500 \
@@ -180,6 +220,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::StrPair::TransferTo(tinyxml2::StrPair*)" \
     --branch-line-number 160 \
@@ -189,6 +231,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLUtil::ConvertUTF32ToUTF8(unsigned long, char*, int*)" \
     --branch-line-number 426 \
@@ -198,6 +242,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
     --branch-line-number 1092 \
@@ -207,6 +253,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h    
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::DeleteAttribute(char const*)" \
     --branch-line-number 1944 \
@@ -216,6 +264,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h   
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLNode::InsertAfterChild(tinyxml2::XMLNode*, tinyxml2::XMLNode*)" \
     --branch-line-number 1008 \
@@ -225,6 +275,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h   
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLNode::InsertChildPreamble(tinyxml2::XMLNode*) const" \
     --branch-line-number 1208 \
@@ -234,6 +286,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h   
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
     --branch-line-number 1990 \
@@ -243,6 +297,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h  
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLDocument::Identify(char*, tinyxml2::XMLNode**, bool)" \
     --branch-line-number 756 \
@@ -252,6 +308,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h  
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
     --branch-line-number 522 \
@@ -261,6 +319,8 @@ python3 blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h  
 
 python3 blocker_classifier.py \
+    --backend vertexai \
+    --model gemini-2.5-flash \
     --project-name tinyxml2 \
     --function-name "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
     --branch-line-number 1972 \
