@@ -29,23 +29,25 @@ def find_closest_callsite_to_blocker(all_nodes: List[Any], target_raw_name: str,
         return None
 
     for idx, node in enumerate(all_nodes):
-        # 1. 找到目標函式的進入點
+        # 1. Find the entry point of the target function
         if node.dst_function_name == target_raw_name:
             target_inner_depth = node.depth + 1
-            closest_node = node  # 預設為函式進入點本身
+            closest_node = node  # Default to the function entry point itself
             
-            # 2. 往下尋找函式內部的呼叫 (Heuristic search)
+            # 2. Search downwards for internal function calls (Heuristic search)
             for next_node in all_nodes[idx + 1:]:
-                # 若深度小於等於目標進入點的深度，代表已經 Return 離開該函式
+                # If the depth is less than or equal to the intended target entry depth, 
+                # it means the execution has returned and left the function
                 if target_inner_depth > next_node.depth:
                     break  
                     
-                # 若為函式內部的同層級呼叫，且發生在 Blocker 分支之前或同行
+                # If it is a call at the same level inside the function, 
+                # and occurs before or on the exact same line as the blocker branch
                 if (target_inner_depth == next_node.depth and 
                     branch_line_number >= next_node.src_linenumber):
                     closest_node = next_node
             
-            # 找到精確節點後直接回傳，不再繼續遍歷外層
+            # Return the exact node once found, stop traversing the outer layers
             return closest_node
 
     return None
@@ -53,7 +55,7 @@ def find_closest_callsite_to_blocker(all_nodes: List[Any], target_raw_name: str,
 
 def build_call_chain(target_node: Any) -> List[Any]:
     """
-    從目標節點往上回溯，建構出 Root 到 Target 的 Call chain。
+    Trace upwards from the target node to construct the Call chain from Root to Target.
     """
     if not target_node:
         return []
@@ -69,7 +71,7 @@ def build_call_chain(target_node: Any) -> List[Any]:
 
 def get_call_chain_structure(chain: List[Any]) -> str:
     """
-    產生包含 depth、函式名稱與檔案位置的 Call chain 樹狀字串。
+    Generate a formatted call chain tree string containing depth, function name, and file location.
     """
     if not chain:
         return "Empty call chain."
@@ -89,8 +91,8 @@ def get_call_chain_structure(chain: List[Any]) -> str:
 
 def get_node_source_code(introspector: Introspector, project_name: str, raw_name: str) -> str:
     """
-    透過 raw function name (mangled name) 找出對應的 function signature，
-    並呼叫 function_source_code 獲取其原始碼。
+    Find the corresponding function signature using the raw function name (mangled name),
+    and call function_source_code to retrieve its source code.
     """
     if not raw_name:
         return ""
@@ -98,7 +100,7 @@ def get_node_source_code(introspector: Introspector, project_name: str, raw_name
     func_info_list = introspector.get_all_functions(project_name)
     target_signature = ""
     
-    # 尋找匹配的 raw_function_name 以取得 function_signature
+    # Search for the matching raw_function_name to obtain the function_signature
     for func in func_info_list:
         if func.get('raw_function_name', '') == raw_name:
             target_signature = func.get('function_signature', '')
@@ -111,7 +113,7 @@ def get_node_source_code(introspector: Introspector, project_name: str, raw_name
 
 def get_unique_source_codes(chain: List[Any], introspector: Introspector, project_name: str) -> str:
     """
-    收集 Call chain 中所有不重複的原始碼，並合併成一個字串。
+    Collect all unique source codes from the Call chain, and combine them into a single string.
     """
     if not chain:
         return ""
@@ -122,7 +124,7 @@ def get_unique_source_codes(chain: List[Any], introspector: Introspector, projec
     for node in chain:
         raw_name = node.dst_function_name
         
-        # 如果這個函式已經拿過原始碼，就跳過
+        # Skip if we already collected the source code for this function
         if raw_name in seen_functions:
             continue
             
@@ -136,10 +138,10 @@ def get_unique_source_codes(chain: List[Any], introspector: Introspector, projec
 
 
 def main():
-    # 初始化 Introspector (建立一次即可重複使用快取)
+    # Initialize Introspector (create once to reuse the cache)
     introspector = Introspector()
     
-    # 1. 讀取並解析 Calltree
+    # 1. Read and parse the Calltree
     if not os.path.exists(DATA_PATH):
         print(f"[Error] Data file not found: {DATA_PATH}")
         return
@@ -154,7 +156,7 @@ def main():
 
     all_nodes = cfg_load.extract_all_callsites(root_node)
 
-    # 2. 模擬 Blocker 資料
+    # 2. Mock Blocker data
     blocker = SimpleNamespace(
         blocked_side="0",
         blocked_unique_not_covered_complexity=20,
@@ -170,7 +172,7 @@ def main():
         coverage_report_link=""
     )
 
-    # 3. 執行搜尋與建構 Call chain
+    # 3. Execute search and construct the Call chain
     raw_blocker_name = get_mangled_function_name(introspector, PROJECT_NAME, blocker.function_name) 
     branch_linenumber = int(blocker.branch_line_number)
 
@@ -179,20 +181,20 @@ def main():
     if target_node:
         call_chain = build_call_chain(target_node)
             
-            # 取得資訊 1: Call chain 結構
+        # Get Information 1: Call chain structure
         chain_structure_info = get_call_chain_structure(call_chain)
             
-            # 取得資訊 2: 不重複的原始碼
+        # Get Information 2: Unique source codes
         unique_code_info = get_unique_source_codes(call_chain, introspector, PROJECT_NAME)
             
-            # [示範] 印出或是回傳給您的 LLM 模組
+        # [Demo] Print out or return to your LLM module
         print("=== Information 1: Call Chain Structure ===")
         print(chain_structure_info)
         print("\n=== Information 2: Unique Source Codes ===")
         print(unique_code_info)
             
-            # 這個腳本如果未來被當作 module import，您可以改成:
-            # return {"chain_structure": chain_structure_info, "source_codes": unique_code_info}
+        # If this script is imported as a module in the future, you could change this to:
+        # return {"chain_structure": chain_structure_info, "source_codes": unique_code_info}
     else:
         print("[Info] No matching callsite found for the specified blocker.")
 
