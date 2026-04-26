@@ -40,7 +40,7 @@ def aggregate_and_score_blockers(json_path: str, top_k: int = 12) -> List[Dict[s
                     
                     # which target contributes the most to this blocker(for later CFG parsing)
                     "best_target": target_name,
-                    "max_hitcount_diff_for_target": -1
+                    "best_target_score": (-1, -1)
                 }
             
             gb = global_blockers[key]
@@ -68,9 +68,11 @@ def aggregate_and_score_blockers(json_path: str, top_k: int = 12) -> List[Dict[s
             hitcount_diff = blocker.get("sides_hitcount_diff", 0)
             gb["sides_hitcount_diff"] += hitcount_diff
             
-            # 如果這個 target 撞的次數比之前的記錄高，設它為 best_target
-            if hitcount_diff > gb["max_hitcount_diff_for_target"]:
-                gb["max_hitcount_diff_for_target"] = hitcount_diff
+            current_complexity = blocker.get("blocked_unique_not_covered_complexity", 0)
+            current_hitcount = blocker.get("sides_hitcount_diff", 0)
+
+            if (current_complexity, current_hitcount) > gb.get("best_target_score", (-1, -1)):
+                gb["best_target_score"] = (current_complexity, current_hitcount)
                 gb["best_target"] = target_name
                 
             # 4. blocked_unique_functions (union)
@@ -117,11 +119,12 @@ def main():
 
     print(f"[Info] Total unique global blockers aggregated: {len(global_blockers)}")
     
-    top1 = global_blockers[0:3]
+    top3 = global_blockers[0:3]
     
     print("\n[Top 3 Global Blockers]")
-    for i, blocker in enumerate(top1, 1):
+    for i, blocker in enumerate(top3, 1):
         print(f"\n[Rank {i}]")
+        print(f"Score: {blocker['score']:.4f}")
         print(f"Source File: {blocker['source_file']}")
         print(f"Branch Line: {blocker['branch_line_number']}")
         print(f"Blocked Side: {blocker['blocked_side']}")
