@@ -2,14 +2,40 @@ import sys
 import os
 from types import SimpleNamespace
 from typing import List, Optional, Any
-
+import yaml
+from typing import Optional
 sys.path.insert(0, os.path.abspath("external/fuzz-introspector/src"))
 
 from external.introspector import Introspector
 from fuzz_introspector import utils, cfg_load
 
 PROJECT_NAME = "tinyxml2"
-DATA_PATH = "fuzzerLogFile-0-AA7rfCazZm.data"
+
+def get_data_file_for_target(yaml_path: str, target_name: str) -> Optional[str]:
+    if not os.path.exists(yaml_path):
+        print(f"[Error] YAML file not found at: {yaml_path}")
+        return None
+
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            
+        if not data or "pairings" not in data:
+            return None
+
+        for pair in data["pairings"]:
+            executable_path = pair.get("executable_path", "")
+            
+            base_name = os.path.basename(executable_path)
+            
+            if base_name == target_name:
+                log_file = pair.get("fuzzer_log_file")
+                return f"{log_file}.data" if not log_file.endswith(".data") else log_file
+                
+    except Exception as e:
+        print(f"[Error] Failed to parse YAML {yaml_path}: {e}")
+        
+    return None
 
 def get_mangled_function_name(introspector: Introspector, project_name: str, func_name: str) -> str:
     func_name_list = introspector.get_all_functions(project_name)
@@ -138,15 +164,21 @@ def get_unique_source_codes(chain: List[Any], introspector: Introspector, projec
 
 
 def main():
+    yaml_file = "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml"
+    target = "llm_fuzzgen0626133053"
+    cfg_file_path = get_data_file_for_target(yaml_file, target)
+    
+
+
     # Initialize Introspector (create once to reuse the cache)
     introspector = Introspector()
     
     # 1. Read and parse the Calltree
-    if not os.path.exists(DATA_PATH):
-        print(f"[Error] Data file not found: {DATA_PATH}")
+    if not os.path.exists(cfg_file_path):
+        print(f"[Error] Data file not found: {cfg_file_path}")
         return
 
-    with open(DATA_PATH, "r", encoding="utf-8", errors="ignore") as f:
+    with open(cfg_file_path, "r", encoding="utf-8", errors="ignore") as f:
         cfg_content = f.read()
 
     root_node = cfg_load.data_file_read_calltree(cfg_content)
@@ -169,7 +201,6 @@ def main():
         branch_line_number="372",
         blocked_side_line_numder="373",
         function_name="tinyxml2::StrPair::GetStr()",
-        coverage_report_link=""
     )
 
     # 3. Execute search and construct the Call chain
