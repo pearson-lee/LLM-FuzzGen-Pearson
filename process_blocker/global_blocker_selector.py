@@ -78,7 +78,7 @@ def aggregate_and_score_blockers(json_path: str, top_k: int = 12) -> List[Dict[s
             if funcs:
                 gb["blocked_unique_functions"].update(funcs)
 
-    # 計算總分準備排序
+    # calculate scores and sort the blockers
     result = []
     for key, gb in global_blockers.items():
         # score = unique_complexity * log(1 + occurrence) * log(1 + hitcount_diff)
@@ -87,12 +87,12 @@ def aggregate_and_score_blockers(json_path: str, top_k: int = 12) -> List[Dict[s
                  math.log(1 + gb["sides_hitcount_diff"]))
         
         gb["score"] = score
-        # 轉回 List 以便未來轉跳或輸出 JSON
+        # convert set to list for JSON serialization and easier display
         gb["blocked_unique_functions"] = list(gb["blocked_unique_functions"])
         
         result.append(gb)
         
-    # 使用四維 tiebreaker 排序 (由大到小)
+    # sort by score, then by complexities as tie-breakers
     result.sort(
         key=lambda x: (
             x["score"], 
@@ -117,19 +117,23 @@ def main():
 
     print(f"[Info] Total unique global blockers aggregated: {len(global_blockers)}")
     
-    top1 = global_blockers[0]
+    top1 = global_blockers[0:3]
     
-    print("\n" + "="*50)
-    print("Top-1 Global Blocker")
-    print("="*50)
-    print(f"Location    : {top1['source_file']} (Line: {top1['branch_line_number']}, Side: {top1['blocked_side']})")
-    print(f"Function    : {top1['function_name']}")
-    print(f"Score       : {top1['score']:.2f}")
-    print(f"Occurrence  : {top1['occurrence_count']} targets blocked")
-    print(f"Total HitDiff: {top1['sides_hitcount_diff']}")
-    print(f"Uniq Not-Cov: {top1['blocked_unique_not_covered_complexity']}")
-    print(f"Best Target : {top1['best_target']} (Use this to parse CFG)")
-    print("="*50)
+    print("\n[Top 3 Global Blockers]")
+    for i, blocker in enumerate(top1, 1):
+        print(f"\n[Rank {i}]")
+        print(f"Source File: {blocker['source_file']}")
+        print(f"Branch Line: {blocker['branch_line_number']}")
+        print(f"Blocked Side: {blocker['blocked_side']}")
+        print(f"Function Name: {blocker['function_name']}")
+        print(f"Blocked Side Line Number: {blocker['blocked_side_line_numder']}")
+        print(f"Occurrence Count: {blocker['occurrence_count']}")
+        print(f"Blocked Unique Not Covered Complexity: {blocker['blocked_unique_not_covered_complexity']}")
+        print(f"Blocked Unique Reachable Complexity: {blocker['blocked_unique_reachable_complexity']}")
+        print(f"Blocked Not Covered Complexity: {blocker['blocked_not_covered_complexity']}")
+        print(f"Blocked Reachable Complexity: {blocker['blocked_reachable_complexity']}")
+        print(f"Sides Hitcount Diff: {blocker['sides_hitcount_diff']}")
+        print(f"Best Target: {blocker['best_target']}")
 
 if __name__ == "__main__":
     main()
