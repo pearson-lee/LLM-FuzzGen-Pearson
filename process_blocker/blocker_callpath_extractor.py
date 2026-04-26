@@ -205,20 +205,15 @@ def main():
 
     # 3. Execute search and construct the Call chain
     raw_blocker_name = get_mangled_function_name(introspector, PROJECT_NAME, blocker.function_name) 
-    branch_linenumber = int(blocker.branch_line_number)
+    branch_line_number = int(blocker.branch_line_number)
 
-    target_node = find_closest_callsite_to_blocker(all_nodes, raw_blocker_name, branch_linenumber)
+    target_node = find_closest_callsite_to_blocker(all_nodes, raw_blocker_name, branch_line_number)
     
     if target_node:
         call_chain = build_call_chain(target_node)
-            
-        # Get Information 1: Call chain structure
         chain_structure_info = get_call_chain_structure(call_chain)
-            
-        # Get Information 2: Unique source codes
         unique_code_info = get_unique_source_codes(call_chain, introspector, PROJECT_NAME)
             
-        # [Demo] Print out or return to your LLM module
         print("=== Information 1: Call Chain Structure ===")
         print(chain_structure_info)
         print("\n=== Information 2: Unique Source Codes ===")
