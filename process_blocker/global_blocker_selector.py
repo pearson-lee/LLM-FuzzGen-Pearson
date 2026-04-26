@@ -68,6 +68,7 @@ def aggregate_and_score_blockers(json_path: str, top_k: int = 12) -> List[Dict[s
             hitcount_diff = blocker.get("sides_hitcount_diff", 0)
             gb["sides_hitcount_diff"] += hitcount_diff
             
+            # choose the target that contributes the most to this blocker based on complexity and hitcount
             current_complexity = blocker.get("blocked_unique_not_covered_complexity", 0)
             current_hitcount = blocker.get("sides_hitcount_diff", 0)
 
@@ -119,24 +120,5 @@ def main():
 
     print(f"[Info] Total unique global blockers aggregated: {len(global_blockers)}")
     
-    top3 = global_blockers[0:3]
-    
-    print("\n[Top 3 Global Blockers]")
-    for i, blocker in enumerate(top3, 1):
-        print(f"\n[Rank {i}]")
-        print(f"Score: {blocker['score']:.4f}")
-        print(f"Source File: {blocker['source_file']}")
-        print(f"Branch Line: {blocker['branch_line_number']}")
-        print(f"Blocked Side: {blocker['blocked_side']}")
-        print(f"Function Name: {blocker['function_name']}")
-        print(f"Blocked Side Line Number: {blocker['blocked_side_line_numder']}")
-        print(f"Occurrence Count: {blocker['occurrence_count']}")
-        print(f"Blocked Unique Not Covered Complexity: {blocker['blocked_unique_not_covered_complexity']}")
-        print(f"Blocked Unique Reachable Complexity: {blocker['blocked_unique_reachable_complexity']}")
-        print(f"Blocked Not Covered Complexity: {blocker['blocked_not_covered_complexity']}")
-        print(f"Blocked Reachable Complexity: {blocker['blocked_reachable_complexity']}")
-        print(f"Sides Hitcount Diff: {blocker['sides_hitcount_diff']}")
-        print(f"Best Target: {blocker['best_target']}")
-
 if __name__ == "__main__":
     main()

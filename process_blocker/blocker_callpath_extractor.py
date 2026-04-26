@@ -3,8 +3,11 @@ import os
 from types import SimpleNamespace
 from typing import List, Optional, Any
 import yaml
+from global_blocker_selector import aggregate_and_score_blockers
 from typing import Optional
-sys.path.insert(0, os.path.abspath("external/fuzz-introspector/src"))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "external", "fuzz-introspector", "src"))
 
 from external.introspector import Introspector
 from fuzz_introspector import utils, cfg_load
@@ -25,12 +28,14 @@ def get_data_file_for_target(yaml_path: str, target_name: str) -> Optional[str]:
 
         for pair in data["pairings"]:
             executable_path = pair.get("executable_path", "")
-            
             base_name = os.path.basename(executable_path)
             
             if base_name == target_name:
                 log_file = pair.get("fuzzer_log_file")
-                return f"{log_file}.data" if not log_file.endswith(".data") else log_file
+                file_name = f"{log_file}.data" if not log_file.endswith(".data") else log_file
+                
+                yaml_dir = os.path.dirname(yaml_path)
+                return os.path.join(yaml_dir, file_name)
                 
     except Exception as e:
         print(f"[Error] Failed to parse YAML {yaml_path}: {e}")
@@ -55,34 +60,24 @@ def find_closest_callsite_to_blocker(all_nodes: List[Any], target_raw_name: str,
         return None
 
     for idx, node in enumerate(all_nodes):
-        # 1. Find the entry point of the target function
         if node.dst_function_name == target_raw_name:
             target_inner_depth = node.depth + 1
-            closest_node = node  # Default to the function entry point itself
+            closest_node = node
             
-            # 2. Search downwards for internal function calls (Heuristic search)
             for next_node in all_nodes[idx + 1:]:
-                # If the depth is less than or equal to the intended target entry depth, 
-                # it means the execution has returned and left the function
                 if target_inner_depth > next_node.depth:
                     break  
                     
-                # If it is a call at the same level inside the function, 
-                # and occurs before or on the exact same line as the blocker branch
                 if (target_inner_depth == next_node.depth and 
                     branch_line_number >= next_node.src_linenumber):
                     closest_node = next_node
             
-            # Return the exact node once found, stop traversing the outer layers
             return closest_node
 
     return None
 
 
 def build_call_chain(target_node: Any) -> List[Any]:
-    """
-    Trace upwards from the target node to construct the Call chain from Root to Target.
-    """
     if not target_node:
         return []
         
@@ -96,9 +91,6 @@ def build_call_chain(target_node: Any) -> List[Any]:
     return chain
 
 def get_call_chain_structure(chain: List[Any]) -> str:
-    """
-    Generate a formatted call chain tree string containing depth, function name, and file location.
-    """
     if not chain:
         return "Empty call chain."
         
@@ -116,17 +108,12 @@ def get_call_chain_structure(chain: List[Any]) -> str:
     return "\n".join(lines)
 
 def get_node_source_code(introspector: Introspector, project_name: str, raw_name: str) -> str:
-    """
-    Find the corresponding function signature using the raw function name (mangled name),
-    and call function_source_code to retrieve its source code.
-    """
     if not raw_name:
         return ""
         
     func_info_list = introspector.get_all_functions(project_name)
     target_signature = ""
     
-    # Search for the matching raw_function_name to obtain the function_signature
     for func in func_info_list:
         if func.get('raw_function_name', '') == raw_name:
             target_signature = func.get('function_signature', '')
@@ -138,9 +125,6 @@ def get_node_source_code(introspector: Introspector, project_name: str, raw_name
     return ""
 
 def get_unique_source_codes(chain: List[Any], introspector: Introspector, project_name: str) -> str:
-    """
-    Collect all unique source codes from the Call chain, and combine them into a single string.
-    """
     if not chain:
         return ""
         
@@ -150,7 +134,6 @@ def get_unique_source_codes(chain: List[Any], introspector: Introspector, projec
     for node in chain:
         raw_name = node.dst_function_name
         
-        # Skip if we already collected the source code for this function
         if raw_name in seen_functions:
             continue
             
@@ -164,19 +147,33 @@ def get_unique_source_codes(chain: List[Any], introspector: Introspector, projec
 
 
 def main():
-    yaml_file = "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml"
-    target = "llm_fuzzgen0626133053"
-    cfg_file_path = get_data_file_for_target(yaml_file, target)
+    json_path = "branch-blockers.json"
+    print("[Info] Analyzing global blockers...")
+    global_blockers = aggregate_and_score_blockers(json_path, top_k=12)
     
-
-
-    # Initialize Introspector (create once to reuse the cache)
-    introspector = Introspector()
-    
-    # 1. Read and parse the Calltree
-    if not os.path.exists(cfg_file_path):
-        print(f"[Error] Data file not found: {cfg_file_path}")
+    if not global_blockers:
+        print("[Error] No global blockers found or file missing.")
         return
+        
+    top1_blocker_dict = global_blockers[0]
+    
+    blocker = top1_blocker_dict 
+
+    print(f"[Info] Target Top-1 Blocker selected in function: {blocker['function_name']}")
+    print(f"[Info] Best Target evaluated: {blocker['best_target']}")
+    print(blocker)
+
+    yaml_file = "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml"
+    
+    target = blocker['best_target'] 
+    cfg_file_path = get_data_file_for_target(yaml_file, target)
+
+    if not cfg_file_path or not os.path.exists(cfg_file_path):
+        print(f"[Error] Data file not found for target {target}: {cfg_file_path}")
+        return
+
+    # Initialize Introspector
+    introspector = Introspector()
 
     with open(cfg_file_path, "r", encoding="utf-8", errors="ignore") as f:
         cfg_content = f.read()
@@ -188,24 +185,10 @@ def main():
 
     all_nodes = cfg_load.extract_all_callsites(root_node)
 
-    # 2. Mock Blocker data
-    blocker = SimpleNamespace(
-        blocked_side="0",
-        blocked_unique_not_covered_complexity=20,
-        blocked_unique_reachable_complexity=20,
-        blocked_unique_functions=["tinyxml2::StrPair::CollapseWhitespace()"],
-        blocked_not_covered_complexity=20,
-        blocked_reachable_complexity=20,
-        sides_hitcount_diff=1800,
-        source_file="/src/tinyxml2/tinyxml2.cpp",
-        branch_line_number="372",
-        blocked_side_line_numder="373",
-        function_name="tinyxml2::StrPair::GetStr()",
-    )
-
-    # 3. Execute search and construct the Call chain
-    raw_blocker_name = get_mangled_function_name(introspector, PROJECT_NAME, blocker.function_name) 
-    branch_line_number = int(blocker.branch_line_number)
+    # Execute search and construct the Call chain
+    raw_blocker_name = get_mangled_function_name(introspector, PROJECT_NAME, blocker['function_name']) 
+    print(f"[Info] Raw blocker function name (mangled): {raw_blocker_name}")
+    branch_line_number = int(blocker['branch_line_number'])
 
     target_node = find_closest_callsite_to_blocker(all_nodes, raw_blocker_name, branch_line_number)
     
@@ -214,13 +197,10 @@ def main():
         chain_structure_info = get_call_chain_structure(call_chain)
         unique_code_info = get_unique_source_codes(call_chain, introspector, PROJECT_NAME)
             
-        print("=== Information 1: Call Chain Structure ===")
+        print("\n=== Information 1: Call Chain Structure ===")
         print(chain_structure_info)
         print("\n=== Information 2: Unique Source Codes ===")
         print(unique_code_info)
-            
-        # If this script is imported as a module in the future, you could change this to:
-        # return {"chain_structure": chain_structure_info, "source_codes": unique_code_info}
     else:
         print("[Info] No matching callsite found for the specified blocker.")
 
