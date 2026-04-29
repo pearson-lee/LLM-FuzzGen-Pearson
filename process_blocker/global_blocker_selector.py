@@ -119,6 +119,7 @@ def main():
         return
 
     print(f"[Info] Total unique global blockers aggregated: {len(global_blockers)}")
+    print(global_blockers[0])  # Print the top blocker for inspection
     
 if __name__ == "__main__":
     main()
