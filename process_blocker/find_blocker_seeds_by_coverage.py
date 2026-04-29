@@ -160,7 +160,7 @@ def guess_container_source_file(project_name: str, local_source_file: str) -> st
     return f"/out/src/{project_name}/{source_path.name}"
 
 
-def maybe_run_callchain(
+def run_callchain_for_seed(
     target_bin: Path,
     seed_path: Path,
     breakpoint: str,
@@ -305,7 +305,7 @@ def main() -> int:
             print(f"[match] seed reaches blocker: {seed_path}")
             if args.run_callchain:
                 print(f"[info] invoking get_callchain.sh with breakpoint: {args.breakpoint}")
-                maybe_run_callchain(fuzz_target_bin, seed_path, args.breakpoint)
+                run_callchain_for_seed(fuzz_target_bin, seed_path, args.breakpoint)
             if args.stop_after_first:
                 break
 

@@ -69,6 +69,21 @@ def get_mangled_function_name(introspector: Introspector, project_name: str, fun
     print(f"[Warning] Could not find mangled name for '{func_name}' in project '{project_name}'")
     return ""
 
+def normalize_gdb_symbol(symbol: str) -> str:
+    if not symbol:
+        return ""
+    normalized = symbol.strip()
+    if normalized.endswith(" ()"):
+        normalized = normalized[:-3]
+    return normalized
+
+
+def get_short_function_name(symbol: str) -> str:
+    normalized = normalize_gdb_symbol(symbol)
+    if not normalized:
+        return ""
+    before_args = normalized.split("(", 1)[0]
+    return before_args.split("::")[-1].strip()
 
 def resolve_fuzzer_paths(target_name: str,
                          out_dir: str = DEFAULT_OUT_DIR,
@@ -324,61 +339,98 @@ def get_unique_source_codes(chain: List[Any], introspector: Introspector, projec
     return "\n\n".join(collected_sources)
 
 
-# def build_fallback_chain_with_xrefs(introspector: Introspector, project_name: str, target_raw_name: str, all_nodes: List[Any], branch_line: int) -> List[Any]:
-#     """
-#     當 CFG 順向找尋失敗時，利用反向 X-Refs (誰呼叫了它) 來人工修補 Call chain。
-#     """
-#     # 1. 取得目標函式的詳細資訊 (主要需要 signature)
-#     func_info = None
-#     for func in introspector.get_all_functions(project_name):
-#         if func.get('raw_function_name', '') == target_raw_name:
-#             func_info = func
-#             break
+def extract_function_via_api(introspector: Introspector, project_name: str, file_path: str, start_line: int) -> str:
+    """Fallback method: 透過 Introspector API 取得完整檔案後，暴力取出函數原始碼"""
+    try:
+        source_code = introspector.get_project_source_code(project_name, file_path, 1, 999999)
+        if not source_code:
+            return f"// [Fallback Failed] File not found via Introspector API: {file_path}"
             
-#     if not func_info:
-#         return []
+        lines = source_code.splitlines()
+
+        if start_line > len(lines) or start_line <= 0:
+            return "// [Fallback Failed] Invalid line number"
+
+        first_brace_line = -1
+        for i in range(start_line - 1, len(lines)):
+            if '{' in lines[i]:
+                first_brace_line = i
+                break
         
-#     target_sig = func_info.get('function_signature', '')
-#     target_filepath = func_info.get('function_filename', 'Unknown')
-    
-#     # 2. 獲取 Caller (Cross References)
-#     xrefs = introspector.get_function_cross_references(project_name, target_sig)
-    
-#     for xref in xrefs:
-#         caller_name = xref.get("src_func", "")
-#         if not caller_name:
-#             continue
+        if first_brace_line == -1:
+            return "// [Fallback Failed] Could not find function start '{'"
+
+        func_lines = []
+        for i in range(max(0, first_brace_line - 5), first_brace_line):
+           func_lines.append(lines[i].rstrip())
+           
+        brace_count = 0
+        for i in range(first_brace_line, len(lines)):
+            line = lines[i]
+            func_lines.append(line.rstrip())
+            brace_count += line.count('{')
+            brace_count -= line.count('}')
             
-#         # 將 Caller 的名稱 (通常是 demangled) 轉換成 raw/mangled name 以便在 CFG 裡比對
-#         caller_raw_name = ""
-#         for func in introspector.get_all_functions(project_name):
-#             if func.get('function_name', '') == caller_name:
-#                 caller_raw_name = func.get('raw_function_name', '')
-#                 break
+            if brace_count == 0:
+                break
                 
-#         if not caller_raw_name:
-#             continue
+        return "\n".join(func_lines)
+    except Exception as e:
+        return f"// [Fallback Failed] Exception: {str(e)}"
+
+
+def get_runtime_function_source_codes(
+    runtime_functions: List[dict],
+    introspector: Introspector,
+    project_name: str,
+) -> str:
+    if not runtime_functions:
+        return ""
+
+    collected_sources = []
+    for frame in runtime_functions:
+        symbol = frame.get("symbol", "")
+        if not symbol:
+            continue
+
+        raw_name = get_mangled_function_name(introspector, project_name, symbol)
+        if not raw_name:
+            short_name = get_short_function_name(symbol)
+            for func in introspector.get_all_functions(project_name):
+                if get_short_function_name(func.get("function_name", "")) == short_name:
+                    raw_name = func.get("raw_function_name", "")
+                    break
+                    
+        # 1. 嘗試使用 Introspector / CFG (Primary)
+        source_code = ""
+        if raw_name:
+            source_code = get_node_source_code(introspector, project_name, raw_name)
             
-#         # 3. 在 CFG 裡搜尋這個 Caller 是否存在
-#         for node in all_nodes:
-#             if node.dst_function_name == caller_raw_name:
-#                 # 找到了 Caller！建構出 Root 到 Caller 的 Call chain
-#                 base_chain = build_call_chain(node)
-                
-#                 # 4. 手動補上斷鏈的目標函式作為一個「虛擬節點」
-#                 fake_target_node = SimpleNamespace(
-#                     dst_function_name=target_raw_name,
-#                     dst_function_source_file=target_filepath,
-#                     src_linenumber=branch_line, # 標記 blocker 發生的行數
-#                     depth=node.depth + 1,
-#                     parent_calltree_callsite=node
-#                 )
-#                 base_chain.append(fake_target_node)
-                
-#                 print(f"[Info] Hand-stitched call chain using XRef: Caller '{caller_name}' -> Target")
-#                 return base_chain
-                
-#     return []
+        location = ""
+        if frame.get("file") and frame.get("line") is not None:
+            location = f"{frame['file']}:{frame['line']}"
+        elif frame.get("file"):
+            location = frame["file"]
+        else:
+            location = "unknown location"
+
+        # 2. 若 CFG 失敗，啟動 Fallback 透過 API 讀檔機制
+        if not source_code and frame.get("file") and frame.get("line"):
+            source_code = extract_function_via_api(introspector, project_name, frame["file"], frame["line"])
+            if not source_code.startswith("// [Fallback Failed]"):
+                source_code = "// [Source retrieved via API fallback]\n" + source_code
+
+        # 3. 還是找不到就塞個提示給 LLM
+        if not source_code:
+            source_code = "// [Warning] Could not retrieve source code for this function."
+
+        collected_sources.append(
+            f"// Function: {symbol}\n"
+            f"// Runtime location: {location}\n"
+            f"{source_code}"
+        )
+
+    return "\n\n".join(collected_sources)
 
 
 def extract_blocker_callchain_info(blocker: dict,
@@ -386,9 +438,19 @@ def extract_blocker_callchain_info(blocker: dict,
                                    project_name: str,
                                    use_gdb: bool = True,
                                    max_gdb_inputs: int = 50) -> dict:
+    if not INTROSPECTOR_AVAILABLE:
+        return {
+            "target": blocker.get('best_target'),
+            "breakpoint": blocker['function_name'],
+            "cfg_error": f"Introspector dependencies unavailable: {INTROSPECTOR_IMPORT_ERROR}"
+        }
+
+    # 提前宣告
+    introspector = Introspector()
+
     target = blocker.get('best_target')
     cfg_file_path = get_data_file_for_target(yaml_file, target)
-    breakpoint = f"{blocker['source_file']}:{blocker['branch_line_number']}"
+    breakpoint = blocker['function_name']
     result = {
         "target": target,
         "breakpoint": breakpoint
@@ -400,20 +462,21 @@ def extract_blocker_callchain_info(blocker: dict,
             breakpoint,
             max_inputs=max_gdb_inputs
         )
+        if "gdb_frames" in gdb_result:
+            # 這裡我們呼叫剛剛加回去的函數來拿 Source Code
+            runtime_segment_sources = get_runtime_function_source_codes(
+                gdb_result["gdb_frames"],
+                introspector,
+                project_name
+            )
+            gdb_result["runtime_segment_source_codes"] = runtime_segment_sources
         result["gdb_result"] = gdb_result
 
-    if not INTROSPECTOR_AVAILABLE:
-        result["cfg_error"] = (
-            "Introspector dependencies unavailable: "
-            f"{INTROSPECTOR_IMPORT_ERROR}"
-        )
-        return result
 
     if not cfg_file_path or not os.path.exists(cfg_file_path):
         result["cfg_error"] = f"Data file not found for target {target}: {cfg_file_path}"
         return result
-
-    introspector = Introspector()
+    
     with open(cfg_file_path, "r", encoding="utf-8", errors="ignore") as f:
         cfg_content = f.read()
 
@@ -443,7 +506,7 @@ def extract_blocker_callchain_info(blocker: dict,
 
 
 def main():
-    json_path = "branch-blockers.json"
+    json_path = "./process_blocker/branch-blockers.json"
     project_name = "tinyxml2"
     yaml_file = "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml"
 
@@ -482,17 +545,22 @@ def main():
             else:
                 print("\n=== Information 1: Runtime Call Chain From GDB ===")
                 print(gdb_result["runtime_chain_structure"])
+                
+                # ---> 重點：把我們剛剛辛苦拿到的 Runtime Source Code 印出來！<---
+                print("\n=== Information 1.5: Runtime Source Codes (API/Fallback) ===")
+                print(gdb_result.get("runtime_segment_source_codes", "No runtime source codes captured."))
+                
                 print(f"\n=== Triggering Input ===\n{gdb_result['triggering_input']}")
 
         cfg_result = result.get("cfg_result")
         if not cfg_result:
             print(f"[Warn] {result.get('cfg_error', 'CFG result unavailable.')}")
-            continue
-
-        print("\n=== Information 2: CFG Call Chain Structure ===")
-        print(cfg_result["chain_structure"])
-        print("\n=== Information 3: CFG Unique Source Codes ===")
-        print(cfg_result["unique_source_codes"])
+            # ---> 重點：把這裡的 continue 拿掉，不要因為 CFG 失敗就結束，還是可以看 GDB 結果 <---
+        else:
+            print("\n=== Information 2: CFG Call Chain Structure ===")
+            print(cfg_result["chain_structure"])
+            print("\n=== Information 3: CFG Unique Source Codes ===")
+            print(cfg_result["unique_source_codes"])
 
 if __name__ == "__main__":
     main()
