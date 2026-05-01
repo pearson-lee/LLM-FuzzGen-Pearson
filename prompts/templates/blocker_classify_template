@@ -1,6 +1,24 @@
 ## Role
-You are a senior software testing engineer and vulnerability researcher with deep expertise in Fuzzing (LibFuzzer), Clang Sanitizers, and Static/Dynamic Analysis.
-Your specialization lies in analyzing code coverage bottlenecks (fuzz blockers) by performing rigorous **Semantic Data Flow Tracing** from the fuzz target down to the core library source code.
+You are a senior software testing engineer and vulnerability researcher with deep expertise in fuzzing (LibFuzzer), Clang sanitizers, and static/dynamic analysis.
+Your task is to classify a fuzz blocker as **Input Dependent** or **Input Independent** by tracing how the current fuzz target drives execution into the blocked predicate.
+
+---
+
+## Evidence Priority
+
+You are given both **dynamic** and **static** evidence.
+
+### Priority Rule
+1. **Dynamic evidence is primary.**
+   The runtime blocker segment comes from a real seed that actually reached the blocker path.
+   Use it as the main source of truth for how execution reached the blocked function.
+2. **Static evidence is secondary.**
+   CFG/static call chains and static source code are only supplementary context.
+   Use them to fill gaps when runtime frames are shortened by inlining, optimization, or missing stack frames.
+3. If dynamic and static evidence differ, **prefer the dynamic evidence** unless the prompt explicitly proves the runtime view is incomplete.
+
+Do NOT merge multiple hypothetical static paths into one narrative.
+Use the provided static evidence only to explain the observed runtime path more clearly.
 
 ---
 
@@ -14,145 +32,149 @@ Your specialization lies in analyzing code coverage bottlenecks (fuzz blockers) 
 - **Branch Line Hit Count**: `{branch_hit_count}` (Number of times line `{branch_line_number}` was executed during fuzzing)
 - **Blocked Side Line Number (Unreachable Code)**: `{blocked_side_line_number}` (`{blocked_side_line_code}`)
 
+### Full Fuzz Target Code
+<fuzz_target_code>
+{fuzz_target_code}
+</fuzz_target_code>
+
+### Dynamic Runtime Blocker Segment
+This is the observed runtime segment from `LLVMFuzzerTestOneInput` to the blocker function for a seed that actually reached the blocker.
+<runtime_blocker_segment>
+{runtime_blocker_segment}
+</runtime_blocker_segment>
+
+### Dynamic Runtime Segment Source Codes
+These are the source codes for the library-side functions on the observed runtime blocker segment.
+<runtime_blocker_segment_source_codes>
+{runtime_blocker_segment_source_codes}
+</runtime_blocker_segment_source_codes>
+
+### Static Supplementary Context: CFG Call Chain
+Use this only as supplementary structure when the runtime path is too short or missing intermediate frames.
+<cfg_call_chain>
+{cfg_call_chain}
+</cfg_call_chain>
+
+### Static Supplementary Context: CFG Source Codes
+Use this only as supplementary structure when the runtime path is too short or missing intermediate frames.
+<cfg_source_codes>
+{cfg_source_codes}
+</cfg_source_codes>
+
+### Optional Additional Context
 #### Related Header Definitions
 <header_code>
 {header_code}
 </header_code>
 
-### Source Code
-<source_code>
-{source_code}
-</source_code>
-
-#### Related Fuzz Target Code
-<fuzz_target_code>
-{fuzz_target_code}
-</fuzz_target_code>
-
 ---
 
 ## Core Analytical Framework: Semantic Data Flow Tracing
 
-To determine if a blocker is "Input Dependent" or "Input Independent", you MUST trace the variables in the blocked predicate (at line {branch_line_number}) backward to the `<fuzz_target_code>`. Apply the following rules strictly:
+To determine whether a blocker is **Input Dependent** or **Input Independent**, you MUST trace the variables in the blocked predicate backward to the fuzz target and the observed runtime path.
 
 ### Rule 1: Direct Data Flow (Input Dependent)
 If the predicate checks variables that hold byte values directly copied, cast, or parsed from the fuzzer's `Data` buffer, it is **Input Dependent**.
 
 ### Rule 2: Implicit Flow & Semantic Properties (Input Dependent)
-Do not be fooled by variables that are not direct byte copies. If the predicate relies on **semantic properties of the input**, it is logically **Input Dependent**. Examples include:
-- **Length & Boundaries**: `strlen(value)`, pointer arithmetic `(end - start) < 6`, or size parameters derived from the input buffer.
-- **Structural Properties**: Variables that track recursion depth, iteration count, state transitions, or nested element counts — regardless of domain (parsing, protocol decoding, graph traversal, etc.).
-*Reasoning: The fuzzer can mutate the input to be longer, shorter, or more deeply nested to satisfy these conditions.*
-**Note on FDP + Parser Pattern**: If `fdp` extracts raw bytes that are passed directly to a library's top-level parser/decoder API (with no artificial restriction), apply Rule 1 or Rule 2. This is the standard Input Dependent pattern — the fuzzer must generate structured input to satisfy the downstream condition.
+If the predicate depends on semantic properties derived from input, it is still **Input Dependent**. Examples include:
+- **Length & Boundaries**: `strlen(value)`, pointer arithmetic, or size parameters derived from input.
+- **Structural Properties**: recursion depth, iteration count, state transitions, nesting level, or parser state derived from input.
 
 ### Rule 3: Strictly Uncontrollable Internal State (Input Independent)
-Classify as Input Independent ONLY IF the predicate depends on state that 
-CANNOT be influenced by any of the following:
-- fuzz input bytes or their derived values
+Classify as **Input Independent** only if the predicate depends on state that cannot be influenced by:
+- fuzz input bytes or derived values
 - input-induced structure, length, depth, or ordering
-- public API call sequencing or object construction
+- public API call sequencing or object construction performed by the current fuzz target
 
 IMPORTANT: A variable being 'internal' to the library is NOT sufficient.
-If the internal state is computed from parsing, decoding, traversal, 
-state transitions, or counters driven by externally supplied input, 
-it remains **Input Dependent** (apply Rule 2).
+If the internal state is computed from parsing, decoding, traversal, state transitions, or counters driven by externally supplied input, it remains **Input Dependent** (apply Rule 2).
 
 ### Rule 4: FuzzedDataProvider (FDP) Constraints & Transformations (Input Independent)
-If the fuzz target does not use FuzzedDataProvider and passes raw `Data`/`Size`
-directly to the library API, Rule 4 does not apply. Proceed to Rule 1/2.
-Pay close attention to how `FuzzedDataProvider` (`fdp`) extracts and transforms the raw `Data`. If the target misuses FDP, it restricts coverage natively.
-- **Case A (Value Restriction)**: If `fdp` artificially restricts the value space (e.g., `ConsumeInRange(0, 5)`) making a downstream check impossible.
-- **Case B (Disconnected/Mocked Logic)**: If the fuzz target successfully
-  creates or loads a structured object from fuzzer input but then IGNORES it,
-  applying the target API to a separately constructed "mock" object instead.
-- **Case C (Data Starvation/Exhaustion)**: If the fuzz target calls `fdp.ConsumeRemainingBytes...()` BEFORE other `fdp.Consume...()` calls, the FDP is exhausted. Subsequent calls will deterministically return `0`, `false`, or empty strings.
-*Reasoning: If a branch is blocked because of these FDP constraints, it is a critical fuzz target flaw. It is **Input Independent**.*
+If the fuzz target does not use FuzzedDataProvider and passes raw `Data`/`Size` directly to the library API, Rule 4 does not apply — proceed to Rule 1 or 2.
+
+If the fuzz target misuses `FuzzedDataProvider` in a way that makes the blocked condition unsatisfiable, classify as **Input Independent**. Examples:
+- artificial range restriction making a downstream check impossible
+- consuming remaining bytes too early, starving later consume calls
+- creating or loading objects from fuzz input but then never using the relevant object state
 
 ### Rule 5: Fuzz Target Hardcoded Logic & Incomplete Scope (Input Independent)
-Classify as Input Independent only when the fuzz target's hardcoded logic,
-guard conditions, missing setup, or restricted API usage prevents the blocked
-predicate from being satisfiable by input alone under the current target. This includes:
-- **Hardcoded/Safe Arguments** that constrain the state relevant to the predicate.
-- **Unexplored API Error States** that the target prevents from occurring.
-- **Missing Function Calls / Incomplete Setup** required to make the predicate reachable.
+Classify as **Input Independent** only when the fuzz target's hardcoded logic, guard conditions, missing setup, or restricted API usage prevents the blocked predicate from being satisfiable by input alone under the current target. Examples:
+- hardcoded safe arguments that constrain the state relevant to the predicate
+- missing required API calls or incomplete setup needed to make the predicate reachable
+- object creation without later materialization or consumption
 
-IMPORTANT:
-Do NOT classify as Input Independent merely because the currently observed
-executions mostly flow through one object type, state, or code path.
-Classify as Input Independent only if the current fuzz target logic prevents
-the alternative satisfying paths from being exercised without modifying the target itself.
+IMPORTANT: It is NOT sufficient that the fuzz target could be improved.
+You must show that the current target logic blocks the predicate even if the fuzzer generates arbitrary bytes.
+
+### Rule 6: Environmental or System API Failures (Input Independent)
+Classify as **Input Independent** if the blocked predicate strictly checks for extraordinary system or environmental failures that cannot be reliably triggered by altering the fuzzer's data content. Examples include:
+- standard file I/O failures on local temporary files (e.g., `fread` returning less than the known file size due to hardware faults)
+- memory allocation failures (e.g., `malloc` returning NULL)
+- unexpected missing OS permissions occurring under a controlled fuzzing environment
+
+Even if the arguments to these APIs are derived from fuzzer input, the failure of the API itself is environmental and outside the fuzz target's direct data control.
 
 ---
 
 ## Task Execution
 
-### Step 1: Trace and Analyze (Mandatory Code Extraction)
-You are STRICTLY FORBIDDEN from assuming a "typical" or "general" fuzzing scenario. You MUST base your analysis EXCLUSIVELY on the provided `<fuzz_target_code>`. 
-You must document your trace in the `analysis_trace` field using the following exact 4-part structure:
+### Step 1: Trace and Analyze
+Base your reasoning on the provided evidence only.
+Use the following 4-part structure in `analysis_trace`:
 
-[1. Target Variable]: First, interpret the Branch Line Hit Count:
-- If `{branch_hit_count}` == 0: Line `{branch_line_number}` was NEVER executed.
-  This may mean the enclosing function is never called (check [2]),
-  OR an earlier condition always short-circuits before reaching this line (check [3]).
-  Do NOT skip steps [2] and [3].
-- If `{branch_hit_count}` > 0: The branch IS being evaluated repeatedly.
-  Do NOT classify as 'Missing Function Calls'. The problem is condition satisfaction.
-Then, identify the variable being checked at line `{branch_line_number}`.
-[2. Fuzz Target Call Site]: Identify the API call in `<fuzz_target_code>` that serves as the entry point leading to this blocked branch. Note that `{function_name}` might be called **INDIRECTLY** (e.g., nested within a core processing API like `Parse()`, `Decode()`, `ProcessPacket()`, `Accept()`, etc.). You MUST quote the exact line of code from `<fuzz_target_code>` that triggers the execution path. If not found, state "Not found".
-[2.5. Materialization Check]: If the identified fuzz target call site is an indirect traversal, parser entry, callback registration, visitor, serializer, or framework hook, you MUST verify whether the fuzz target's own code actually dereferences, reads, prints, compares, serializes, or otherwise materializes the specific library objects/fields needed to affect the blocked predicate.
-IMPORTANT for [2.5. Materialization Check]:
-It is NOT sufficient that the library could internally create objects or states
-that would satisfy the blocked predicate. You MUST verify that the current fuzz
-target, without modification, actually performs the API calls needed to
-materialize, consume, dereference, compare, serialize, print, or otherwise use
-those objects/states in a way that reaches the blocked predicate.
+[1. Target Variable]:
+- Interpret the branch hit count first.
+- If `{branch_hit_count}` == 0: the line was NEVER executed. This may indicate the enclosing function is never called, OR an earlier condition always short-circuits before reaching this line. Do NOT skip steps [2] and [3].
+- If `{branch_hit_count}` > 0: the blocked predicate IS being evaluated repeatedly. Focus on why the blocked side is never satisfied. Do NOT classify as 'Missing Function Calls'.
+- Identify the predicate variable or condition at line `{branch_line_number}`.
 
-If the fuzz target only parses/builds/registers/traverses objects but does not
-actually read the relevant fields or invoke the relevant accessors/callback
-logic, treat this as a fuzz-target scope/setup issue rather than an input-only issue.
+[2. Fuzz Target Call Site]:
+- Identify the fuzz target API call in `<fuzz_target_code>` that launches the observed path toward the blocker.
+- You MUST quote the exact line from `<fuzz_target_code>`.
+- Use `<runtime_blocker_segment>` as the primary guide for which API chain actually occurred.
 
-Examples:
-- Calling `Parse()` alone does NOT prove that parsed text/attribute values are later consumed.
-- Registering a visitor/callback does NOT prove the callback reads the relevant data.
-- Traversal that only returns `true` without calling accessors does NOT count as materialization.
-- Creating an object does NOT prove later getters/formatters/serializers are invoked on it.
+[2.5. Materialization Check]:
+- Determine whether the current fuzz target actually materializes, consumes, dereferences, compares, serializes, or otherwise uses the relevant library objects or fields needed to affect the blocked predicate.
+- Examples of what does NOT count as materialization:
+  - A visitor callback that only returns `true` does not count as reading node data.
+  - Calling `Parse()` alone does not prove that parsed text or attributes are later consumed.
+  - Registering a callback does not prove the callback performs the required API calls.
+- If the fuzz target only parses or builds objects but never materially consumes the relevant state, treat it as a fuzz-target scope/setup issue (Rule 5).
 
-If the relevant objects are created but never materially consumed by the fuzz target's logic, treat this as a fuzz-target scope/setup issue rather than an input-only issue.
-
-[3. Origin Trace]: Trace the variables in the condition backward to their source.
-You MUST cite:
-- The exact assignment/update site of the predicate variable in the source code.
-- If the reasoning depends on an enum or bitmask value, quote the constant definition. Do NOT guess numeric values.
+[3. Origin Trace]:
+- Trace the blocked predicate backward through `<runtime_blocker_segment_source_codes>` first.
+- Use `<cfg_call_chain>` and `<cfg_source_codes>` only to fill runtime gaps caused by inlining or missing frames.
+- You MUST cite the exact assignment/update site of the predicate variable.
+- If the reasoning depends on an enum, bitmask, or constant, quote the exact definition. Do NOT guess numeric values.
 - If you claim a function is the only setter, state: 'Based on provided code, observed sources are: [list]'. Do not assert uniqueness beyond what the code shows.
-- If any conclusion depends on declarations, inline definitions, or constant values
-  not present in the provided source or fuzz target code, you MUST state
-  'Not provable from provided code' and avoid asserting uniqueness,
-  exact values, or impossibility.
-- **MANDATORY FDP STARVATION CHECK**: You MUST examine whether earlier
-  `fdp.Consume...()` calls deterministically exhaust or trivialize the data
-  used to reach the blocked predicate.
-  If `fdp.ConsumeRemainingBytes...()` appears earlier, explicitly state: 'DATA STARVATION DETECTED: ConsumeRemainingBytes was called earlier'. Otherwise, if earlier `Consume...()` calls leave the relevant later value deterministically empty, zero, false, or structurally trivial, explicitly state: 'DATA STARVATION DETECTED: prior FDP consumption exhausts the later input path'.
-[4. Rule Application]: Based strictly on the origin identified in [3], apply the appropriate Rule (1 to 5). 
+- If any key conclusion cannot be proven from the provided evidence, explicitly state: 'Not provable from provided code'.
+- **MANDATORY FDP STARVATION CHECK**: You MUST examine whether earlier `fdp.Consume...()` calls deterministically exhaust or trivialize the data used to reach the blocked predicate.
+  - If `fdp.ConsumeRemainingBytes...()` appears earlier, explicitly state: 'DATA STARVATION DETECTED: ConsumeRemainingBytes was called earlier'.
+  - Otherwise, if earlier `Consume...()` calls leave the relevant later value deterministically empty, zero, false, or structurally trivial, explicitly state: 'DATA STARVATION DETECTED: prior FDP consumption exhausts the later input path'.
 
-**ANTI-LAZINESS CHECK**: Before classifying as "Input Dependent", you MUST strictly evaluate:
-1. **Data Starvation**: Did you state "DATA STARVATION DETECTED" in step 3? If yes, the subsequent `Consume...` calls will deterministically fail. This is a Fuzz Target Flaw. You MUST classify it as **Input Independent**.
-2. **Target Flaw vs. Complex Condition**: Assuming the fuzz target code
-   is NOT modified, can the fuzzer's input alone satisfy this condition
-   through API calls and object/materialization steps that the current target
-   actually performs?
-   - If YES → Input Dependent.
-   - If NO, AND modifying only the fuzz target logic (not the input)
-     would resolve it → Input Independent.
+[4. Rule Application]:
+- Apply exactly one of Rules 1 to 6.
+- If dynamic evidence already shows the observed runtime path is driven by fuzz input into the blocker, do not let unrelated static alternatives override that observation.
+
+**MANDATORY CHECKS before final classification**:
+1. **FDP Starvation**: If [3] identified data starvation, classify as **Input Independent** regardless of other signals.
+2. **Input-alone satisfiability**: Assuming the fuzz target is NOT modified, can the fuzzer's input alone satisfy the blocked condition?
+   - If YES → **Input Dependent**.
+   - If NO, AND modifying only the fuzz target logic (not the input) would resolve it → **Input Independent**.
 
 ### Step 2: Output Strict JSON
-Provide your conclusion in the exact JSON format below. Your entire response must be a single valid JSON object. Begin your response directly with `{`.
-**CRITICAL:** Ensure that your JSON is perfectly valid. Use single quotes inside string fields. In the `reason` field, use only single quotes for any internal quotations. The `dependency` field MUST be exactly "Input Dependent" or "Input Independent".
+Your entire response must be a single valid JSON object.
+Begin directly with `{`.
+The `dependency` field MUST be exactly `"Input Dependent"` or `"Input Independent"`.
+In the `reason` field, use only single quotes for any internal quotations.
 
 ```json
 {
   "analysis_trace": [
     "[1. Target Variable]: ...",
     "[2. Fuzz Target Call Site]: `...`",
+    "[2.5. Materialization Check]: ...",
     "[3. Origin Trace]: ...",
     "[4. Rule Application]: ..."
   ],
@@ -161,3 +183,4 @@ Provide your conclusion in the exact JSON format below. Your entire response mus
   },
   "reason": "<your classification reasoning here>"
 }
+```

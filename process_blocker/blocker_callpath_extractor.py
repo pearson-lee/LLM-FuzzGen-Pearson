@@ -1,8 +1,11 @@
+import argparse
 import os
 import re
 import subprocess
 import sys
-from typing import Any, List, Optional
+from pathlib import Path
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import yaml
 
@@ -24,6 +27,21 @@ except Exception as exc:
     utils = None  # type: ignore
     INTROSPECTOR_AVAILABLE = False
     INTROSPECTOR_IMPORT_ERROR = str(exc)
+
+try:
+    from blocker_classifier_tool.blocker_classifier import classify_blocker
+
+    CLASSIFIER_AVAILABLE = True
+    CLASSIFIER_IMPORT_ERROR = ""
+except Exception as exc:
+    classify_blocker = None  # type: ignore
+    CLASSIFIER_AVAILABLE = False
+    CLASSIFIER_IMPORT_ERROR = str(exc)
+
+if TYPE_CHECKING:
+    from external.introspector import Introspector as IntrospectorType
+else:
+    IntrospectorType = Any
 
 
 PROJECT_NAME = "tinyxml2"
@@ -82,7 +100,7 @@ def symbols_match(lhs: str, rhs: str) -> bool:
     return left == right or get_short_function_name(left) == get_short_function_name(right)
 
 
-def get_mangled_function_name(introspector: Introspector, project_name: str, func_name: str) -> str:
+def get_mangled_function_name(introspector: IntrospectorType, project_name: str, func_name: str) -> str:
     query_name_normalized = func_name.replace(" ", "")
     for func in introspector.get_all_functions(project_name):
         target_name_normalized = func.get("function_name", "").replace(" ", "")
@@ -366,7 +384,7 @@ def get_call_chain_structure(chain: List[Any]) -> str:
     return "\n".join(lines)
 
 
-def get_node_source_code(introspector: Introspector, project_name: str, raw_name: str) -> str:
+def get_node_source_code(introspector: IntrospectorType, project_name: str, raw_name: str) -> str:
     if not raw_name:
         return ""
 
@@ -381,7 +399,7 @@ def get_node_source_code(introspector: Introspector, project_name: str, raw_name
     return ""
 
 
-def extract_function_via_api(introspector: Introspector, project_name: str, file_path: str, start_line: int) -> str:
+def extract_function_via_api(introspector: IntrospectorType, project_name: str, file_path: str, start_line: int) -> str:
     """Fallback: fetch the full file through the Introspector API and slice out the function body."""
     try:
         source_code = introspector.get_project_source_code(project_name, file_path, 1, 999999)
@@ -421,7 +439,7 @@ def extract_function_via_api(introspector: Introspector, project_name: str, file
 
 def get_runtime_function_source_codes(
     runtime_functions: List[dict],
-    introspector: Introspector,
+    introspector: IntrospectorType,
     project_name: str,
 ) -> str:
     if not runtime_functions:
@@ -433,6 +451,8 @@ def get_runtime_function_source_codes(
     for frame in runtime_functions:
         symbol = frame.get("symbol", "")
         if not symbol:
+            continue
+        if symbol == "LLVMFuzzerTestOneInput":
             continue
 
         raw_name = get_mangled_function_name(introspector, project_name, symbol)
@@ -472,7 +492,7 @@ def get_runtime_function_source_codes(
     return "\n\n".join(collected_sources)
 
 
-def get_unique_source_codes(chain: List[Any], introspector: Introspector, project_name: str) -> str:
+def get_unique_source_codes(chain: List[Any], introspector: IntrospectorType, project_name: str) -> str:
     if not chain:
         return ""
 
@@ -564,43 +584,200 @@ def extract_blocker_callchain_info(
     return result
 
 
+def to_prompt_source_path(source_file: str, project_name: str) -> str:
+    normalized = source_file.replace("\\", "/")
+    if normalized.startswith("/src/"):
+        return str(Path(DEFAULT_OUT_DIR) / normalized.lstrip("/"))
+    return source_file
+
+
+def format_runtime_collection_status(gdb_result: dict) -> tuple[str, str]:
+    if not gdb_result:
+        return "not_requested", ""
+    if "error" in gdb_result:
+        return "failed", gdb_result["error"]
+    return "success", ""
+
+
+def format_cfg_collection_status(cfg_result: dict, cfg_error: str) -> tuple[str, str]:
+    if cfg_result:
+        return "success", ""
+    if cfg_error:
+        return "failed", cfg_error
+    return "not_requested", ""
+
+
+def build_classifier_args_from_result(
+    blocker: dict,
+    extraction_result: dict,
+    project_name: str,
+    fuzz_file: str,
+    header_file: Optional[str],
+    backend: str,
+    model: Optional[str],
+) -> SimpleNamespace:
+    gdb_result = extraction_result.get("gdb_result", {})
+    cfg_result = extraction_result.get("cfg_result", {})
+    runtime_status, runtime_error = format_runtime_collection_status(gdb_result)
+    cfg_status, cfg_error = format_cfg_collection_status(cfg_result, extraction_result.get("cfg_error", ""))
+
+    return SimpleNamespace(
+        backend=backend,
+        model=model,
+        project_name=project_name,
+        function_name=blocker["function_name"],
+        branch_line_number=str(blocker["branch_line_number"]),
+        blocked_side_line_number=str(blocker["blocked_side_line_numder"]),
+        source_file=to_prompt_source_path(blocker["source_file"], project_name),
+        fuzz_file=fuzz_file,
+        header_file=header_file,
+        runtime_blocker_segment=gdb_result.get("runtime_blocker_segment_structure", "N/A"),
+        runtime_blocker_segment_source_codes=gdb_result.get("runtime_segment_source_codes", "N/A"),
+        cfg_call_chain=cfg_result.get("chain_structure", "N/A"),
+        cfg_source_codes=cfg_result.get("unique_source_codes", "N/A"),
+        runtime_collection_status=runtime_status,
+        runtime_collection_error=runtime_error,
+        cfg_collection_status=cfg_status,
+        cfg_collection_error=cfg_error,
+        triggering_input=gdb_result.get("triggering_input", ""),
+        source_code=None,
+        fuzz_target_code=None,
+        header_code=None,
+    )
+
+
+def classify_from_extraction_result(
+    blocker: dict,
+    extraction_result: dict,
+    project_name: str,
+    fuzz_file: str,
+    header_file: Optional[str],
+    backend: str,
+    model: Optional[str],
+    execute_pipeline: bool,
+) -> dict:
+    if classify_blocker is None:
+        raise RuntimeError(f"Classifier import unavailable: {CLASSIFIER_IMPORT_ERROR}")
+
+    classifier_args = build_classifier_args_from_result(
+        blocker=blocker,
+        extraction_result=extraction_result,
+        project_name=project_name,
+        fuzz_file=fuzz_file,
+        header_file=header_file,
+        backend=backend,
+        model=model,
+    )
+    return classify_blocker(classifier_args, execute_pipeline=execute_pipeline)
+
+
 def main():
-    json_path = "./process_blocker/branch-blockers.json"
-    project_name = "tinyxml2"
-    yaml_file = "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml"
+    parser = argparse.ArgumentParser(description="Extract blocker runtime/static context and optionally classify it.")
+    parser.add_argument("--json-path", default="./process_blocker/branch-blockers.json")
+    parser.add_argument("--project-name", default="tinyxml2")
+    parser.add_argument(
+        "--yaml-file",
+        default="/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml",
+    )
+    parser.add_argument("--top-k", type=int, default=12)
+    parser.add_argument("--index", type=int, default=0, help="Which ranked blocker to process")
+    parser.add_argument("--max-gdb-inputs", type=int, default=50)
+    parser.add_argument("--classify", action="store_true", help="Run blocker classification after extraction")
+    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--fuzz-file", default=None, help="Override fuzz target source file path")
+    parser.add_argument("--header-file", default=None, help="Optional related header file path")
+    parser.add_argument(
+        "--execute-pipeline",
+        action="store_true",
+        help="If set with --classify, continue into the downstream dependent/independent pipeline.",
+    )
+    parser.add_argument("--manual-function", default=None, help="Manually set function name to bypass JSON")
+    parser.add_argument("--manual-branch-line", type=int, default=None)
+    parser.add_argument("--manual-blocked-side-line", type=int, default=None)
+    parser.add_argument("--manual-source-file", default=None)
+    parser.add_argument("--manual-target", default=None, help="The fuzzer binary name (e.g. llm_fuzzgen0916173855)")
+    
+    args = parser.parse_args()
 
-    global_blockers = aggregate_and_score_blockers(json_path, top_k=12)
-    if not global_blockers:
-        print("[Error] No global blockers found or file missing.")
-        return
+    if args.manual_function:
+        blocker = {
+            "function_name": args.manual_function,
+            "branch_line_number": args.manual_branch_line,
+            "blocked_side_line_numder": args.manual_blocked_side_line, # 注意這裡沿用舊的 key 拼字以防其他地方報錯
+            "source_file": args.manual_source_file,
+            "best_target": args.manual_target
+        }
+        print(f"\n[Info] Processing Manual Blocker in function: {blocker['function_name']}")
+    else:
+        # --- 原本透過 JSON 和 Selector 抓取的邏輯 ---
+        global_blockers = aggregate_and_score_blockers(args.json_path, top_k=args.top_k)
+        if not global_blockers:
+            print("[Error] No global blockers found or file missing.")
+            return
 
-    for blocker in global_blockers[:1]:
+        if args.index < 0 or args.index >= len(global_blockers):
+            print(f"[Error] Blocker index {args.index} is out of range.")
+            return
+
+        blocker = global_blockers[args.index]
         print(f"\n[Info] Processing Blocker in function: {blocker['function_name']}")
-        result = extract_blocker_callchain_info(blocker, yaml_file, project_name)
+    result = extract_blocker_callchain_info(
+        blocker,
+        args.yaml_file,
+        args.project_name,
+        max_gdb_inputs=args.max_gdb_inputs,
+    )
 
-        print(f"\n=== Target: {result['target']} ===")
-        print(f"=== Breakpoint: {result['breakpoint']} ===")
+    print(f"\n=== Target: {result['target']} ===")
+    print(f"=== Breakpoint: {result['breakpoint']} ===")
 
-        gdb_result = result.get("gdb_result", {})
-        if gdb_result:
-            if "error" in gdb_result:
-                print(f"[Warn] {gdb_result['error']}")
-            else:
-                print("\n=== Information 1: Runtime Blocker Segment ===")
-                print(gdb_result.get("runtime_blocker_segment_structure", "Unavailable"))
-                print("\n=== Information 2: Runtime Blocker Segment Source Codes ===")
-                print(gdb_result.get("runtime_segment_source_codes", "No runtime source codes captured."))
-                print(f"\n=== Triggering Input ===\n{gdb_result['triggering_input']}")
+    gdb_result = result.get("gdb_result", {})
+    if gdb_result:
+        if "error" in gdb_result:
+            print(f"[Warn] {gdb_result['error']}")
+        else:
+            print("\n=== Information 1: Runtime Blocker Segment ===")
+            print(gdb_result.get("runtime_blocker_segment_structure", "Unavailable"))
+            print("\n=== Information 2: Runtime Blocker Segment Source Codes ===")
+            print(gdb_result.get("runtime_segment_source_codes", "No runtime source codes captured."))
+            print(f"\n=== Triggering Input ===\n{gdb_result['triggering_input']}")
 
-        cfg_result = result.get("cfg_result")
-        if not cfg_result:
-            print(f"[Warn] {result.get('cfg_error', 'CFG result unavailable.')}")
-            continue
-
+    cfg_result = result.get("cfg_result")
+    if not cfg_result:
+        print(f"[Warn] {result.get('cfg_error', 'CFG result unavailable.')}")
+    else:
         print("\n=== Information 3: CFG Call Chain Structure ===")
         print(cfg_result["chain_structure"])
         print("\n=== Information 4: CFG Unique Source Codes ===")
         print(cfg_result["unique_source_codes"])
+
+    if not args.classify:
+        return
+
+    fuzz_file = args.fuzz_file or str(
+        Path(PROJECT_ROOT) / "external" / "oss-fuzz" / "projects" / args.project_name / f"{result['target']}.cc"
+    )
+    try:
+        classification_result = classify_from_extraction_result(
+            blocker=blocker,
+            extraction_result=result,
+            project_name=args.project_name,
+            fuzz_file=fuzz_file,
+            header_file=args.header_file,
+            backend=args.backend,
+            model=args.model,
+            execute_pipeline=args.execute_pipeline,
+        )
+    except Exception as exc:
+        print(f"[Error] Classification failed: {exc}")
+        return
+
+    print("\n=== Classification Result ===")
+    print(classification_result.get("dependency_result", "Unknown"))
+    reason = classification_result.get("reason", "")
+    if reason:
+        print(f"Reason: {reason}")
 
 
 if __name__ == "__main__":

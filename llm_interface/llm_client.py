@@ -74,6 +74,8 @@ class LLMClient:
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_TOKENS,                    
                     thinking_budget=getattr(config, 'THINK_BUDGET_TOKEN', None),
+                    timeout=90.0,  
+                    request_timeout=90.0, 
                     safety_settings={
                         langchain_google_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
                         langchain_google_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,

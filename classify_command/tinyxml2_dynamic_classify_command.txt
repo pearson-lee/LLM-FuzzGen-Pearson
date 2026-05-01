@@ -1,0 +1,389 @@
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916173855" \
+    --manual-function "tinyxml2::XMLDocument::LoadFile(_IO_FILE*)" \
+    --manual-branch-line 2405 \
+    --manual-blocked-side-line 2406 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+    
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916173855" \
+    --manual-function "tinyxml2::StrPair::GetStr()" \
+    --manual-branch-line 317 \
+    --manual-blocked-side-line 323 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916173855" \
+    --manual-function "tinyxml2::XMLAttribute::ParseDeep(char*, bool, int*)" \
+    --manual-branch-line 1452 \
+    --manual-blocked-side-line 1460 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916173855" \
+    --manual-function "tinyxml2::StrPair::GetStr()" \
+    --manual-branch-line 289 \
+    --manual-blocked-side-line 290 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916173855" \
+    --manual-function "tinyxml2::XMLNode::SetValue(char const*, bool)" \
+    --manual-branch-line 857 \
+    --manual-blocked-side-line 858 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916173855.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626104302" \
+    --manual-function "tinyxml2::XMLElement::GetText() const" \
+    --manual-branch-line 1693 \
+    --manual-blocked-side-line 1694 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104302.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626104302" \
+    --manual-function "tinyxml2::XMLUtil::ToInt(char const*, int*)" \
+    --manual-branch-line 605 \
+    --manual-blocked-side-line 613 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104302.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "xmltest2" \
+    --manual-function "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
+    --manual-branch-line 1170 \
+    --manual-blocked-side-line 1171 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest2.cpp \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916181040" \
+    --manual-function "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
+    --manual-branch-line 1980 \
+    --manual-blocked-side-line 1990 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916181040.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916181040" \
+    --manual-function "tinyxml2::XMLAttribute::ParseDeep(char*, bool, int*)" \
+    --manual-branch-line 1458 \
+    --manual-blocked-side-line 1462 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916181040.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626115110" \
+    --manual-function "tinyxml2::XMLNode::ToElementWithName(char const*) const" \
+    --manual-branch-line 1223 \
+    --manual-blocked-side-line 1226 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115110.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626140224" \
+    --manual-function "tinyxml2::StrPair::GetStr()" \
+    --manual-branch-line 323 \
+    --manual-blocked-side-line 324 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626140224.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627183713" \
+    --manual-function "tinyxml2::XMLDocument::DeleteNode(tinyxml2::XMLNode*)" \
+    --manual-branch-line 2329 \
+    --manual-blocked-side-line 2330 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627183713" \
+    --manual-function "tinyxml2::XMLPrinter::PrintString(char const*, bool)" \
+    --manual-branch-line 2669 \
+    --manual-blocked-side-line 2714 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627183713" \
+    --manual-function "tinyxml2::XMLElement::SetText(char const*)" \
+    --manual-branch-line 1709 \
+    --manual-blocked-side-line 1710 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627183713" \
+    --manual-function "tinyxml2::StrPair::GetStr()" \
+    --manual-branch-line 328 \
+    --manual-blocked-side-line 334 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627183713" \
+    --manual-function "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
+    --manual-branch-line 488 \
+    --manual-blocked-side-line 490 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627183713.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627211305" \
+    --manual-function "tinyxml2::StrPair::GetStr()" \
+    --manual-branch-line 298 \
+    --manual-blocked-side-line 299 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627211305.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0627211305" \
+    --manual-function "tinyxml2::XMLElement::Attribute(char const*, char const*) const" \
+    --manual-branch-line 1630 \
+    --manual-blocked-side-line 1633 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0627211305.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "xmltest" \
+    --manual-function "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
+    --manual-branch-line 500 \
+    --manual-blocked-side-line 501 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "xmltest" \
+    --manual-function "tinyxml2::StrPair::TransferTo(tinyxml2::StrPair*)" \
+    --manual-branch-line 160 \
+    --manual-blocked-side-line 161 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "xmltest" \
+    --manual-function "tinyxml2::XMLUtil::ConvertUTF32ToUTF8(unsigned long, char*, int*)" \
+    --manual-branch-line 426 \
+    --manual-blocked-side-line 429 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "xmltest" \
+    --manual-function "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)" \
+    --manual-branch-line 1092 \
+    --manual-blocked-side-line 1093 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/xmltest.cpp \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626104849" \
+    --manual-function "tinyxml2::XMLElement::DeleteAttribute(char const*)" \
+    --manual-branch-line 1944 \
+    --manual-blocked-side-line 1954 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104849.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626104849" \
+    --manual-function "tinyxml2::XMLNode::InsertAfterChild(tinyxml2::XMLNode*, tinyxml2::XMLNode*)" \
+    --manual-branch-line 1008 \
+    --manual-blocked-side-line 1012 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626104849.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626115820" \
+    --manual-function "tinyxml2::XMLNode::InsertChildPreamble(tinyxml2::XMLNode*) const" \
+    --manual-branch-line 1208 \
+    --manual-blocked-side-line 1209 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626115820" \
+    --manual-function "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
+    --manual-branch-line 1990 \
+    --manual-blocked-side-line 1991 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626115820" \
+    --manual-function "tinyxml2::XMLDocument::Identify(char*, tinyxml2::XMLNode**, bool)" \
+    --manual-branch-line 756 \
+    --manual-blocked-side-line 757 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0626115820" \
+    --manual-function "tinyxml2::XMLUtil::GetCharacterRef(char const*, char*, int*)" \
+    --manual-branch-line 522 \
+    --manual-blocked-side-line 523 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0626115820.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
+
+python3 process_blocker/blocker_callpath_extractor.py \
+    --project-name tinyxml2 \
+    --manual-target "llm_fuzzgen0916183858" \
+    --manual-function "tinyxml2::XMLElement::ParseAttributes(char*, int*)" \
+    --manual-branch-line 1972 \
+    --manual-blocked-side-line 1973 \
+    --manual-source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
+    --fuzz-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/llm_fuzzgen0916183858.cc \
+    --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h \
+    --backend vertexai \
+    --model gemini-2.5-flash \
+    --classify
