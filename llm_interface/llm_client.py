@@ -42,26 +42,44 @@ class LLMClient:
     _instances = {}
     _lock = threading.Lock()
 
-    def __new__(cls, backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini", model_name: str | None = None):
-        config_key = (backend, model_name)
+    def __new__(
+        cls,
+        backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini",
+        model_name: str | None = None,
+        temperature: float | None = None,
+    ):
+        config_key = (backend, model_name, temperature)
         if config_key not in cls._instances:
             with cls._lock:
                 # Double-checked locking to ensure thread safety
                 if config_key not in cls._instances:
-                    logger.info(f"Creating new LLMClient instance for backend: {backend}, model: {model_name}")
+                    logger.info(
+                        f"Creating new LLMClient instance for backend: {backend}, model: {model_name}, temperature: {temperature}"
+                    )
                     instance = super().__new__(cls)
                     cls._instances[config_key] = instance
         else:
-            logger.info(f"Reusing existing LLMClient instance for backend: {backend}, model: {model_name}")
+            logger.info(
+                f"Reusing existing LLMClient instance for backend: {backend}, model: {model_name}, temperature: {temperature}"
+            )
         return cls._instances[config_key]
 
-    def __init__(self, backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini", model_name: str | None = None):
+    def __init__(
+        self,
+        backend: Literal["gemini", "vertexai", "openrouter", "ollama"] = "gemini",
+        model_name: str | None = None,
+        temperature: float | None = None,
+    ):
         # Prevent re-initialization of an already initialized instance
         if hasattr(self, "_initialized"):
             return
 
         try:
             logger.info(f"Initializing LLM with backend: {backend}")
+            resolved_temperature = (
+                config.FUZZ_TARGET_TEMPERATURE if temperature is None else temperature
+            )
+            runtime_bind_kwargs = {}
             if backend == "vertexai":
                 import vertexai
                 import langchain_google_vertexai
@@ -71,11 +89,9 @@ class LLMClient:
                 vertexai.init(project=PROJECT_ID, location=LOCATION)
                 llm_base = langchain_google_vertexai.ChatVertexAI(
                     model=model_name or config.MODEL_NAME,
-                    temperature=config.TEMPERATURE,
+                    temperature=resolved_temperature,
                     max_tokens=config.MAX_TOKENS,                    
                     thinking_budget=getattr(config, 'THINK_BUDGET_TOKEN', None),
-                    timeout=90.0,  
-                    request_timeout=90.0, 
                     safety_settings={
                         langchain_google_vertexai.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
                         langchain_google_vertexai.HarmCategory.HARM_CATEGORY_HATE_SPEECH: langchain_google_vertexai.HarmBlockThreshold.BLOCK_NONE,
@@ -87,9 +103,12 @@ class LLMClient:
                     # location="us-central1",
                     # location="europe-west1",
                 )
+                # langchain-google-vertexai 2.0.25 accepts timeout as a per-request
+                # runtime kwarg, not as a ChatVertexAI constructor field.
+                runtime_bind_kwargs = {"timeout": 90.0}
             elif backend == "gemini":
                 llm_base = langchain_genai.ChatGoogleGenerativeAI(
-                    temperature=config.TEMPERATURE,
+                    temperature=resolved_temperature,
                     model=model_name or config.MODEL_NAME,
                     max_output_tokens=config.MAX_TOKENS,
                     thinking_budget=config.THINK_BUDGET_TOKEN,
@@ -111,7 +130,7 @@ class LLMClient:
             elif backend == "openrouter":
                 llm_base = ChatDeepSeek(
                     model_name=model_name or config.OPENROUTER_MODEL,
-                    temperature=config.TEMPERATURE,
+                    temperature=resolved_temperature,
                     max_tokens=config.MAX_TOKENS,
                     include_response_headers=True,
                     request_timeout=600,
@@ -127,7 +146,7 @@ class LLMClient:
             elif backend == "ollama":
                 llm_base = ChatOllama(
                     model=model_name or config.OLLAMA_MODEL,
-                    temperature=config.TEMPERATURE,
+                    temperature=resolved_temperature,
                     num_predict=config.MAX_TOKENS,
                     num_ctx=config.MAX_TOKENS,
                     base_url="http://localhost:11434",
@@ -141,14 +160,19 @@ class LLMClient:
                 exponential_jitter_params={"max": 60.0, "exp_base": 2.0},
             )
 
-            pipeline_without_tools = llm_base | validator
+            pipeline_without_tools = llm_base.bind(**runtime_bind_kwargs) | validator
             self._llm_without_tools = pipeline_without_tools.with_retry(**retry_params)
 
-            pipeline_with_tools = llm_base.bind_tools(tools=tools, tool_choice="auto") | validator
+            pipeline_with_tools = (
+                llm_base.bind_tools(tools=tools, tool_choice="auto")
+                .bind(**runtime_bind_kwargs)
+                | validator
+            )
             self._llm = pipeline_with_tools.with_retry(**retry_params)
 
             self._graph = self._build_graph()
             logger.info("LLMClient initialized successfully.")
+            self.temperature = resolved_temperature
             self._initialized = True
 
         except Exception as e:

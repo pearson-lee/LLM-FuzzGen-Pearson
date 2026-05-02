@@ -7,8 +7,8 @@ MAX_TOKENS: 32768
 THINK_BUDGET_TOKEN: 8192 # Setting the thinkingBudget to -1 turns on dynamic thinking on Gemini
 # ITERATION_LOOP: 100
 ITERATION_LOOP: 3
-# TEMPERATURE: 0.5 # for fuzz target generation
-TEMPERATURE: 0.1  # for blocker classification, more deterministic output
+FUZZ_TARGET_TEMPERATURE: 0.5
+BLOCKER_CLASSIFIER_TEMPERATURE: 0.1
 INTROSPECTOR_API_BASE_URL: "http://localhost:8080/api"
 FUZZ_TARGET_COMPILER_MAX_ATTEMPTS: 10
 MIN_COVERAGE_IMPROVEMENT: 1.00  # Minimum coverage improvement to consider progress

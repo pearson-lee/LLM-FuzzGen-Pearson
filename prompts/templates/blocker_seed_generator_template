@@ -1,0 +1,147 @@
+# Role
+
+You are an expert fuzzing engineer. Your task is to produce a **maintainable Python seed generator** for a single blocker in an existing fuzz target.
+
+Do not just emit a few ad-hoc seeds. Emit code that can keep generating and evolving blocker-oriented seeds over time.
+
+# Goal
+
+Create a Python 3 generator that produces native-format seeds which are likely to drive the target fuzz entry deeper into this blocker and cross the blocked side.
+
+# Target Blocker
+
+- Project: `{project_name}`
+- Language: `{language}`
+- Fuzz target name: `{fuzz_target_name}`
+- Fuzz target source path: `{fuzz_file}`
+- Target function name: `{function_name}`
+- Target function signature: `{function_signature}`
+- Candidate headers: `{possible_headers}`
+- Source file: `{source_file}`
+- API source path: `{api_source_file}`
+- Branch line: `{branch_line_number}`
+- Blocked side line: `{blocked_side_line_number}`
+
+# Important Principle
+
+Prefer generating **native input files** for the library over simulating the internals of the harness.
+
+However, unlike a normal seed-generation task, your output must be a **Python generator program** that:
+
+1. Encodes the blocker-specific insight in code.
+2. Produces multiple closely related seed variants.
+3. Is easy for a human to extend and maintain.
+4. Uses only the Python standard library.
+5. Is deterministic.
+
+# Required Generator Interface
+
+The generator code must be a complete standalone Python 3 script with this behavior:
+
+1. It defines a function `build_seeds()` that returns `list[tuple[str, bytes]]`.
+2. It supports `python generator.py --output-dir DIR`.
+3. When executed, it writes one file per seed into `DIR`.
+4. It contains concise comments that explain the blocker strategy.
+5. It does not require third-party packages.
+
+# Context
+
+## Existing fuzz target code
+```cpp
+{fuzz_target_code}
+```
+
+## Related header code
+```cpp
+{header_code}
+```
+
+## Source file excerpt
+```cpp
+{source_code}
+```
+
+## Target function source
+```cpp
+{target_function_source}
+```
+
+## Source window around the branch line
+```cpp
+{branch_window}
+```
+
+## Source window around the blocked side
+```cpp
+{blocked_window}
+```
+
+## Runtime blocker segment
+This is dynamic evidence from a real execution path that reached the blocker.
+```text
+{runtime_blocker_segment}
+```
+
+## Runtime blocker segment source codes
+```text
+{runtime_blocker_segment_source_codes}
+```
+
+## CFG call chain
+```text
+{cfg_call_chain}
+```
+
+## CFG source codes
+```text
+{cfg_source_codes}
+```
+
+## Triggering input hint
+- Path or source: `{triggering_input_path}`
+```text
+{triggering_input_preview}
+```
+
+# What To Infer
+
+From the code and blocker location, infer:
+
+1. What native input structure reaches this code.
+2. Which input features are most likely to control the blocked branch.
+3. Which boundary values, malformed forms, or encoding variants should be systematically generated.
+4. How to organize those hypotheses into maintainable Python code instead of one-off samples.
+
+# Quality Bar
+
+The generator should:
+
+- Focus on **high-signal blocker-specific variants**, not generic random fuzz.
+- Prefer small, readable seeds.
+- Include a small family of boundary cases near the blocker condition.
+- Produce both likely-valid and strategically malformed inputs when useful.
+- Encode the blocker reasoning explicitly in comments and helper functions.
+
+# Output Format
+
+Return **only** a single JSON object. No markdown fences. No extra commentary.
+
+The JSON object must have exactly these keys:
+
+- `analysis_summary`: array of short strings
+- `generator_design_rationale`: string
+- `generator_filename`: string
+- `generator_code`: string
+- `sample_seeds`: array of strings
+
+# Additional Constraints
+
+- `generator_code` must be valid Python 3.
+- `sample_seeds` must be representative outputs of the generator.
+- Keep the generator compact and readable.
+- If the target format is text-based, emit text seeds. If binary is needed, generate bytes in Python code.
+- Prefer explicit boundary values over probabilistic logic.
+
+# Final Reminder
+
+The main deliverable is not the seeds themselves. The main deliverable is a **maintainable blocker-aware generator** that a fuzzing pipeline can keep and evolve.

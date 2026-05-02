@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz
+import config.config as config
 
 try:
     from json_repair import repair_json
@@ -125,6 +126,60 @@ def run_program(script: Path, extra_args: list[str] = None) -> int:
     logging.info("Dispatching: %s", " ".join(cmd))
     p = subprocess.run(cmd)
     return p.returncode
+
+
+def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
+    forwarded = [
+        "--backend",
+        args.backend,
+        "--project-name",
+        args.project_name,
+        "--function-name",
+        args.function_name,
+        "--branch-line-number",
+        str(args.branch_line_number),
+        "--blocked-side-line-number",
+        str(args.blocked_side_line_number),
+        "--source-file",
+        args.source_file,
+        "--fuzz-file",
+        args.fuzz_file,
+    ]
+
+    if args.model:
+        forwarded.extend(["--model", args.model])
+    if getattr(args, "header_file", None):
+        forwarded.extend(["--header-file", args.header_file])
+    if getattr(args, "language", None):
+        forwarded.extend(["--language", args.language])
+    if getattr(args, "runtime_blocker_segment_file", None):
+        forwarded.extend(["--runtime-blocker-segment-file", args.runtime_blocker_segment_file])
+    if getattr(args, "runtime_blocker_segment_source_codes_file", None):
+        forwarded.extend(
+            ["--runtime-blocker-segment-source-codes-file", args.runtime_blocker_segment_source_codes_file]
+        )
+    if getattr(args, "cfg_call_chain_file", None):
+        forwarded.extend(["--cfg-call-chain-file", args.cfg_call_chain_file])
+    if getattr(args, "cfg_source_codes_file", None):
+        forwarded.extend(["--cfg-source-codes-file", args.cfg_source_codes_file])
+    if getattr(args, "runtime_blocker_segment", None):
+        forwarded.extend(["--runtime-blocker-segment", args.runtime_blocker_segment])
+    if getattr(args, "runtime_blocker_segment_source_codes", None):
+        forwarded.extend(["--runtime-blocker-segment-source-codes", args.runtime_blocker_segment_source_codes])
+    if getattr(args, "cfg_call_chain", None):
+        forwarded.extend(["--cfg-call-chain", args.cfg_call_chain])
+    if getattr(args, "cfg_source_codes", None):
+        forwarded.extend(["--cfg-source-codes", args.cfg_source_codes])
+    if getattr(args, "triggering_input", None):
+        forwarded.extend(["--triggering-input", args.triggering_input])
+    if getattr(args, "max_iterations", None) is not None:
+        forwarded.extend(["--max-iterations", str(args.max_iterations)])
+    if getattr(args, "fuzz_seconds", None) is not None:
+        forwarded.extend(["--fuzz-seconds", str(args.fuzz_seconds)])
+    if getattr(args, "reset_corpus_per_iteration", False):
+        forwarded.append("--reset-corpus-per-iteration")
+
+    return forwarded
 
 def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str) -> str:
     """
@@ -254,7 +309,11 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
     prompt = format_prompt(template, args)
     logging.info("================ Generated Prompt ================\n%s\n", prompt)
 
-    llm = LLMClient(backend=args.backend, model_name=args.model)
+    llm = LLMClient(
+        backend=args.backend,
+        model_name=args.model,
+        temperature=config.BLOCKER_CLASSIFIER_TEMPERATURE,
+    )
     response_text = llm.generate(prompt)
     if not response_text:
         raise RuntimeError("Empty LLM response.")
@@ -296,7 +355,7 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
     if dependency_result == "Input Dependent":
         logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
-        returncode = run_program(MODULE_ROOT / "seeds_generation.py")
+        returncode = run_program(MODULE_ROOT / "seeds_generation.py", build_seed_generation_args(args))
         output["pipeline_returncode"] = returncode
         return output
 
@@ -334,6 +393,9 @@ def main():
     parser.add_argument("--cfg-collection-status", default="unknown")
     parser.add_argument("--cfg-collection-error", default="")
     parser.add_argument("--triggering-input", default="")
+    parser.add_argument("--max-iterations", type=int, default=3)
+    parser.add_argument("--fuzz-seconds", type=int, default=15)
+    parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     args = parser.parse_args()
     try:
         result = classify_blocker(args, execute_pipeline=True)
