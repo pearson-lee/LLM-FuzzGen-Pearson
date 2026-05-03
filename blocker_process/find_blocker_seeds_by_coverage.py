@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -106,10 +107,51 @@ def run_in_ossfuzz(project_name: str, out_dir: Path, corpus_root: Path, command:
     return run_cmd(docker_cmd)
 
 
+def start_ossfuzz_container(project_name: str, out_dir: Path, corpus_root: Path) -> str:
+    """Start one reusable OSS-Fuzz container for multiple seed replays."""
+    image = f"{OSS_FUZZ_IMAGE_PREFIX}/{project_name}"
+    container_name = f"blocker-coverage-{project_name}-{uuid.uuid4().hex[:12]}"
+    docker_cmd = [
+        "docker",
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        container_name,
+        "-v",
+        f"{out_dir}:/out",
+        "-v",
+        f"{corpus_root}:/corpus",
+        image,
+        "sleep",
+        "infinity",
+    ]
+    result = run_cmd(docker_cmd)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return container_name
+
+
+def run_in_existing_ossfuzz_container(container_name: str, command: str) -> subprocess.CompletedProcess:
+    """Run a shell command inside an already running OSS-Fuzz container."""
+    docker_cmd = [
+        "docker",
+        "exec",
+        container_name,
+        "bash",
+        "-lc",
+        command,
+    ]
+    return run_cmd(docker_cmd)
+
+
+def stop_ossfuzz_container(container_name: str) -> None:
+    """Stop the reusable OSS-Fuzz container and ignore cleanup errors."""
+    run_cmd(["docker", "rm", "-f", container_name])
+
+
 def render_linecov_report_in_ossfuzz(
-    project_name: str,
-    out_dir: Path,
-    corpus_root: Path,
+    container_name: str,
     fuzz_target_name: str,
     seed_path: Path,
     source_file: str,
@@ -120,13 +162,15 @@ def render_linecov_report_in_ossfuzz(
     corpus_subdir = seed_path.parent.name
     container_seed_path = f"/corpus/{corpus_subdir}/{seed_name}"
     command = (
-        "rm -f /tmp/current_seed.profraw /tmp/current_seed.profdata && "
-        "LLVM_PROFILE_FILE=/tmp/current_seed.profraw "
+        'work_dir="$(mktemp -d /tmp/blocker-cov-XXXXXX)" && '
+        'trap \'rm -rf "$work_dir"\' EXIT && '
+        'LLVM_PROFILE_FILE="$work_dir/current_seed.profraw" '
         f"/out/{shlex.quote(fuzz_target_name)} {shlex.quote(container_seed_path)} "
         "-runs=0 -rss_limit_mb=0 -timeout=0 && "
-        "llvm-profdata merge -sparse /tmp/current_seed.profraw -o /tmp/current_seed.profdata && "
+        'llvm-profdata merge -sparse "$work_dir/current_seed.profraw" '
+        '-o "$work_dir/current_seed.profdata" && '
         f"llvm-cov show /out/{shlex.quote(fuzz_target_name)} "
-        "-instr-profile=/tmp/current_seed.profdata "
+        '-instr-profile="$work_dir/current_seed.profdata" '
         "-show-branches=count "
         "-show-instantiations=false "
         "-Xdemangler c++filt "
@@ -136,7 +180,7 @@ def render_linecov_report_in_ossfuzz(
         command += f"--name-regex={shlex.quote(raw_function_name)} "
     command += shlex.quote(source_file)
 
-    result = run_in_ossfuzz(project_name, out_dir, corpus_root, command)
+    result = run_in_existing_ossfuzz_container(container_name, command)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return result.stdout
@@ -259,55 +303,65 @@ def main() -> int:
         reports_dir.mkdir(parents=True, exist_ok=True)
 
     matches = []
-    for idx, seed_path in enumerate(seed_files, start=1):
-        try:
-            report = render_linecov_report_in_ossfuzz(
-                args.project,
-                oss_fuzz.build_out_dir / args.project,
-                oss_fuzz.build_corpus_dir / args.project,
-                args.target,
-                seed_path,
-                source_file,
-                raw_function_name,
-            )
-        except Exception as exc:
-            print(f"[warn] {idx}/{len(seed_files)} {seed_path.name}: failed to collect coverage: {exc}")
-            continue
-
-        branch_count_raw = get_line_execution_count(report, args.branch_line)
-        branch_count = normalize_count(branch_count_raw)
-
-        blocked_side_count_raw = ""
-        blocked_side_count = 0
-        if args.blocked_side_line:
-            blocked_side_count_raw = get_line_execution_count(report, args.blocked_side_line)
-            blocked_side_count = normalize_count(blocked_side_count_raw)
-
-        if reports_dir:
-            report_path = reports_dir / f"{seed_path.name}.linecovreport"
-            report_path.write_text(report, encoding="utf-8")
-
-        print(
-            f"[scan] {idx}/{len(seed_files)} {seed_path.name} "
-            f"branch_line={args.branch_line}:{branch_count_raw or 'NA'} "
-            f"blocked_side_line={args.blocked_side_line}:{blocked_side_count_raw or 'NA'}"
+    container_name: Optional[str] = None
+    try:
+        container_name = start_ossfuzz_container(
+            args.project,
+            oss_fuzz.build_out_dir / args.project,
+            oss_fuzz.build_corpus_dir / args.project,
         )
+        print(f"[info] reusing container: {container_name}")
 
-        if branch_count > 0:
-            match = {
-                "seed": str(seed_path),
-                "branch_line": args.branch_line,
-                "branch_hit_count": branch_count_raw,
-                "blocked_side_line": args.blocked_side_line,
-                "blocked_side_hit_count": blocked_side_count_raw,
-            }
-            matches.append(match)
-            print(f"[match] seed reaches blocker: {seed_path}")
-            if args.run_callchain:
-                print(f"[info] invoking get_callchain.sh with breakpoint: {args.breakpoint}")
-                run_callchain_for_seed(fuzz_target_bin, seed_path, args.breakpoint)
-            if args.stop_after_first:
-                break
+        for idx, seed_path in enumerate(seed_files, start=1):
+            try:
+                report = render_linecov_report_in_ossfuzz(
+                    container_name,
+                    args.target,
+                    seed_path,
+                    source_file,
+                    raw_function_name,
+                )
+            except Exception as exc:
+                print(f"[warn] {idx}/{len(seed_files)} {seed_path.name}: failed to collect coverage: {exc}")
+                continue
+
+            branch_count_raw = get_line_execution_count(report, args.branch_line)
+            branch_count = normalize_count(branch_count_raw)
+
+            blocked_side_count_raw = ""
+            blocked_side_count = 0
+            if args.blocked_side_line:
+                blocked_side_count_raw = get_line_execution_count(report, args.blocked_side_line)
+                blocked_side_count = normalize_count(blocked_side_count_raw)
+
+            if reports_dir:
+                report_path = reports_dir / f"{seed_path.name}.linecovreport"
+                report_path.write_text(report, encoding="utf-8")
+
+            print(
+                f"[scan] {idx}/{len(seed_files)} {seed_path.name} "
+                f"branch_line={args.branch_line}:{branch_count_raw or 'NA'} "
+                f"blocked_side_line={args.blocked_side_line}:{blocked_side_count_raw or 'NA'}"
+            )
+
+            if branch_count > 0:
+                match = {
+                    "seed": str(seed_path),
+                    "branch_line": args.branch_line,
+                    "branch_hit_count": branch_count_raw,
+                    "blocked_side_line": args.blocked_side_line,
+                    "blocked_side_hit_count": blocked_side_count_raw,
+                }
+                matches.append(match)
+                print(f"[match] seed reaches blocker: {seed_path}")
+                if args.run_callchain:
+                    print(f"[info] invoking get_callchain.sh with breakpoint: {args.breakpoint}")
+                    run_callchain_for_seed(fuzz_target_bin, seed_path, args.breakpoint)
+                if args.stop_after_first:
+                    break
+    finally:
+        if container_name:
+            stop_ossfuzz_container(container_name)
 
     print("")
     print("=== Matching seeds ===")
