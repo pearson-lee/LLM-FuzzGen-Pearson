@@ -584,6 +584,8 @@ def evaluate_iteration_with_coverage(
         "blocked_side_hit_count_raw": blocked_raw or "0",
         "branch_hit_count": branch_hits,
         "blocked_side_hit_count": blocked_hits,
+        "branch_line_hit": branch_hits > 0,
+        "blocked_side_line_hit": blocked_hits > 0,
         "reached_blocker": branch_hits > 0,
         "crossed_blocked_side": blocked_hits > 0,
     }
@@ -622,6 +624,8 @@ def compute_coverage_delta(baseline: dict, post_merge: dict) -> dict:
         "success": True,
         "branch_hit_count_delta": post_branch - baseline_branch,
         "blocked_side_hit_count_delta": post_blocked - baseline_blocked,
+        "newly_hit_branch_line": (baseline_branch == 0 and post_branch > 0),
+        "newly_hit_blocked_side_line": (baseline_blocked == 0 and post_blocked > 0),
         "newly_reached_blocker": (baseline_branch == 0 and post_branch > 0),
         "newly_crossed_blocked_side": (baseline_blocked == 0 and post_blocked > 0),
     }
@@ -661,16 +665,16 @@ def summarize_evaluation(
     lines.extend(
         [
             f"Coverage source file in container: {post_merge_evaluation.get('container_source_file', 'N/A')}",
-            f"Baseline blocker branch line hit count: {baseline_evaluation.get('branch_hit_count_raw', '0')}",
-            f"Baseline blocked side line hit count: {baseline_evaluation.get('blocked_side_hit_count_raw', '0')}",
-            f"Post-merge blocker branch line hit count: {post_merge_evaluation.get('branch_hit_count_raw', '0')}",
-            f"Post-merge blocked side line hit count: {post_merge_evaluation.get('blocked_side_hit_count_raw', '0')}",
-            f"Blocker branch line hit count delta: {coverage_delta.get('branch_hit_count_delta', 'N/A')}",
-            f"Blocked side line hit count delta: {coverage_delta.get('blocked_side_hit_count_delta', 'N/A')}",
-            f"Reached blocker after merge: {post_merge_evaluation.get('reached_blocker', False)}",
-            f"Crossed blocked side after merge: {post_merge_evaluation.get('crossed_blocked_side', False)}",
-            f"Newly reached blocker this iteration: {coverage_delta.get('newly_reached_blocker', False)}",
-            f"Newly crossed blocked side this iteration: {coverage_delta.get('newly_crossed_blocked_side', False)}",
+            f"Baseline branch_line hit count: {baseline_evaluation.get('branch_hit_count_raw', '0')}",
+            f"Baseline blocked_side_line hit count: {baseline_evaluation.get('blocked_side_hit_count_raw', '0')}",
+            f"Post-merge branch_line hit count: {post_merge_evaluation.get('branch_hit_count_raw', '0')}",
+            f"Post-merge blocked_side_line hit count: {post_merge_evaluation.get('blocked_side_hit_count_raw', '0')}",
+            f"branch_line hit count delta: {coverage_delta.get('branch_hit_count_delta', 'N/A')}",
+            f"blocked_side_line hit count delta: {coverage_delta.get('blocked_side_hit_count_delta', 'N/A')}",
+            f"branch_line hit after merge: {post_merge_evaluation.get('branch_line_hit', False)}",
+            f"blocked_side_line hit after merge: {post_merge_evaluation.get('blocked_side_line_hit', False)}",
+            f"Newly hit branch_line this iteration: {coverage_delta.get('newly_hit_branch_line', False)}",
+            f"Newly hit blocked_side_line this iteration: {coverage_delta.get('newly_hit_blocked_side_line', False)}",
         ]
     )
     return "\n".join(lines)

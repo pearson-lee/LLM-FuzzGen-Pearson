@@ -33,10 +33,22 @@ try:
 
     CLASSIFIER_AVAILABLE = True
     CLASSIFIER_IMPORT_ERROR = ""
-except Exception as exc:
-    classify_blocker = None  # type: ignore
-    CLASSIFIER_AVAILABLE = False
-    CLASSIFIER_IMPORT_ERROR = str(exc)
+except Exception as first_exc:
+    try:
+        from blocker_process.blocker_classifier import classify_blocker
+
+        CLASSIFIER_AVAILABLE = True
+        CLASSIFIER_IMPORT_ERROR = ""
+    except Exception:
+        try:
+            from blocker_classifier import classify_blocker
+
+            CLASSIFIER_AVAILABLE = True
+            CLASSIFIER_IMPORT_ERROR = ""
+        except Exception as final_exc:
+            classify_blocker = None  # type: ignore
+            CLASSIFIER_AVAILABLE = False
+            CLASSIFIER_IMPORT_ERROR = f"{first_exc}; fallback failed: {final_exc}"
 
 if TYPE_CHECKING:
     from external.introspector import Introspector as IntrospectorType

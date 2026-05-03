@@ -1,0 +1,114 @@
+# Role and Objective
+
+You are an expert software security engineer specializing in coverage-guided fuzzing and blocker-oriented fuzz target refinement.
+Your goal is to minimally refine the provided working fuzz target for `{project_name}` ({language}) so that it can cross a specific blocker in `{function_name}`.
+
+# Non-Negotiable Constraint: Preserve Existing Seed Compatibility
+
+The existing seeds must remain usable.
+
+This means:
+- Do not remove the current top-level parsing logic.
+- Do not reorder existing `Data` / `Size` handling.
+- If the target uses `FuzzedDataProvider`, do not reorder, delete, or semantically redefine the existing consume sequence.
+- Do not introduce earlier `Consume...()` calls that shift later values and invalidate existing seeds.
+- Keep the original core logic and existing API entry path intact.
+
+Allowed changes:
+- Add targeted setup around the existing logic.
+- Add extra blocker-oriented API calls after the original path runs.
+- Reuse bytes or structured values already consumed by the original target.
+- Derive additional values from already-available buffers/objects.
+- Add minimal helper functions if they do not change the original input consumption contract.
+
+# Blocker Goal
+
+- Blocker function: `{function_name}`
+- Predicate line: `{branch_line_number}` (`{blocker_line_code}`)
+- Unreached side line: `{blocked_side_line_number}` (`{blocked_side_line_code}`)
+
+# Existing Fuzz Target
+
+- Fuzz target name: `{fuzz_target_name}`
+- Fuzz target source path: `{fuzz_file}`
+
+```cpp
+{fuzz_target_code}
+```
+
+# Relevant Source Context
+
+## Blocker source file
+`{source_file}`
+
+## Source around blocker predicate
+```text
+{branch_window}
+```
+
+## Source around blocked side
+```text
+{blocked_window}
+```
+
+## Additional source excerpt
+```text
+{source_code}
+```
+
+## Related headers
+```text
+{header_code}
+```
+
+# Dynamic Evidence
+
+## Runtime blocker segment
+```text
+{runtime_blocker_segment}
+```
+
+## Runtime blocker segment source codes
+```text
+{runtime_blocker_segment_source_codes}
+```
+
+# Static Supplementary Context
+
+## CFG call chain
+```text
+{cfg_call_chain}
+```
+
+## CFG source codes
+```text
+{cfg_source_codes}
+```
+
+# Optional Triggering Input
+
+- Triggering input path: `{triggering_input_path}`
+- Triggering input preview:
+```text
+{triggering_input_preview}
+```
+
+# Strategy
+
+1. Use the runtime segment as the primary guide for how execution already reaches the blocker.
+2. Identify the smallest change that can make the blocked side satisfiable while preserving the existing consume contract.
+3. Prefer additive changes over rewrites.
+4. If you need extra control values, derive them from already-consumed data or from parsed objects rather than changing the original consume order.
+5. Keep the fuzz target deterministic, stateless, and memory-safe.
+
+# Output Requirements
+
+- Return only the full refined fuzz target inside one `<fuzz_target>` block.
+- The code must compile as a complete fuzz target.
+- Add concise comments only for blocker-specific logic you introduce.
+- Do not include prose outside `<fuzz_target>`.
+
+Example:
+<fuzz_target>
+{output_example}
+</fuzz_target>

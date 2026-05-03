@@ -1,0 +1,94 @@
+# Role and Objective
+
+You are an expert software security engineer specializing in blocker-oriented fuzz target generation.
+Create a new dedicated fuzz target for `{project_name}` ({language}) whose primary objective is to cross the blocked side in `{function_name}`.
+
+# Blocker Goal
+
+- Blocker function: `{function_name}`
+- Predicate line: `{branch_line_number}` (`{blocker_line_code}`)
+- Unreached side line: `{blocked_side_line_number}` (`{blocked_side_line_code}`)
+
+# Existing Target Reference
+
+The current fuzz target did not solve the blocker after refinement attempts.
+You may design a new target specifically for this blocker.
+
+Reference target name: `{fuzz_target_name}`
+
+```cpp
+{fuzz_target_code}
+```
+
+# Relevant Context
+
+## Blocker source file
+`{source_file}`
+
+## Source around blocker predicate
+```text
+{branch_window}
+```
+
+## Source around blocked side
+```text
+{blocked_window}
+```
+
+## Additional source excerpt
+```text
+{source_code}
+```
+
+## Related headers
+```text
+{header_code}
+```
+
+## Runtime blocker segment
+```text
+{runtime_blocker_segment}
+```
+
+## Runtime blocker segment source codes
+```text
+{runtime_blocker_segment_source_codes}
+```
+
+## CFG call chain
+```text
+{cfg_call_chain}
+```
+
+## CFG source codes
+```text
+{cfg_source_codes}
+```
+
+## Optional triggering input
+- Path: `{triggering_input_path}`
+- Preview:
+```text
+{triggering_input_preview}
+```
+
+# Design Requirements
+
+- Prioritize reaching and crossing this blocker over general project-wide coverage.
+- Build the shortest realistic API sequence needed to make the blocked predicate satisfiable.
+- You may redesign input consumption if needed, but keep the target deterministic and stateless.
+- Use public APIs and real project headers only.
+- Maintain strict memory safety and clean resource handling.
+- Prefer a simple, explainable structure over a broad multi-API target.
+
+# Output Requirements
+
+- Return only the full dedicated fuzz target inside one `<fuzz_target>` block.
+- The code must compile as a complete fuzz target.
+- Add concise comments only where they clarify blocker-specific logic.
+- Do not include prose outside `<fuzz_target>`.
+
+Example:
+<fuzz_target>
+{output_example}
+</fuzz_target>

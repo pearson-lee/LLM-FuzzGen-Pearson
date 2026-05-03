@@ -181,6 +181,15 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
 
     return forwarded
 
+
+def build_blocker_iteration_args(args: argparse.Namespace) -> list[str]:
+    forwarded = build_seed_generation_args(args)
+    if getattr(args, "blocker_line_code", None):
+        forwarded.extend(["--blocker-line-code", args.blocker_line_code])
+    if getattr(args, "blocked_side_line_code", None):
+        forwarded.extend(["--blocked-side-line-code", args.blocked_side_line_code])
+    return forwarded
+
 def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str) -> str:
     """
     Retrieves the line coverage report for a specific function within a given fuzz target.
@@ -361,7 +370,7 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
     if dependency_result == "Input Independent":
         logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
-        returncode = run_program(MODULE_ROOT / "blocker_iteration.py")
+        returncode = run_program(MODULE_ROOT / "blocker_iteration.py", build_blocker_iteration_args(args))
         output["pipeline_returncode"] = returncode
         return output
 
