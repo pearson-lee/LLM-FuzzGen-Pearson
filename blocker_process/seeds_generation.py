@@ -584,10 +584,8 @@ def evaluate_iteration_with_coverage(
         "blocked_side_hit_count_raw": blocked_raw or "0",
         "branch_hit_count": branch_hits,
         "blocked_side_hit_count": blocked_hits,
-        "branch_line_hit": branch_hits > 0,
-        "blocked_side_line_hit": blocked_hits > 0,
-        "reached_blocker": branch_hits > 0,
-        "crossed_blocked_side": blocked_hits > 0,
+        "branch_line_reached": branch_hits > 0,
+        "blocked_side_line_reached": blocked_hits > 0,
     }
 
 
@@ -624,10 +622,8 @@ def compute_coverage_delta(baseline: dict, post_merge: dict) -> dict:
         "success": True,
         "branch_hit_count_delta": post_branch - baseline_branch,
         "blocked_side_hit_count_delta": post_blocked - baseline_blocked,
-        "newly_hit_branch_line": (baseline_branch == 0 and post_branch > 0),
-        "newly_hit_blocked_side_line": (baseline_blocked == 0 and post_blocked > 0),
-        "newly_reached_blocker": (baseline_branch == 0 and post_branch > 0),
-        "newly_crossed_blocked_side": (baseline_blocked == 0 and post_blocked > 0),
+        "newly_reached_branch_line": (baseline_branch == 0 and post_branch > 0),
+        "newly_reached_blocked_side_line": (baseline_blocked == 0 and post_blocked > 0),
     }
 
 
@@ -671,10 +667,10 @@ def summarize_evaluation(
             f"Post-merge blocked_side_line hit count: {post_merge_evaluation.get('blocked_side_hit_count_raw', '0')}",
             f"branch_line hit count delta: {coverage_delta.get('branch_hit_count_delta', 'N/A')}",
             f"blocked_side_line hit count delta: {coverage_delta.get('blocked_side_hit_count_delta', 'N/A')}",
-            f"branch_line hit after merge: {post_merge_evaluation.get('branch_line_hit', False)}",
-            f"blocked_side_line hit after merge: {post_merge_evaluation.get('blocked_side_line_hit', False)}",
-            f"Newly hit branch_line this iteration: {coverage_delta.get('newly_hit_branch_line', False)}",
-            f"Newly hit blocked_side_line this iteration: {coverage_delta.get('newly_hit_blocked_side_line', False)}",
+            f"branch_line reached after merge: {post_merge_evaluation.get('branch_line_reached', False)}",
+            f"blocked_side_line reached after merge: {post_merge_evaluation.get('blocked_side_line_reached', False)}",
+            f"Newly reached branch_line this iteration: {coverage_delta.get('newly_reached_branch_line', False)}",
+            f"Newly reached blocked_side_line this iteration: {coverage_delta.get('newly_reached_blocked_side_line', False)}",
         ]
     )
     return "\n".join(lines)
@@ -845,12 +841,12 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "coverage_delta": coverage_delta,
             "evaluation": post_merge_evaluation,
             "evaluation_summary": evaluation_summary,
-            "success": bool(post_merge_evaluation.get("crossed_blocked_side")),
+            "success": bool(post_merge_evaluation.get("blocked_side_line_reached")),
         }
         iterations.append(iteration_record)
 
         score = (
-            int(bool(post_merge_evaluation.get("crossed_blocked_side"))) * 1_000_000
+            int(bool(post_merge_evaluation.get("blocked_side_line_reached"))) * 1_000_000
             + int(post_merge_evaluation.get("blocked_side_hit_count", 0)) * 1_000
             + int(post_merge_evaluation.get("branch_hit_count", 0))
         )
@@ -864,7 +860,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         logging.info("Iteration %d validation success: %s", iteration_index, validation_ok)
         logging.info("Iteration %d evaluation summary:\n%s", iteration_index, evaluation_summary)
 
-        if post_merge_evaluation.get("crossed_blocked_side"):
+        if post_merge_evaluation.get("blocked_side_line_reached"):
             logging.info("Blocked side reached on iteration %d. Stopping early.", iteration_index)
             break
 
