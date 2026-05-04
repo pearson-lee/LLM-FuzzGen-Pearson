@@ -62,6 +62,14 @@ DEFAULT_CORPUS_ROOT = os.path.join(PROJECT_ROOT, "external", "oss-fuzz", "build"
 DEFAULT_ARTIFACT_PREFIX = "/tmp/llm-fuzzgen-gdb-artifacts/"
 
 
+def get_project_out_dir(project_name: str) -> str:
+    return os.path.join(PROJECT_ROOT, "external", "oss-fuzz", "build", "out", project_name)
+
+
+def get_project_corpus_root(project_name: str) -> str:
+    return os.path.join(PROJECT_ROOT, "external", "oss-fuzz", "build", "corpus", project_name)
+
+
 def get_data_file_for_target(yaml_path: str, target_name: str) -> Optional[str]:
     if not os.path.exists(yaml_path):
         print(f"[Error] YAML file not found at: {yaml_path}")
@@ -541,11 +549,15 @@ def extract_blocker_callchain_info(
     cfg_file_path = get_data_file_for_target(yaml_file, target)
     breakpoint = blocker["function_name"]
     result = {"target": target, "breakpoint": breakpoint}
+    project_out_dir = get_project_out_dir(project_name)
+    project_corpus_root = get_project_corpus_root(project_name)
 
     if use_gdb:
         gdb_result = find_runtime_call_chain_with_gdb(
             target,
             breakpoint,
+            out_dir=project_out_dir,
+            corpus_root=project_corpus_root,
             max_inputs=max_gdb_inputs,
         )
         if "gdb_frames" in gdb_result:
@@ -599,7 +611,7 @@ def extract_blocker_callchain_info(
 def to_prompt_source_path(source_file: str, project_name: str) -> str:
     normalized = source_file.replace("\\", "/")
     if normalized.startswith("/src/"):
-        return str(Path(DEFAULT_OUT_DIR) / normalized.lstrip("/"))
+        return str(Path(get_project_out_dir(project_name)) / normalized.lstrip("/"))
     return source_file
 
 
@@ -687,10 +699,7 @@ def main():
     parser = argparse.ArgumentParser(description="Extract blocker runtime/static context and optionally classify it.")
     parser.add_argument("--json-path", default="./process_blocker/branch-blockers.json")
     parser.add_argument("--project-name", default="tinyxml2")
-    parser.add_argument(
-        "--yaml-file",
-        default="/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/inspector/exe_to_fuzz_introspector_logs.yaml",
-    )
+    parser.add_argument("--yaml-file", default=None)
     parser.add_argument("--top-k", type=int, default=12)
     parser.add_argument("--index", type=int, default=0, help="Which ranked blocker to process")
     parser.add_argument("--max-gdb-inputs", type=int, default=50)
@@ -711,6 +720,13 @@ def main():
     parser.add_argument("--manual-target", default=None, help="The fuzzer binary name (e.g. llm_fuzzgen0916173855)")
     
     args = parser.parse_args()
+
+    if not args.yaml_file:
+        args.yaml_file = os.path.join(
+            get_project_out_dir(args.project_name),
+            "inspector",
+            "exe_to_fuzz_introspector_logs.yaml",
+        )
 
     if args.manual_function:
         blocker = {

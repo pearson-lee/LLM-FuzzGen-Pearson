@@ -3,6 +3,7 @@ import argparse
 import datetime
 import json
 import logging
+import posixpath
 import re
 import subprocess
 import sys
@@ -24,6 +25,15 @@ except Exception:
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "blocker_classify_template"
+AUTO_CONTEXT_DIR = REPO_ROOT / "logs" / "auto_context"
+_SHARED_INTROSPECTOR: Introspector | None = None
+
+
+def get_introspector() -> Introspector:
+    global _SHARED_INTROSPECTOR
+    if _SHARED_INTROSPECTOR is None:
+        _SHARED_INTROSPECTOR = Introspector()
+    return _SHARED_INTROSPECTOR
 
 def load_text(p: Path) -> str:
     try:
@@ -46,6 +56,43 @@ def resolve_text(file_path: str | None, inline_text: str | None, default: str = 
     if inline_text:
         return inline_text
     return default
+
+
+def sanitize_filename(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    return sanitized or "unknown"
+
+
+def write_auto_context_file(project_name: str, category: str, filename_hint: str, content: str) -> str | None:
+    if not content:
+        return None
+    AUTO_CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
+    target_dir = AUTO_CONTEXT_DIR / sanitize_filename(project_name) / sanitize_filename(category)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / sanitize_filename(filename_hint)
+    target_path.write_text(content, encoding="utf-8")
+    return str(target_path)
+
+
+def first_present(mapping: dict, keys: list[str], default=None):
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def normalize_blocker_payload(payload: dict) -> dict:
+    return {
+        "function_name": first_present(payload, ["function_name"]),
+        "branch_line_number": str(first_present(payload, ["branch_line_number"], "")),
+        "blocked_side_line_number": str(
+            first_present(payload, ["blocked_side_line_number", "blocked_side_line_numder"], "")
+        ),
+        "source_file": first_present(payload, ["source_file"]),
+        "source_api_file": first_present(payload, ["source_api_file", "source_file"]),
+        "target_name": first_present(payload, ["target_name", "best_target"]),
+    }
 
 def format_prompt(template: str, args: argparse.Namespace) -> str:
     mapping = {
@@ -99,13 +146,283 @@ def to_api_filepath(path_str: str) -> str:
 def fetch_line_code(project_name: str, filepath: str, line_no: int) -> str:
     if not project_name or not filepath or line_no <= 0:
         return ""
-    ins = Introspector()
+    ins = get_introspector()
     return ins.get_project_source_code(
         project_name=project_name,
         filepath=filepath,
         begin_line=line_no,
         end_line=line_no,
     ).strip()
+
+
+def resolve_function_metadata(project_name: str, function_name: str) -> dict:
+    introspector = get_introspector()
+    normalized_query = function_name.replace(" ", "")
+    for func in introspector.get_all_functions(project_name):
+        if func.get("function_name", "").replace(" ", "") == normalized_query:
+            return func
+    return {}
+
+
+def apply_blocker_payload(args: argparse.Namespace) -> argparse.Namespace:
+    payload = None
+    if getattr(args, "blocker_json_file", None):
+        payload = json.loads(Path(args.blocker_json_file).read_text(encoding="utf-8"))
+    elif getattr(args, "blocker_json", None):
+        payload = json.loads(args.blocker_json)
+
+    if not isinstance(payload, dict):
+        return args
+
+    normalized = normalize_blocker_payload(payload)
+    if not getattr(args, "function_name", None):
+        args.function_name = normalized["function_name"]
+    if not getattr(args, "branch_line_number", None):
+        args.branch_line_number = normalized["branch_line_number"]
+    if not getattr(args, "blocked_side_line_number", None):
+        args.blocked_side_line_number = normalized["blocked_side_line_number"]
+    if not getattr(args, "source_file", None):
+        args.source_file = normalized["source_file"]
+    if not getattr(args, "source_api_file", None):
+        args.source_api_file = normalized["source_api_file"]
+    if not getattr(args, "target_name", None):
+        args.target_name = normalized["target_name"]
+    return args
+
+
+def resolve_fuzz_target_path(project_name: str, requested_target: str | None) -> str | None:
+    introspector = get_introspector()
+    pairs = introspector._query_api("harness-source-and-executable", {"project": project_name}).get("pairs", [])
+    if not pairs:
+        return None
+
+    selected_pair = None
+    if requested_target:
+        for pair in pairs:
+            executable = pair.get("executable", "")
+            candidate_name = Path(executable).stem if executable else ""
+            if candidate_name == requested_target:
+                selected_pair = pair
+                break
+    if selected_pair is None:
+        selected_pair = pairs[0]
+
+    source_path = selected_pair.get("source", "")
+    executable = selected_pair.get("executable", "")
+    target_name = Path(executable).stem if executable else requested_target or "fuzz_target"
+    if not source_path:
+        return None
+
+    code = introspector.get_project_source_code(project_name, source_path, 0, 999)
+    if not code:
+        return None
+    suffix = Path(source_path).suffix or ".cc"
+    return write_auto_context_file(project_name, "fuzz_targets", f"{target_name}{suffix}", code)
+
+
+def resolve_source_file_path(project_name: str, function_name: str) -> str | None:
+    function_meta = resolve_function_metadata(project_name, function_name)
+    source_path = function_meta.get("function_filename", "")
+    if not source_path:
+        return None
+
+    source_code = get_introspector().get_project_source_code(project_name, source_path, 1, 999999)
+    if not source_code:
+        return None
+
+    source_name = Path(source_path).name or f"{sanitize_filename(function_name)}.c"
+    return write_auto_context_file(project_name, "library_sources", source_name, source_code)
+
+
+def resolve_source_api_file(project_name: str, function_name: str) -> str:
+    function_meta = resolve_function_metadata(project_name, function_name)
+    return function_meta.get("function_filename", "")
+
+
+def infer_header_api_candidates(source_api_file: str, source_code: str) -> list[str]:
+    if not source_api_file or not source_code:
+        return []
+
+    source_dir = posixpath.dirname(source_api_file)
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    for match in re.finditer(r'^\s*#\s*include\s*"([^"]+\.(?:h|hh|hpp|hxx))"', source_code, re.MULTILINE):
+        include_path = match.group(1).strip()
+        if include_path.startswith("/src/"):
+            candidate = posixpath.normpath(include_path)
+        else:
+            candidate = posixpath.normpath(posixpath.join(source_dir, include_path))
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    return candidates
+
+
+def resolve_header_file_path(
+    project_name: str,
+    function_name: str,
+    source_api_file: str | None = None,
+) -> str | None:
+    introspector = get_introspector()
+    _, headers = introspector.get_function_signature_and_headers(project_name, function_name)
+    for header_path in headers:
+        header_code = introspector.get_project_source_code(project_name, header_path, 1, 999999)
+        if not header_code:
+            continue
+        header_name = Path(header_path).name or f"{sanitize_filename(function_name)}.h"
+        return write_auto_context_file(project_name, "headers", header_name, header_code)
+
+    api_source = source_api_file or resolve_source_api_file(project_name, function_name)
+    if api_source:
+        source_code = introspector.get_project_source_code(project_name, api_source, 1, 999999)
+        for candidate in infer_header_api_candidates(api_source, source_code):
+            header_code = introspector.get_project_source_code(project_name, candidate, 1, 999999)
+            if not header_code:
+                continue
+            header_name = Path(candidate).name or f"{sanitize_filename(function_name)}.h"
+            logging.info("Resolved header via source include fallback: %s", candidate)
+            return write_auto_context_file(project_name, "headers", header_name, header_code)
+    return None
+
+
+def infer_introspector_yaml_path(project_name: str) -> str:
+    return str(
+        REPO_ROOT
+        / "external"
+        / "oss-fuzz"
+        / "build"
+        / "out"
+        / project_name
+        / "inspector"
+        / "exe_to_fuzz_introspector_logs.yaml"
+    )
+
+
+def should_collect_callpath_context(args: argparse.Namespace) -> bool:
+    return not all(
+        [
+            getattr(args, "runtime_blocker_segment", None) or getattr(args, "runtime_blocker_segment_file", None),
+            getattr(args, "runtime_blocker_segment_source_codes", None)
+            or getattr(args, "runtime_blocker_segment_source_codes_file", None),
+            getattr(args, "cfg_call_chain", None) or getattr(args, "cfg_call_chain_file", None),
+            getattr(args, "cfg_source_codes", None) or getattr(args, "cfg_source_codes_file", None),
+        ]
+    )
+
+
+def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespace:
+    if not should_collect_callpath_context(args):
+        return args
+
+    if not getattr(args, "target_name", None):
+        logging.info("Skipping auto call-path collection because target name is unavailable.")
+        return args
+
+    yaml_file = getattr(args, "yaml_file", None) or infer_introspector_yaml_path(args.project_name)
+    if not Path(yaml_file).exists():
+        logging.info("Skipping auto call-path collection because YAML is missing: %s", yaml_file)
+        return args
+
+    blocker = {
+        "function_name": args.function_name,
+        "branch_line_number": str(args.branch_line_number),
+        "blocked_side_line_numder": str(args.blocked_side_line_number),
+        "source_file": getattr(args, "source_api_file", None) or args.source_file or "",
+        "best_target": args.target_name,
+    }
+
+    try:
+        from blocker_process.blocker_callpath_extractor import (
+            extract_blocker_callchain_info,
+            format_cfg_collection_status,
+            format_runtime_collection_status,
+        )
+    except Exception as exc:
+        logging.warning("Failed to import blocker_callpath_extractor for auto context collection: %s", exc)
+        return args
+
+    extraction_result = extract_blocker_callchain_info(
+        blocker=blocker,
+        yaml_file=yaml_file,
+        project_name=args.project_name,
+        max_gdb_inputs=getattr(args, "max_gdb_inputs", 50),
+    )
+
+    gdb_result = extraction_result.get("gdb_result", {})
+    cfg_result = extraction_result.get("cfg_result", {})
+
+    runtime_status, runtime_error = format_runtime_collection_status(gdb_result)
+    cfg_status, cfg_error = format_cfg_collection_status(cfg_result, extraction_result.get("cfg_error", ""))
+
+    if not getattr(args, "runtime_blocker_segment", None):
+        args.runtime_blocker_segment = gdb_result.get("runtime_blocker_segment_structure")
+    if not getattr(args, "runtime_blocker_segment_source_codes", None):
+        args.runtime_blocker_segment_source_codes = gdb_result.get("runtime_segment_source_codes")
+    if not getattr(args, "cfg_call_chain", None):
+        args.cfg_call_chain = cfg_result.get("chain_structure")
+    if not getattr(args, "cfg_source_codes", None):
+        args.cfg_source_codes = cfg_result.get("unique_source_codes")
+    if not getattr(args, "triggering_input", None):
+        args.triggering_input = gdb_result.get("triggering_input", "")
+
+    args.runtime_collection_status = runtime_status
+    args.runtime_collection_error = runtime_error
+    args.cfg_collection_status = cfg_status
+    args.cfg_collection_error = cfg_error
+    args.yaml_file = yaml_file
+    logging.info(
+        "Auto-collected call-path context: runtime=%s cfg=%s target=%s",
+        runtime_status,
+        cfg_status,
+        args.target_name,
+    )
+    return args
+
+
+def auto_resolve_context_files(args: argparse.Namespace) -> argparse.Namespace:
+    if not getattr(args, "source_api_file", None):
+        current_source = getattr(args, "source_file", None)
+        if current_source:
+            args.source_api_file = to_api_filepath(current_source)
+
+    if not getattr(args, "source_api_file", None):
+        args.source_api_file = resolve_source_api_file(args.project_name, args.function_name)
+
+    current_source = getattr(args, "source_file", None)
+    if not current_source or not Path(current_source).exists():
+        args.source_file = resolve_source_file_path(args.project_name, args.function_name)
+        if args.source_file:
+            logging.info("Auto-resolved source file: %s", args.source_file)
+
+    current_fuzz = getattr(args, "fuzz_file", None)
+    if not current_fuzz or not Path(current_fuzz).exists():
+        args.fuzz_file = resolve_fuzz_target_path(args.project_name, getattr(args, "target_name", None))
+        if args.fuzz_file:
+            logging.info("Auto-resolved fuzz target file: %s", args.fuzz_file)
+
+    current_header = getattr(args, "header_file", None)
+    if not current_header or not Path(current_header).exists():
+        args.header_file = resolve_header_file_path(
+            args.project_name,
+            args.function_name,
+            getattr(args, "source_api_file", None),
+        )
+        if args.header_file:
+            logging.info("Auto-resolved header file: %s", args.header_file)
+
+    if not args.source_file:
+        raise RuntimeError(
+            f"Could not auto-resolve source file for function '{args.function_name}'. "
+            "Pass --source-file explicitly or ensure Introspector data is available."
+        )
+    if not args.fuzz_file:
+        raise RuntimeError(
+            "Could not auto-resolve fuzz target source. "
+            "Pass --fuzz-file explicitly or provide --target-name with available harness metadata."
+        )
+    return args
 
 def extract_json(text: str) -> dict:
     if repair_json is not None:
@@ -195,7 +512,7 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     Retrieves the line coverage report for a specific function within a given fuzz target.
     It automatically translates the demangled function name to its mangled regex.
     """
-    introspector = Introspector()
+    introspector = get_introspector()
     oss_fuzz = OSSFuzz()
     
     # 1. Look up the mangled function name (raw_function_name)
@@ -282,7 +599,7 @@ def log_collection_status(args: argparse.Namespace) -> None:
 
 def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
     oss_fuzz = OSSFuzz()
-    api_filepath = to_api_filepath(args.source_file or "")
+    api_filepath = getattr(args, "source_api_file", None) or to_api_filepath(args.source_file or "")
     branch_line = int(args.branch_line_number)
     blocked_side_line = int(args.blocked_side_line_number)
 
@@ -307,7 +624,10 @@ def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
 def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) -> dict:
     from llm_interface.llm_client import LLMClient
 
+    args = apply_blocker_payload(args)
     setup_file_logging(args.function_name)
+    args = auto_resolve_context_files(args)
+    args = auto_collect_callpath_context(args)
     log_collection_status(args)
     args = enrich_classification_args(args)
 
@@ -383,12 +703,18 @@ def main():
     parser.add_argument("--model", default=None)
 
     parser.add_argument("--project-name", required=True)
-    parser.add_argument("--function-name", required=True)
-    parser.add_argument("--branch-line-number", required=True)
-    parser.add_argument("--blocked-side-line-number", required=True) 
-    parser.add_argument("--source-file", required=True, help="Path to source code file for blocker line lookup and optional extra context")
-    parser.add_argument("--fuzz-file", required=True, help="Path to fuzz target code to embed")
+    parser.add_argument("--function-name", default=None)
+    parser.add_argument("--branch-line-number", default=None)
+    parser.add_argument("--blocked-side-line-number", default=None)
+    parser.add_argument("--blocker-json", default=None, help="Inline blocker JSON containing function/line/target metadata")
+    parser.add_argument("--blocker-json-file", default=None, help="Path to blocker JSON file containing function/line/target metadata")
+    parser.add_argument("--source-file", default=None, help="Path to source code file for blocker line lookup and optional extra context")
+    parser.add_argument("--source-api-file", default=None, help="Project-relative API source path such as /src/tinyxml2/tinyxml2.cpp")
+    parser.add_argument("--fuzz-file", default=None, help="Path to fuzz target code to embed")
     parser.add_argument("--header-file", default=None, help="Path to related header file to embed")
+    parser.add_argument("--target-name", default=None, help="Optional fuzz target executable name used for auto-resolving fuzz target source")
+    parser.add_argument("--yaml-file", default=None, help="Optional introspector exe_to_fuzz_introspector_logs.yaml path for auto call-path collection")
+    parser.add_argument("--max-gdb-inputs", type=int, default=50, help="Max corpus inputs to try when auto-collecting runtime call path")
     parser.add_argument("--runtime-blocker-segment-file", default=None, help="Path to the runtime blocker segment text")
     parser.add_argument("--runtime-blocker-segment-source-codes-file", default=None, help="Path to runtime blocker segment source codes")
     parser.add_argument("--cfg-call-chain-file", default=None, help="Path to CFG call chain text")
@@ -405,9 +731,26 @@ def main():
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
+    parser.add_argument(
+        "--classify-only",
+        action="store_true",
+        help="Only classify the blocker and skip downstream seed-generation / blocker-iteration pipelines",
+    )
     args = parser.parse_args()
+    args = apply_blocker_payload(args)
+    missing = [
+        name
+        for name, value in [
+            ("function-name", args.function_name),
+            ("branch-line-number", args.branch_line_number),
+            ("blocked-side-line-number", args.blocked_side_line_number),
+        ]
+        if not value
+    ]
+    if missing:
+        parser.error("Missing required blocker fields: " + ", ".join(missing))
     try:
-        result = classify_blocker(args, execute_pipeline=True)
+        result = classify_blocker(args, execute_pipeline=not args.classify_only)
     except FileNotFoundError as exc:
         logging.error("%s", exc)
         sys.exit(1)

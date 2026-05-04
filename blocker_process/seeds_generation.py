@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from external.oss_fuzz import OSSFuzz
+import config.config as config
 
 try:
     from json_repair import repair_json
@@ -676,12 +677,17 @@ def summarize_evaluation(
     return "\n".join(lines)
 
 
+def get_seed_generator_temperature(iteration_index: int) -> float:
+    if iteration_index <= 1:
+        return config.SEED_GENERATOR_INITIAL_TEMPERATURE
+    return config.SEED_GENERATOR_LATER_TEMPERATURE
+
+
 def run_seed_generation(args: argparse.Namespace) -> dict:
     from llm_interface.llm_client import LLMClient
 
     setup_file_logging(args.function_name)
     base_prompt = build_prompt(args)
-    llm = LLMClient(backend=args.backend, model_name=args.model)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_project = sanitize_name(args.project_name)
     safe_function = sanitize_name(args.function_name)
@@ -714,8 +720,11 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         )
         logging.info("=============== Iteration %d/%d ===============", iteration_index, args.max_iterations)
         logging.info("================ Generated Prompt ================\n%s\n", prompt)
+        temperature = get_seed_generator_temperature(iteration_index)
+        logging.info("Seed generator temperature for iteration %d: %.2f", iteration_index, temperature)
         (iteration_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
+        llm = LLMClient(backend=args.backend, model_name=args.model, temperature=temperature)
         response_text = llm.generate(prompt)
         if not response_text:
             raise RuntimeError(f"Empty LLM response on iteration {iteration_index}.")
