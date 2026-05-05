@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz
+from blocker_process.coverage_utils import get_line_execution_count
 import config.config as config
 
 try:
@@ -72,6 +73,45 @@ def write_auto_context_file(project_name: str, category: str, filename_hint: str
     target_path = target_dir / sanitize_filename(filename_hint)
     target_path.write_text(content, encoding="utf-8")
     return str(target_path)
+
+
+def track_auto_context_path(args: argparse.Namespace, path_str: str | None) -> None:
+    if not path_str:
+        return
+    tracked = getattr(args, "_auto_context_paths", None)
+    if tracked is None:
+        tracked = []
+        args._auto_context_paths = tracked
+    if path_str not in tracked:
+        tracked.append(path_str)
+
+
+def cleanup_auto_context_paths(args: argparse.Namespace) -> None:
+    if getattr(args, "keep_auto_context", False):
+        return
+
+    tracked_paths = getattr(args, "_auto_context_paths", [])
+    for path_str in tracked_paths:
+        path = Path(path_str)
+        try:
+            if path.exists() and AUTO_CONTEXT_DIR in path.parents:
+                path.unlink()
+        except Exception as exc:
+            logging.warning("Failed to remove auto context file %s: %s", path, exc)
+
+    project_dir = AUTO_CONTEXT_DIR / sanitize_filename(getattr(args, "project_name", ""))
+    for directory in [project_dir / "headers", project_dir / "library_sources", project_dir / "fuzz_targets", project_dir]:
+        try:
+            if directory.exists() and not any(directory.iterdir()):
+                directory.rmdir()
+        except Exception:
+            pass
+
+    try:
+        if AUTO_CONTEXT_DIR.exists() and not any(AUTO_CONTEXT_DIR.iterdir()):
+            AUTO_CONTEXT_DIR.rmdir()
+    except Exception:
+        pass
 
 
 def first_present(mapping: dict, keys: list[str], default=None):
@@ -394,12 +434,14 @@ def auto_resolve_context_files(args: argparse.Namespace) -> argparse.Namespace:
     if not current_source or not Path(current_source).exists():
         args.source_file = resolve_source_file_path(args.project_name, args.function_name)
         if args.source_file:
+            track_auto_context_path(args, args.source_file)
             logging.info("Auto-resolved source file: %s", args.source_file)
 
     current_fuzz = getattr(args, "fuzz_file", None)
     if not current_fuzz or not Path(current_fuzz).exists():
         args.fuzz_file = resolve_fuzz_target_path(args.project_name, getattr(args, "target_name", None))
         if args.fuzz_file:
+            track_auto_context_path(args, args.fuzz_file)
             logging.info("Auto-resolved fuzz target file: %s", args.fuzz_file)
 
     current_header = getattr(args, "header_file", None)
@@ -410,6 +452,7 @@ def auto_resolve_context_files(args: argparse.Namespace) -> argparse.Namespace:
             getattr(args, "source_api_file", None),
         )
         if args.header_file:
+            track_auto_context_path(args, args.header_file)
             logging.info("Auto-resolved header file: %s", args.header_file)
 
     if not args.source_file:
@@ -542,29 +585,6 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     
     return report
 
-def get_line_execution_count(report: str, line_no: int) -> str:
-    """
-    Parses the line coverage report and extracts the execution count for a specific line number.
-    Returns the execution count as a string (e.g., "202k", "0", ""), or "" if the line is not found.
-    """
-    if not report:
-        return ""
-    
-    # Find the target line by matching the line number followed by '|', e.g., " 753|" or "\n753|"
-    # Since llvm-cov may pad spaces before the line number, we directly match the line pattern
-    target_prefix = f"{line_no}|"
-    
-    for line in report.splitlines():
-        # If the line starts with "753|" after removing leading whitespace
-        if line.lstrip().startswith(target_prefix):
-            # Once found, split the line at most twice by '|': [line_number, count, code]
-            parts = line.split('|', 2)
-            if len(parts) >= 2:
-                return parts[1].strip()  # Return the execution count part with whitespace trimmed
-            
-    return ""  # Return empty string if the line is not found at all
-
-
 def setup_file_logging(func_name: str) -> None:
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -611,7 +631,11 @@ def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
         fuzzer_name = Path(args.fuzz_file).stem
         try:
             cov_report = check_function_coverage(args.project_name, fuzzer_name, args.function_name)
-            args.branch_hit_count = get_line_execution_count(cov_report, branch_line)
+            args.branch_hit_count = get_line_execution_count(
+                cov_report,
+                branch_line,
+                function_name=args.function_name,
+            )
         except Exception as exc:
             logging.warning("Failed to get branch hit count: %s", exc)
             args.branch_hit_count = "N/A"
@@ -624,77 +648,80 @@ def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
 def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) -> dict:
     from llm_interface.llm_client import LLMClient
 
-    args = apply_blocker_payload(args)
-    setup_file_logging(args.function_name)
-    args = auto_resolve_context_files(args)
-    args = auto_collect_callpath_context(args)
-    log_collection_status(args)
-    args = enrich_classification_args(args)
-
-    if not TEMPLATE_PATH.exists():
-        raise FileNotFoundError(f"Template missing: {TEMPLATE_PATH}")
-
-    template = load_text(TEMPLATE_PATH)
-    prompt = format_prompt(template, args)
-    logging.info("================ Generated Prompt ================\n%s\n", prompt)
-
-    llm = LLMClient(
-        backend=args.backend,
-        model_name=args.model,
-        temperature=config.BLOCKER_CLASSIFIER_TEMPERATURE,
-    )
-    response_text = llm.generate(prompt)
-    if not response_text:
-        raise RuntimeError("Empty LLM response.")
-
     try:
-        result = extract_json(response_text)
-    except Exception as exc:
-        logging.error("JSON parsing failed: %s", exc)
-        print(response_text)
-        raise
+        args = apply_blocker_payload(args)
+        setup_file_logging(args.function_name)
+        args = auto_resolve_context_files(args)
+        args = auto_collect_callpath_context(args)
+        log_collection_status(args)
+        args = enrich_classification_args(args)
 
-    analysis_trace = result.get("analysis_trace", [])
-    classification = result.get("classification", {})
-    dependency_result = classification.get("dependency", "")
-    reason = result.get("reason", "")
+        if not TEMPLATE_PATH.exists():
+            raise FileNotFoundError(f"Template missing: {TEMPLATE_PATH}")
 
-    if isinstance(analysis_trace, list):
-        formatted_trace = "\n\n".join(analysis_trace)
-    else:
-        formatted_trace = str(analysis_trace)
+        template = load_text(TEMPLATE_PATH)
+        prompt = format_prompt(template, args)
+        logging.info("================ Generated Prompt ================\n%s\n", prompt)
 
-    logging.info(
-        "Analysis trace:\n\n%s\n\n------------------------\nDependency: %s\nReason: %s\n",
-        formatted_trace,
-        dependency_result,
-        reason,
-    )
+        llm = LLMClient(
+            backend=args.backend,
+            model_name=args.model,
+            temperature=config.BLOCKER_CLASSIFIER_TEMPERATURE,
+        )
+        response_text = llm.generate(prompt)
+        if not response_text:
+            raise RuntimeError("Empty LLM response.")
 
-    output = {
-        "prompt": prompt,
-        "response_text": response_text,
-        "parsed_result": result,
-        "dependency_result": dependency_result,
-        "reason": reason,
-    }
+        try:
+            result = extract_json(response_text)
+        except Exception as exc:
+            logging.error("JSON parsing failed: %s", exc)
+            print(response_text)
+            raise
 
-    if not execute_pipeline:
-        return output
+        analysis_trace = result.get("analysis_trace", [])
+        classification = result.get("classification", {})
+        dependency_result = classification.get("dependency", "")
+        reason = result.get("reason", "")
 
-    if dependency_result == "Input Dependent":
-        logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
-        returncode = run_program(MODULE_ROOT / "seeds_generation.py", build_seed_generation_args(args))
-        output["pipeline_returncode"] = returncode
-        return output
+        if isinstance(analysis_trace, list):
+            formatted_trace = "\n\n".join(analysis_trace)
+        else:
+            formatted_trace = str(analysis_trace)
 
-    if dependency_result == "Input Independent":
-        logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
-        returncode = run_program(MODULE_ROOT / "blocker_iteration.py", build_blocker_iteration_args(args))
-        output["pipeline_returncode"] = returncode
-        return output
+        logging.info(
+            "Analysis trace:\n\n%s\n\n------------------------\nDependency: %s\nReason: %s\n",
+            formatted_trace,
+            dependency_result,
+            reason,
+        )
 
-    raise RuntimeError(f"Unknown dependency classification: {dependency_result}")
+        output = {
+            "prompt": prompt,
+            "response_text": response_text,
+            "parsed_result": result,
+            "dependency_result": dependency_result,
+            "reason": reason,
+        }
+
+        if not execute_pipeline:
+            return output
+
+        if dependency_result == "Input Dependent":
+            logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
+            returncode = run_program(MODULE_ROOT / "seeds_generation.py", build_seed_generation_args(args))
+            output["pipeline_returncode"] = returncode
+            return output
+
+        if dependency_result == "Input Independent":
+            logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
+            returncode = run_program(MODULE_ROOT / "blocker_iteration.py", build_blocker_iteration_args(args))
+            output["pipeline_returncode"] = returncode
+            return output
+
+        raise RuntimeError(f"Unknown dependency classification: {dependency_result}")
+    finally:
+        cleanup_auto_context_paths(args)
 
 
 def main():
@@ -731,6 +758,11 @@ def main():
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
+    parser.add_argument(
+        "--keep-auto-context",
+        action="store_true",
+        help="Keep auto-resolved files under logs/auto_context instead of deleting them after the run",
+    )
     parser.add_argument(
         "--classify-only",
         action="store_true",

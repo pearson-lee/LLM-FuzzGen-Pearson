@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz
+from blocker_process.coverage_utils import get_line_execution_count
 
 OSS_FUZZ_IMAGE_PREFIX = "gcr.io/oss-fuzz"
 
@@ -41,17 +42,6 @@ def normalize_count(raw: str) -> int:
         "T": 1_000_000_000_000,
     }
     return int(value * multipliers[suffix])
-
-
-def get_line_execution_count(report: str, line_no: int) -> str:
-    """Extract the execution count for a given source line from llvm-cov output."""
-    target_prefix = f"{line_no}|"
-    for line in report.splitlines():
-        if line.lstrip().startswith(target_prefix):
-            parts = line.split("|", 2)
-            if len(parts) >= 2:
-                return parts[1].strip()
-    return ""
 
 
 def get_raw_function_name(project_name: str, function_name: str) -> str:
@@ -325,13 +315,23 @@ def main() -> int:
                 print(f"[warn] {idx}/{len(seed_files)} {seed_path.name}: failed to collect coverage: {exc}")
                 continue
 
-            branch_count_raw = get_line_execution_count(report, args.branch_line)
+            branch_count_raw = get_line_execution_count(
+                report,
+                args.branch_line,
+                function_name=args.function_name,
+                raw_function_name=raw_function_name,
+            )
             branch_count = normalize_count(branch_count_raw)
 
             blocked_side_count_raw = ""
             blocked_side_count = 0
             if args.blocked_side_line:
-                blocked_side_count_raw = get_line_execution_count(report, args.blocked_side_line)
+                blocked_side_count_raw = get_line_execution_count(
+                    report,
+                    args.blocked_side_line,
+                    function_name=args.function_name,
+                    raw_function_name=raw_function_name,
+                )
                 blocked_side_count = normalize_count(blocked_side_count_raw)
 
             if reports_dir:

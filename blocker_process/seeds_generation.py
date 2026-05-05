@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from external.oss_fuzz import OSSFuzz
+from blocker_process.coverage_utils import get_line_execution_count
 import config.config as config
 
 try:
@@ -393,16 +394,6 @@ def normalize_count(raw: str) -> int:
     return int(value * multipliers[suffix])
 
 
-def get_line_execution_count(report: str, line_no: int) -> str:
-    target_prefix = f"{line_no}|"
-    for line in report.splitlines():
-        if line.lstrip().startswith(target_prefix):
-            parts = line.split("|", 2)
-            if len(parts) >= 2:
-                return parts[1].strip()
-    return ""
-
-
 def guess_container_source_file(project_name: str, local_source_file: str) -> str:
     source_path = Path(local_source_file)
     if source_path.is_absolute():
@@ -530,6 +521,7 @@ def evaluate_iteration_with_coverage(
     oss_fuzz: OSSFuzz,
     project_name: str,
     fuzzer_name: str,
+    function_name: str,
     source_file: str,
     branch_line: int,
     blocked_side_line: int,
@@ -574,8 +566,8 @@ def evaluate_iteration_with_coverage(
     report = result.stdout
     (output_dir / f"{report_basename}.linecovreport").write_text(report, encoding="utf-8")
 
-    branch_raw = get_line_execution_count(report, branch_line)
-    blocked_raw = get_line_execution_count(report, blocked_side_line)
+    branch_raw = get_line_execution_count(report, branch_line, function_name=function_name)
+    blocked_raw = get_line_execution_count(report, blocked_side_line, function_name=function_name)
     branch_hits = normalize_count(branch_raw)
     blocked_hits = normalize_count(blocked_raw)
     return {
@@ -760,6 +752,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 oss_fuzz=oss_fuzz,
                 project_name=args.project_name,
                 fuzzer_name=fuzzer_name,
+                function_name=args.function_name,
                 source_file=args.source_file,
                 branch_line=int(args.branch_line_number),
                 blocked_side_line=int(args.blocked_side_line_number),
@@ -787,6 +780,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 oss_fuzz=oss_fuzz,
                 project_name=args.project_name,
                 fuzzer_name=fuzzer_name,
+                function_name=args.function_name,
                 source_file=args.source_file,
                 branch_line=int(args.branch_line_number),
                 blocked_side_line=int(args.blocked_side_line_number),

@@ -46,6 +46,8 @@ def setup_logging(
     logging.info(f"Iteration loop: {config.ITERATION_LOOP}")
     logging.info(f"Fuzz Target Temperature: {config.FUZZ_TARGET_TEMPERATURE}")
     logging.info(f"Blocker Classifier Temperature: {config.BLOCKER_CLASSIFIER_TEMPERATURE}")
+    logging.info(f"Seed Generator Initial Temperature: {config.SEED_GENERATOR_INITIAL_TEMPERATURE}")
+    logging.info(f"Seed Generator Later Temperature: {config.SEED_GENERATOR_LATER_TEMPERATURE}")
     logging.info(f"Max Tokens: {config.MAX_TOKENS}")
     logging.info(f"Think Budget Tokens: {config.THINK_BUDGET_TOKEN}")
     logging.info(f"Max Compiler Attempts: {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}")
