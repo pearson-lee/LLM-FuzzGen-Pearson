@@ -1,4 +1,4 @@
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -9,7 +9,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -20,7 +20,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -31,7 +31,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -43,7 +43,7 @@ python3 blocker_process/blocker_classifier.py \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -54,7 +54,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -65,7 +65,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -76,7 +76,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -87,7 +87,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -98,7 +98,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -109,7 +109,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -120,7 +120,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -131,7 +131,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -142,7 +142,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -153,7 +153,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -164,7 +164,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -175,7 +175,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -186,7 +186,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -197,7 +197,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -208,7 +208,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -219,7 +219,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -230,7 +230,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -241,7 +241,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -252,7 +252,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h    
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -263,7 +263,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h   
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -274,7 +274,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h   
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -285,7 +285,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h   
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -296,7 +296,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h  
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -307,7 +307,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h  
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \
@@ -318,7 +318,7 @@ python3 blocker_process/blocker_classifier.py \
     --source-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.cpp \
     --header-file ./external/oss-fuzz/build/out/tinyxml2/inspector/source-code/src/tinyxml2/tinyxml2.h  
 
-python3 blocker_process/blocker_classifier.py \
+python3 blocker_classifier.py \
     --backend vertexai \
     --model gemini-2.5-flash \
     --project-name tinyxml2 \

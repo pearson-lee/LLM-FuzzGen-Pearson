@@ -1,0 +1,391 @@
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "cf2_interpT2CharString",
+    "branch_line_number": "1055",
+    "blocked_side_line_number": "1066",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/psaux/psintrp.c",
+    "best_target": "cff-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "T1_Open_Face",
+    "branch_line_number": "2546",
+    "blocked_side_line_number": "2549",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/type1/t1load.c",
+    "best_target": "cff-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "af_latin_hints_apply",
+    "branch_line_number": "4975",
+    "blocked_side_line_number": "4977",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/autofit/aflatin.c",
+    "best_target": "cff-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "af_latin_hints_apply",
+    "branch_line_number": "4968",
+    "blocked_side_line_number": "4970",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/autofit/aflatin.c",
+    "best_target": "cff-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "sfnt_get_ps_name",
+    "branch_line_number": "1082",
+    "blocked_side_line_number": "1086",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/sfnt/sfdriver.c",
+    "best_target": "cff-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "freetype::FacePrepIteratorMultipleMasters::get_prepared_face(std::__1::unique_ptr<freetype::FaceLoader, std::__1::default_delete<freetype::FaceLoader> > const&, unsigned long)",
+    "branch_line_number": "38",
+    "blocked_side_line_number": "41",
+    "source_file": "/src/freetype2-testing/fuzzing/src/iterators/faceprepiterator-multiplemasters.cpp",
+    "best_target": "cff-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "ft_var_load_mvar",
+    "branch_line_number": "1513",
+    "blocked_side_line_number": "1519",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttgxvar.c",
+    "best_target": "truetype-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "af_loader_load_glyph",
+    "branch_line_number": "373",
+    "blocked_side_line_number": "378",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/autofit/afloader.c",
+    "best_target": "truetype-render"
+  }' 
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "ft_var_load_avar",
+    "branch_line_number": "362",
+    "blocked_side_line_number": "369",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttgxvar.c",
+    "best_target": "truetype-render"
+  }' 
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "ft_var_load_hvvar",
+    "branch_line_number": "920",
+    "blocked_side_line_number": "926",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttgxvar.c",
+    "best_target": "truetype-render"
+  }'  
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "sfnt_open_font",
+    "branch_line_number": "406",
+    "blocked_side_line_number": "408",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/sfnt/sfobjs.c",
+    "best_target": "truetype-render"
+  }'   
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "tt_face_init",
+    "branch_line_number": "668",
+    "blocked_side_line_number": "670",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttobjs.c",
+    "best_target": "truetype-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "tt_face_load_font_dir",
+    "branch_line_number": "386",
+    "blocked_side_line_number": "399",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/sfnt/ttload.c",
+    "best_target": "truetype-render"
+  }' 
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Stream_New",
+    "branch_line_number": "217",
+    "blocked_side_line_number": "231",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "truetype-render"
+  }'       
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "freetype::FacePrepIteratorBitmaps::run(std::__1::unique_ptr<freetype::FaceLoader, std::__1::default_delete<freetype::FaceLoader> > const&)",
+    "branch_line_number": "40",
+    "blocked_side_line_number": "43",
+    "source_file": "/src/freetype2-testing/fuzzing/src/iterators/faceprepiterator-bitmaps.cpp",
+    "best_target": "truetype-render"
+  }' 
+
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "Current_Ratio",
+    "branch_line_number": "1263",
+    "blocked_side_line_number": "1271",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttinterp.c",
+    "best_target": "truetype-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "freetype::FaceLoader::set_raw_bytes(unsigned char const*, unsigned long)",
+    "branch_line_number": "64",
+    "blocked_side_line_number": "65",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttinterp.c",
+    "best_target": "truetype-render"
+  }'
+
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Request_Size",
+    "branch_line_number": "3462",
+    "blocked_side_line_number": "3469",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "truetype-render"
+  }' 
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "tt_set_mm_blend",
+    "branch_line_number": "3088",
+    "blocked_side_line_number": "3089",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/truetype/ttgxvar.c",
+    "best_target": "truetype-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Render_Glyph_Internal",
+    "branch_line_number": "4745",
+    "blocked_side_line_number": "4749",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "truetype-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Set_Default_Properties",
+    "branch_line_number": "126",
+    "blocked_side_line_number": "129",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftinit.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Add_Module",
+    "branch_line_number": "5141",
+    "blocked_side_line_number": "5142",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Init_FreeType",
+    "branch_line_number": "225",
+    "blocked_side_line_number": "226",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftinit.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Add_Module",
+    "branch_line_number": "5073",
+    "blocked_side_line_number": "5074",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Add_Module",
+    "branch_line_number": "5070",
+    "blocked_side_line_number": "5071",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Add_Module",
+    "branch_line_number": "5084",
+    "blocked_side_line_number": "5087",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Get_Module",
+    "branch_line_number": "5179",
+    "blocked_side_line_number": "5180",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_Lookup_Renderer",
+    "branch_line_number": "4517",
+    "blocked_side_line_number": "4518",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "ft_add_renderer",
+    "branch_line_number": "4600",
+    "blocked_side_line_number": "4601",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'
+
+python3 blocker_process/blocker_classifier.py \
+  --project-name freetype2 \
+  --backend vertexai \
+  --model gemini-2.5-flash \
+  --classify-only \
+  --blocker-json '{
+    "function_name": "FT_New_Library",
+    "branch_line_number": "5479",
+    "blocked_side_line_number": "5480",
+    "source_file": "/src/freetype2-testing/external/freetype2/src/base/ftobjs.c",
+    "best_target": "bdf-render"
+  }'     

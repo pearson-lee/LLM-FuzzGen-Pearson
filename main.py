@@ -6,10 +6,12 @@ import argparse
 import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import config.config as config
 import prompts.prompt_generator as prompt_generator
 from crash_analyzer.crash_analyzer import CrashAnalyzer
+from experiment_logger import ExperimentLogger
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz, TotalCoverageSummary
 from iterator.fuzz_iterator import FuzzIterator
@@ -23,6 +25,122 @@ oss_fuzz = OSSFuzz()
 introspector = Introspector()
 # The LLMClient will be initialized in main() after parsing arguments.
 llm_client: LLMClient | None = None
+experiment_logger: ExperimentLogger | None = None
+
+
+def _coverage_metric_to_dict(summary: TotalCoverageSummary | None, metric_name: str) -> dict[str, float | int] | None:
+    if not summary:
+        return None
+    metric = getattr(summary, metric_name, None)
+    if not metric:
+        return None
+    return {
+        "count": metric.count,
+        "covered": metric.covered,
+        "percent": metric.percent,
+    }
+
+
+class CoverageTimelineRecorder:
+    """Records periodic OSS-Fuzz coverage snapshots as JSONL."""
+
+    def __init__(
+        self,
+        project_name: str,
+        log_path: Path | None = None,
+        stagnation_window: int = 3,
+        stagnation_threshold: float = 0.01,
+    ) -> None:
+        self.project_name = project_name
+        self.stagnation_window = max(1, stagnation_window)
+        self.stagnation_threshold = max(0.0, stagnation_threshold)
+        self.records: list[dict] = []
+        self.log_path = self._resolve_log_path(project_name, log_path)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _default_log_path(self, project_name: str) -> Path:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return Path("artifacts") / "coverage" / f"{project_name}_{timestamp}.jsonl"
+
+    def _resolve_log_path(self, project_name: str, log_path: Path | None) -> Path:
+        if log_path is None:
+            return self._default_log_path(project_name)
+        if log_path.exists() and log_path.is_dir():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return log_path / f"{project_name}_{timestamp}.jsonl"
+        return log_path
+
+    def record(self, elapsed_seconds: int, summary: TotalCoverageSummary | None) -> bool:
+        if not summary:
+            logger.warning("Coverage snapshot for %s at %ss is unavailable.", self.project_name, elapsed_seconds)
+            return False
+
+        record = {
+            "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "project": self.project_name,
+            "elapsed_seconds": elapsed_seconds,
+            "branches": _coverage_metric_to_dict(summary, "branches"),
+            "functions": _coverage_metric_to_dict(summary, "functions"),
+            "lines": _coverage_metric_to_dict(summary, "lines"),
+        }
+        self.records.append(record)
+
+        with self.log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+        lines = record["lines"] or {}
+        branches = record["branches"] or {}
+        logger.info(
+            "Coverage snapshot saved to %s: elapsed=%ss, lines=%s%% (%s/%s), branches=%s%% (%s/%s)",
+            self.log_path,
+            elapsed_seconds,
+            lines.get("percent", "N/A"),
+            lines.get("covered", "N/A"),
+            lines.get("count", "N/A"),
+            branches.get("percent", "N/A"),
+            branches.get("covered", "N/A"),
+            branches.get("count", "N/A"),
+        )
+        _log_experiment_event(
+            "coverage_snapshot",
+            coverage_log_path=self.log_path,
+            elapsed_seconds=elapsed_seconds,
+            line_coverage=lines.get("percent"),
+            line_covered=lines.get("covered"),
+            line_total=lines.get("count"),
+            branch_coverage=branches.get("percent"),
+            branch_covered=branches.get("covered"),
+            branch_total=branches.get("count"),
+        )
+        return True
+
+    def is_stagnated(self) -> bool:
+        if len(self.records) <= self.stagnation_window:
+            return False
+
+        recent = self.records[-(self.stagnation_window + 1) :]
+        line_percents = [(record.get("lines") or {}).get("percent") for record in recent]
+        if any(percent is None for percent in line_percents):
+            return False
+
+        growth = float(line_percents[-1]) - float(line_percents[0])
+        if growth > self.stagnation_threshold:
+            return False
+
+        logger.warning(
+            "Coverage appears stagnant for %s: line coverage grew %.4f%% over the last %d snapshot(s).",
+            self.project_name,
+            growth,
+            self.stagnation_window,
+        )
+        _log_experiment_event(
+            "coverage_stagnated",
+            coverage_log_path=self.log_path,
+            stagnation_window=self.stagnation_window,
+            stagnation_threshold=self.stagnation_threshold,
+            line_growth=growth,
+        )
+        return True
 
 
 def minimize_and_generate_report(proj_name: str, seconds: int, clean: bool):
@@ -38,15 +156,52 @@ def run_fuzzers_and_get_coverage(
     get_coverage: bool = True,
     start_webapp: bool = False,
     fuzz_targets_parallel: int | None = None,
+    coverage_interval: int = 0,
+    coverage_log_path: Path | None = None,
+    coverage_stagnation_window: int = 3,
+    coverage_stagnation_threshold: float = 0.01,
+    stop_on_coverage_stall: bool = False,
 ):
     """Helper function to run all fuzzers and then optionally get coverage."""
     if start_webapp:
         generate_report_and_start_webapp(proj_name, 10, clean=True)
     if minimize_corpus:
         oss_fuzz.minimize_corpus(proj_name)
-    oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel)
-    if get_coverage:
-        oss_fuzz.coverage(proj_name)
+
+    if not get_coverage or coverage_interval <= 0 or coverage_interval >= run_seconds:
+        oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel)
+        if get_coverage:
+            summary = oss_fuzz.coverage(proj_name)
+            if coverage_interval > 0:
+                recorder = CoverageTimelineRecorder(
+                    proj_name,
+                    coverage_log_path,
+                    coverage_stagnation_window,
+                    coverage_stagnation_threshold,
+                )
+                recorder.record(run_seconds, summary)
+        return
+
+    recorder = CoverageTimelineRecorder(
+        proj_name,
+        coverage_log_path,
+        coverage_stagnation_window,
+        coverage_stagnation_threshold,
+    )
+    elapsed_seconds = 0
+    while elapsed_seconds < run_seconds:
+        chunk_seconds = min(coverage_interval, run_seconds - elapsed_seconds)
+        oss_fuzz.run_all_fuzzers(proj_name, chunk_seconds, max_workers=fuzz_targets_parallel)
+        elapsed_seconds += chunk_seconds
+
+        summary = oss_fuzz.coverage(proj_name)
+        recorder.record(elapsed_seconds, summary)
+
+        if recorder.is_stagnated():
+            if stop_on_coverage_stall:
+                logger.warning("Stopping fuzzing for %s because coverage is stagnant.", proj_name)
+                break
+            logger.warning("Continuing fuzzing for %s despite stagnant coverage.", proj_name)
 
 
 def run_all_fuzzer(
@@ -57,6 +212,11 @@ def run_all_fuzzer(
     print_coverage: bool = False,
     analyze_crashes: bool = False,
     fuzz_targets_parallel: int | None = None,
+    coverage_interval: int = 0,
+    coverage_log_path: Path | None = None,
+    coverage_stagnation_window: int = 3,
+    coverage_stagnation_threshold: float = 0.01,
+    stop_on_coverage_stall: bool = False,
 ):
     """
     Runs all fuzzers for the specified projects, optionally analyzes crashes,
@@ -86,9 +246,14 @@ def run_all_fuzzer(
                     project_name,
                     run_seconds,
                     minimize_corpus,
-                    print_coverage,
+                    print_coverage or coverage_interval > 0,
                     analyze_crashes,
                     fuzz_targets_parallel,
+                    coverage_interval,
+                    coverage_log_path,
+                    coverage_stagnation_window,
+                    coverage_stagnation_threshold,
+                    stop_on_coverage_stall,
                 ): project_name
                 for project_name in projects_to_process
             }
@@ -205,6 +370,42 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fuzz target generator for OSS-Fuzz projects.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    def add_periodic_coverage_args(subparser: argparse.ArgumentParser) -> None:
+        subparser.add_argument(
+            "--coverage-interval",
+            type=int,
+            default=0,
+            metavar="SECONDS",
+            help=(
+                "Record coverage every N seconds during fuzzing. "
+                "Default 0 disables periodic snapshots and keeps the original single final coverage run."
+            ),
+        )
+        subparser.add_argument(
+            "--coverage-log",
+            type=Path,
+            default=None,
+            help="JSONL path for periodic coverage snapshots. Defaults to artifacts/coverage/<project>_<timestamp>.jsonl.",
+        )
+        subparser.add_argument(
+            "--coverage-stagnation-window",
+            type=int,
+            default=3,
+            help="Warn after this many consecutive coverage intervals have no meaningful line coverage growth. Default 3.",
+        )
+        subparser.add_argument(
+            "--coverage-stagnation-threshold",
+            type=float,
+            default=0.01,
+            help="Minimum line coverage percentage-point growth over the stagnation window. Default 0.01.",
+        )
+        subparser.add_argument(
+            "--stop-on-coverage-stall",
+            action="store_true",
+            default=False,
+            help="Stop the fuzzing phase early when periodic coverage snapshots indicate stagnation.",
+        )
+
     # Subparser for the main fuzzing process
     parser_process = subparsers.add_parser("process", help="Process a project to generate and improve fuzz targets.")
     parser_process.add_argument("project_name", help="The name of the project to process.")
@@ -247,6 +448,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Specify the model name to use, overriding the default in config.",
     )
+    add_periodic_coverage_args(parser_process)
 
     # Subparser for running all fuzzers
     parser_run = subparsers.add_parser("run_all_fuzzer", help="Run all fuzzers for specified projects.")
@@ -302,6 +504,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Specify the model name to use, overriding the default in config.",
     )
+    add_periodic_coverage_args(parser_run)
 
     args = parser.parse_args()
     return args
@@ -452,16 +655,48 @@ def _get_coverage_metric(summary: TotalCoverageSummary | None, metric_name: str)
     return metric.percent if metric else 0.0
 
 
-def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: bool) -> bool:
+def _log_experiment_event(event: str, **payload) -> None:
+    if experiment_logger is None:
+        return
+    experiment_logger.log_event(event, **payload)
+
+
+def process_project(
+    project_name: str,
+    seconds: int,
+    use_dict: bool,
+    use_seeds: bool,
+    coverage_interval: int = 0,
+    coverage_log_path: Path | None = None,
+    coverage_stagnation_window: int = 3,
+    coverage_stagnation_threshold: float = 0.01,
+    stop_on_coverage_stall: bool = False,
+) -> bool:
     """Process a single project and generate fuzz targets."""
     try:
         logger.info(f"Starting to process project: {project_name}")
+        _log_experiment_event(
+            "process_started",
+            seconds=seconds,
+            use_dict=use_dict,
+            use_seeds=use_seeds,
+            iteration_budget=config.ITERATION_LOOP,
+            no_growth_stop_threshold=config.NO_GROWTH_STOP_THRESHOLD,
+        )
 
         if use_dict:
             generate_dict_for_proj(project_name, llm_client)
         iterator = FuzzIterator(project_name, oss_fuzz)
         fuzz_target = None  # Will hold the path to the current fuzz target
         iterator.record_cov()  # Record coverage before any fuzz target generation
+        initial_cov = iterator.latest_cov()
+        _log_experiment_event(
+            "baseline_coverage",
+            iteration=0,
+            line_coverage=_get_coverage_metric(initial_cov, "lines"),
+            branch_coverage=_get_coverage_metric(initial_cov, "branches"),
+            functions_coverage=_get_coverage_metric(initial_cov, "functions"),
+        )
 
         no_growth_count = 0
         # Iterative improvement loop
@@ -478,16 +713,29 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
             if is_regeneration or fuzz_target is None:
                 new_target = regenerate_fuzz_target(project_name)
                 is_regeneration = True
+                action_type = "regenerate"
             else:
                 new_target = mutate_fuzz_target(project_name, fuzz_target.read_text(), fuzz_target.stem)
+                action_type = "mutate"
 
             if new_target is None:
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
+                _log_experiment_event(
+                    "target_generation_failed",
+                    iteration=iteration + 1,
+                    action_type=action_type,
+                )
                 continue
 
             new_cov_summary = oss_fuzz.coverage(project_name, new_target.stem, seconds=seconds)
             if not new_cov_summary:
                 oss_fuzz.remove_target(project_name, new_target.stem)
+                _log_experiment_event(
+                    "coverage_failed",
+                    iteration=iteration + 1,
+                    action_type=action_type,
+                    target_name=new_target.stem,
+                )
                 continue
 
             if use_seeds:
@@ -507,6 +755,21 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
             branch_growth = new_branch_cov - prev_branch_cov
             logger.info(f"Line coverage: {prev_line_cov:.2f}% -> {new_line_cov:.2f}% (growth: {line_growth:.2f}%)")
             logger.info(f"Branch coverage: {prev_branch_cov:.2f}% -> {new_branch_cov:.2f}% (growth: {branch_growth:.2f}%)")
+            _log_experiment_event(
+                "candidate_evaluated",
+                iteration=iteration + 1,
+                action_type=action_type,
+                target_name=new_target.stem,
+                previous_target_name=fuzz_target.stem if fuzz_target else None,
+                line_coverage_before=prev_line_cov,
+                line_coverage_after=new_line_cov,
+                branch_coverage_before=prev_branch_cov,
+                branch_coverage_after=new_branch_cov,
+                functions_coverage_after=_get_coverage_metric(new_cov_summary, "functions"),
+                line_growth=line_growth,
+                branch_growth=branch_growth,
+                accepted=new_line_cov > prev_line_cov or new_branch_cov > prev_branch_cov,
+            )
 
             if new_line_cov <= prev_line_cov and new_branch_cov <= prev_branch_cov:
                 oss_fuzz.remove_target(project_name, new_target.stem)
@@ -514,9 +777,24 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 no_growth_count += 1
                 logger.info(f"No growth count: {no_growth_count}/{config.NO_GROWTH_STOP_THRESHOLD}")
+                _log_experiment_event(
+                    "candidate_rejected",
+                    iteration=iteration + 1,
+                    action_type=action_type,
+                    target_name=new_target.stem,
+                    no_growth_count=no_growth_count,
+                )
                 continue
 
-            run_fuzzers_and_get_coverage(proj_name=project_name, run_seconds=seconds)
+            run_fuzzers_and_get_coverage(
+                proj_name=project_name,
+                run_seconds=seconds,
+                coverage_interval=coverage_interval,
+                coverage_log_path=coverage_log_path,
+                coverage_stagnation_window=coverage_stagnation_window,
+                coverage_stagnation_threshold=coverage_stagnation_threshold,
+                stop_on_coverage_stall=stop_on_coverage_stall,
+            )
 
             no_growth_count = 0
             logger.info(f"No growth count reset, 0/{config.NO_GROWTH_STOP_THRESHOLD}")
@@ -534,11 +812,29 @@ def process_project(project_name: str, seconds: int, use_dict: bool, use_seeds: 
             latest_cov = iterator.latest_cov()
             latest_line_cov = _get_coverage_metric(latest_cov, "lines")
             logger.info(f"Finished iteration {iteration + 1} for {project_name}, coverage: {latest_line_cov:.2f}%")
+            _log_experiment_event(
+                "candidate_accepted",
+                iteration=iteration + 1,
+                action_type=action_type,
+                target_name=fuzz_target.stem,
+                line_coverage=_get_coverage_metric(latest_cov, "lines"),
+                branch_coverage=_get_coverage_metric(latest_cov, "branches"),
+                functions_coverage=_get_coverage_metric(latest_cov, "functions"),
+            )
 
+        final_cov = iterator.latest_cov()
+        _log_experiment_event(
+            "process_finished",
+            success=True,
+            final_line_coverage=_get_coverage_metric(final_cov, "lines"),
+            final_branch_coverage=_get_coverage_metric(final_cov, "branches"),
+            final_functions_coverage=_get_coverage_metric(final_cov, "functions"),
+        )
         return True
 
     except Exception as e:
         logger.error(f"Failed to process project {project_name}: {e}", exc_info=True)
+        _log_experiment_event("process_finished", success=False, error=str(e))
         return False
 
 
@@ -604,7 +900,16 @@ def main() -> None:
         setup_logging(log_name, model_name=args.model)
 
         global llm_client
+        global experiment_logger
         llm_client = LLMClient(backend=args.llm, model_name=args.model)
+        experiment_logger = ExperimentLogger(system_name="baseline", project_name=log_name)
+        _log_experiment_event(
+            "run_started",
+            command=args.command,
+            args=vars(args),
+            model=args.model,
+            llm_backend=args.llm,
+        )
         
         if args.command == "run_all_fuzzer":
             run_all_fuzzer(
@@ -615,7 +920,13 @@ def main() -> None:
                 args.print_coverage,
                 args.analyze_crashes,
                 args.fuzz_targets_parallel,
+                args.coverage_interval,
+                args.coverage_log,
+                args.coverage_stagnation_window,
+                args.coverage_stagnation_threshold,
+                args.stop_on_coverage_stall,
             )
+            _log_experiment_event("run_finished", success=True, total_seconds=time.perf_counter() - t0)
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
             return
 
@@ -637,7 +948,17 @@ def main() -> None:
         if args.initial_fuzz_target:
             oss_fuzz.remove_target(args.project_name, "llm_fuzzgen_empty")
 
-        result = process_project(args.project_name, seconds=args.seconds, use_dict=args.dict, use_seeds=args.seeds)
+        result = process_project(
+            args.project_name,
+            seconds=args.seconds,
+            use_dict=args.dict,
+            use_seeds=args.seeds,
+            coverage_interval=args.coverage_interval,
+            coverage_log_path=args.coverage_log,
+            coverage_stagnation_window=args.coverage_stagnation_window,
+            coverage_stagnation_threshold=args.coverage_stagnation_threshold,
+            stop_on_coverage_stall=args.stop_on_coverage_stall,
+        )
 
         if not minimize_and_generate_report(args.project_name, seconds=args.seconds, clean=True):
             sys.exit(1)
@@ -646,6 +967,12 @@ def main() -> None:
 
         logger.info("Project processed")
         logger.info(f"Successful project: {result}")
+        _log_experiment_event(
+            "run_finished",
+            success=result,
+            total_seconds=time.perf_counter() - t0,
+            initial_line_coverage=initial_coverage_percent,
+        )
         logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
 
         user_input = input("Do you want to shutdown the server (http://localhost:8080)? (y/n): ")
@@ -657,6 +984,7 @@ def main() -> None:
 
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)
+        _log_experiment_event("run_finished", success=False, error=str(e))
         try:
             introspector.shutdown_webapp()
             logger.info("Server shutdown due to exception.")

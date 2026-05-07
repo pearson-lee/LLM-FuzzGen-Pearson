@@ -238,7 +238,7 @@ def main() -> int:
     parser.add_argument(
         "--run-callchain",
         action="store_true",
-        help="After finding a matching seed, invoke process_blocker/get_callchain.sh with that seed.",
+        help="After finding a matching seed, invoke blocker_process/get_callchain.sh with that seed.",
     )
     parser.add_argument(
         "--breakpoint",
