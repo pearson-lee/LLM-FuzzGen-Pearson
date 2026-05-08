@@ -70,7 +70,7 @@ cp $SRC/*.dict $SRC/*.options $OUT/
 
 # Export CLEAN Source Tree For KLEE
 PROJECT_NAME="tinyxml2"
-OUT_PROJECT_DIR="$OUT/$PROJECT_NAME/source_code"
+OUT_PROJECT_DIR="$OUT/source_code"
 
 # Ensure clean dir (and avoid "file exists" if a file was created by mistake)
 if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then

@@ -5,6 +5,7 @@ import json
 import logging
 import posixpath
 import re
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "blocker_classify_template"
 AUTO_CONTEXT_DIR = REPO_ROOT / "logs" / "auto_context"
 _SHARED_INTROSPECTOR: Introspector | None = None
+_INTROSPECTOR_AVAILABLE: bool | None = None
 
 
 def get_introspector() -> Introspector:
@@ -35,6 +37,21 @@ def get_introspector() -> Introspector:
     if _SHARED_INTROSPECTOR is None:
         _SHARED_INTROSPECTOR = Introspector()
     return _SHARED_INTROSPECTOR
+
+
+def introspector_available() -> bool:
+    global _INTROSPECTOR_AVAILABLE
+    if _INTROSPECTOR_AVAILABLE is not None:
+        return _INTROSPECTOR_AVAILABLE
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.2)
+    try:
+        _INTROSPECTOR_AVAILABLE = sock.connect_ex(("127.0.0.1", 8080)) == 0
+    except Exception:
+        _INTROSPECTOR_AVAILABLE = False
+    finally:
+        sock.close()
+    return _INTROSPECTOR_AVAILABLE
 
 def load_text(p: Path) -> str:
     try:
@@ -132,6 +149,7 @@ def normalize_blocker_payload(payload: dict) -> dict:
         "source_file": first_present(payload, ["source_file"]),
         "source_api_file": first_present(payload, ["source_api_file", "source_file"]),
         "target_name": first_present(payload, ["target_name", "best_target"]),
+        "seeds": first_present(payload, ["seeds", "seed_paths"], []),
     }
 
 def format_prompt(template: str, args: argparse.Namespace) -> str:
@@ -186,6 +204,16 @@ def to_api_filepath(path_str: str) -> str:
 def fetch_line_code(project_name: str, filepath: str, line_no: int) -> str:
     if not project_name or not filepath or line_no <= 0:
         return ""
+    local_path = Path(filepath)
+    if local_path.is_file():
+        try:
+            lines = local_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if 1 <= line_no <= len(lines):
+                return lines[line_no - 1].strip()
+        except Exception:
+            pass
+    if not introspector_available():
+        return ""
     ins = get_introspector()
     return ins.get_project_source_code(
         project_name=project_name,
@@ -196,6 +224,8 @@ def fetch_line_code(project_name: str, filepath: str, line_no: int) -> str:
 
 
 def resolve_function_metadata(project_name: str, function_name: str) -> dict:
+    if not introspector_available():
+        return {}
     introspector = get_introspector()
     normalized_query = function_name.replace(" ", "")
     for func in introspector.get_all_functions(project_name):
@@ -227,10 +257,23 @@ def apply_blocker_payload(args: argparse.Namespace) -> argparse.Namespace:
         args.source_api_file = normalized["source_api_file"]
     if not getattr(args, "target_name", None):
         args.target_name = normalized["target_name"]
+    if not getattr(args, "seed", None):
+        seeds = normalized.get("seeds", [])
+        if isinstance(seeds, list):
+            args.seed = [str(item) for item in seeds if item]
     return args
 
 
 def resolve_fuzz_target_path(project_name: str, requested_target: str | None) -> str | None:
+    project_dir = REPO_ROOT / "external" / "oss-fuzz" / "projects" / project_name
+    if requested_target:
+        for suffix in (".cpp", ".cc", ".cxx", ".c"):
+            candidate = project_dir / f"{requested_target}{suffix}"
+            if candidate.is_file():
+                return str(candidate.resolve())
+
+    if not introspector_available():
+        return None
     introspector = get_introspector()
     pairs = introspector._query_api("harness-source-and-executable", {"project": project_name}).get("pairs", [])
     if not pairs:
@@ -261,6 +304,8 @@ def resolve_fuzz_target_path(project_name: str, requested_target: str | None) ->
 
 
 def resolve_source_file_path(project_name: str, function_name: str) -> str | None:
+    if not introspector_available():
+        return None
     function_meta = resolve_function_metadata(project_name, function_name)
     source_path = function_meta.get("function_filename", "")
     if not source_path:
@@ -275,6 +320,8 @@ def resolve_source_file_path(project_name: str, function_name: str) -> str | Non
 
 
 def resolve_source_api_file(project_name: str, function_name: str) -> str:
+    if not introspector_available():
+        return ""
     function_meta = resolve_function_metadata(project_name, function_name)
     return function_meta.get("function_filename", "")
 
@@ -305,6 +352,8 @@ def resolve_header_file_path(
     function_name: str,
     source_api_file: str | None = None,
 ) -> str | None:
+    if not introspector_available():
+        return None
     introspector = get_introspector()
     _, headers = introspector.get_function_signature_and_headers(project_name, function_name)
     for header_path in headers:
@@ -479,13 +528,80 @@ def extract_json(text: str) -> dict:
         raise ValueError("Failed to parse JSON into dictionary.")
     return parsed
 
-def run_program(script: Path, extra_args: list[str] = None) -> int:
+def _parse_program_json_output(stdout: str) -> dict | None:
+    text = (stdout or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def run_program(script: Path, extra_args: list[str] = None) -> dict:
     cmd = [sys.executable, str(script)]
     if extra_args:
         cmd.extend(extra_args)
     logging.info("Dispatching: %s", " ".join(cmd))
-    p = subprocess.run(cmd)
-    return p.returncode
+    p = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    parsed_output = _parse_program_json_output(p.stdout)
+    if p.stdout:
+        logging.info("Pipeline stdout:\n%s", p.stdout)
+    if p.stderr:
+        logging.info("Pipeline stderr:\n%s", p.stderr)
+    return {
+        "returncode": p.returncode,
+        "stdout": p.stdout,
+        "stderr": p.stderr,
+        "parsed_output": parsed_output,
+    }
+
+
+def _infer_pipeline_methods(dependency_result: str, pipeline_output: dict | None) -> list[str]:
+    parsed_output = pipeline_output.get("parsed_output") if pipeline_output else None
+    if isinstance(parsed_output, dict):
+        reported_methods = parsed_output.get("pipeline_methods")
+        if isinstance(reported_methods, list):
+            normalized = [str(method) for method in reported_methods if str(method).strip()]
+            if normalized:
+                return normalized
+
+    if dependency_result == "Input Dependent":
+        methods = ["llm_seed_generator"]
+        if isinstance(parsed_output, dict):
+            # Keep space for future richer dependent pipeline integrations.
+            if parsed_output.get("used_symcc"):
+                methods.append("symcc")
+            if parsed_output.get("used_klee"):
+                methods.append("klee")
+        return methods
+
+    if dependency_result == "Input Independent":
+        methods: list[str] = []
+        if isinstance(parsed_output, dict):
+            iterations = parsed_output.get("iterations", []) or []
+            fallback_iterations = parsed_output.get("fallback_iterations", []) or []
+            strategies = {
+                item.get("strategy")
+                for item in [*iterations, *fallback_iterations]
+                if isinstance(item, dict) and item.get("strategy")
+            }
+            if "refine_existing" in strategies:
+                methods.append("refine_existing_harness")
+            if "generate_dedicated" in strategies:
+                methods.append("generate_dedicated_harness")
+        return methods or ["input_independent_harness_update"]
+
+    return []
 
 
 def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
@@ -505,6 +621,11 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
         "--fuzz-file",
         args.fuzz_file,
     ]
+
+    if getattr(args, "target_name", None):
+        forwarded.extend(["--target-name", args.target_name])
+    for seed in getattr(args, "seed", []) or []:
+        forwarded.extend(["--seed", seed])
 
     if args.model:
         forwarded.extend(["--model", args.model])
@@ -555,6 +676,9 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     Retrieves the line coverage report for a specific function within a given fuzz target.
     It automatically translates the demangled function name to its mangled regex.
     """
+    if not introspector_available():
+        logging.info("Skipping function coverage lookup because Introspector is unavailable.")
+        return ""
     introspector = get_introspector()
     oss_fuzz = OSSFuzz()
     
@@ -709,14 +833,18 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
         if dependency_result == "Input Dependent":
             logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
-            returncode = run_program(MODULE_ROOT / "seeds_generation.py", build_seed_generation_args(args))
-            output["pipeline_returncode"] = returncode
+            pipeline_output = run_program(MODULE_ROOT / "dependent_pipeline.py", build_seed_generation_args(args))
+            output["pipeline_returncode"] = pipeline_output["returncode"]
+            output["pipeline_output"] = pipeline_output
+            output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
             return output
 
         if dependency_result == "Input Independent":
             logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
-            returncode = run_program(MODULE_ROOT / "blocker_iteration.py", build_blocker_iteration_args(args))
-            output["pipeline_returncode"] = returncode
+            pipeline_output = run_program(MODULE_ROOT / "blocker_iteration.py", build_blocker_iteration_args(args))
+            output["pipeline_returncode"] = pipeline_output["returncode"]
+            output["pipeline_output"] = pipeline_output
+            output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
             return output
 
         raise RuntimeError(f"Unknown dependency classification: {dependency_result}")
@@ -755,6 +883,7 @@ def main():
     parser.add_argument("--cfg-collection-status", default="unknown")
     parser.add_argument("--cfg-collection-error", default="")
     parser.add_argument("--triggering-input", default="")
+    parser.add_argument("--seed", action="append", default=[])
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")

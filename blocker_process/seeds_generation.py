@@ -877,6 +877,10 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     return {
         "output_dir": str(output_dir),
         "success": success,
+        "pipeline_methods": ["llm_seed_generator"],
+        "used_llm_seed_generator": True,
+        "used_symcc": False,
+        "used_klee": False,
         "iterations_run": len(iterations),
         "max_iterations": args.max_iterations,
         "fuzz_seconds_per_iteration": args.fuzz_seconds,

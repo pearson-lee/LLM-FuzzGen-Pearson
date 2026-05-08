@@ -588,6 +588,7 @@ def run_blocker_iteration(args: argparse.Namespace) -> dict:
     if baseline_evaluation.get("blocked_side_line_reached"):
         return {
             "success": True,
+            "pipeline_methods": [],
             "output_dir": str(output_dir),
             "baseline_evaluation": baseline_evaluation,
             "message": "Baseline fuzz target already reaches the blocked-side line.",
@@ -611,6 +612,7 @@ def run_blocker_iteration(args: argparse.Namespace) -> dict:
     if any(item.get("success") for item in refine_iterations):
         return {
             "success": True,
+            "pipeline_methods": ["refine_existing_harness"],
             "output_dir": str(output_dir),
             "baseline_evaluation": baseline_evaluation,
             "best_iteration": summarize_best_iteration(refine_iterations),
@@ -633,6 +635,14 @@ def run_blocker_iteration(args: argparse.Namespace) -> dict:
     all_iterations = refine_iterations + regenerate_iterations
     return {
         "success": any(item.get("success") for item in all_iterations),
+        "pipeline_methods": [
+            method
+            for method, used in [
+                ("refine_existing_harness", bool(refine_iterations)),
+                ("generate_dedicated_harness", bool(regenerate_iterations)),
+            ]
+            if used
+        ],
         "output_dir": str(output_dir),
         "baseline_evaluation": baseline_evaluation,
         "best_iteration": summarize_best_iteration(all_iterations),

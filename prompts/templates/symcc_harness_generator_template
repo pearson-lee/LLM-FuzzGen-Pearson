@@ -1,0 +1,131 @@
+# Role
+
+You are an expert fuzzing engineer. Generate a **SymCC-friendly harness** for a blocker that was classified as input-dependent.
+
+# Goal
+
+Produce a complete standalone C or C++ source file that can be used as a fuzz target for SymCC:
+
+- It must export `int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)`.
+- It must preserve the original native input format as much as possible.
+- It must avoid `std::string`, `std::vector`, `FuzzedDataProvider`, and unnecessary wrapper layers on the input path.
+- It must call a **reasonable public or normal project API path**, not cheat by directly poking an internal branch-local helper.
+
+# Target Blocker
+
+- Project: `{project_name}`
+- Language: `{language}`
+- Original fuzz target name: `{fuzz_target_name}`
+- Original fuzz target source path: `{fuzz_file}`
+- Target function name: `{function_name}`
+- Source file: `{source_file}`
+- Branch line: `{branch_line_number}`
+- Blocked side line: `{blocked_side_line_number}`
+
+# Design Intent
+
+This harness is the **clean SymCC retry** after:
+
+1. the blocker was classified as input-dependent,
+2. an LLM seed generator did not solve it,
+3. a limited SymCC probe on the original fuzz target did not solve it.
+
+So your harness should:
+
+- keep the input model close to the original library format,
+- shorten the API path where reasonable,
+- reduce symbolic noise from STL / FDP / unpacking logic,
+- remain realistic enough to count as a valid project-level fuzz target.
+
+# Existing Original Fuzz Target
+
+```cpp
+{fuzz_target_code}
+```
+
+# Related Header Code
+
+```cpp
+{header_code}
+```
+
+# Source File Excerpt
+
+```cpp
+{source_code}
+```
+
+# Source Window Around Branch
+
+```cpp
+{branch_window}
+```
+
+# Source Window Around Blocked Side
+
+```cpp
+{blocked_window}
+```
+
+# Runtime Blocker Segment
+
+```text
+{runtime_blocker_segment}
+```
+
+# Runtime Blocker Segment Source Codes
+
+```text
+{runtime_blocker_segment_source_codes}
+```
+
+# CFG Call Chain
+
+```text
+{cfg_call_chain}
+```
+
+# CFG Source Codes
+
+```text
+{cfg_source_codes}
+```
+
+# Triggering Input Hint
+
+- Path or source: `{triggering_input_path}`
+
+```text
+{triggering_input_preview}
+```
+
+# Reference Template
+
+You may follow this shape when useful, but adapt it to the actual project and API:
+
+```cpp
+{template_code}
+```
+
+# Requirements
+
+1. Output a single complete `.c` or `.cpp` file.
+2. Avoid `std::string`, STL containers, and `FuzzedDataProvider`.
+3. If the API expects a NUL-terminated string, create a buffer with `malloc`/`new` and append `\\0`.
+4. Prefer the shortest reasonable API path that still reflects real project usage.
+5. Do not fabricate impossible state.
+6. Do not add symbolic logic or KLEE headers here; this is for SymCC replay.
+7. Keep the harness compact and buildable.
+8. Only use public includes or normal project headers implied by the context.
+
+# Output Format
+
+Return **only** a single JSON object. No markdown fences. No extra commentary.
+
+The JSON object must have exactly these keys:
+
+- `analysis_summary`: array of short strings
+- `harness_design_rationale`: string
+- `harness_filename`: string
+- `harness_code`: string
+

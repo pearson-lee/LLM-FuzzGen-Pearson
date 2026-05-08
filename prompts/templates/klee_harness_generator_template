@@ -1,0 +1,126 @@
+# Role
+
+You are an expert symbolic-execution engineer. Generate a **targeted KLEE harness** for an input-dependent blocker.
+
+# Goal
+
+Produce a complete standalone C or C++ source file that can be compiled to LLVM bitcode and executed by KLEE.
+
+This harness is the **final precision fallback** after:
+
+1. the blocker was classified as input-dependent,
+2. an LLM seed generator did not solve it,
+3. a limited SymCC probe on the original fuzz target did not solve it,
+4. a cleaner SymCC-specific harness still did not solve it.
+
+So this harness should be **more targeted** than the SymCC harness:
+
+- shrink the symbolic scope,
+- focus on the field or bytes most likely to control the blocker,
+- encode simple constraints when justified by the code,
+- still drive the real project API rather than bypassing the project entirely.
+
+# Target Blocker
+
+- Project: `{project_name}`
+- Language: `{language}`
+- Original fuzz target name: `{fuzz_target_name}`
+- Original fuzz target source path: `{fuzz_file}`
+- Target function name: `{function_name}`
+- Source file: `{source_file}`
+- Branch line: `{branch_line_number}`
+- Blocked side line: `{blocked_side_line_number}`
+
+# Existing Original Fuzz Target
+
+```cpp
+{fuzz_target_code}
+```
+
+# Related Header Code
+
+```cpp
+{header_code}
+```
+
+# Source File Excerpt
+
+```cpp
+{source_code}
+```
+
+# Source Window Around Branch
+
+```cpp
+{branch_window}
+```
+
+# Source Window Around Blocked Side
+
+```cpp
+{blocked_window}
+```
+
+# Runtime Blocker Segment
+
+```text
+{runtime_blocker_segment}
+```
+
+# Runtime Blocker Segment Source Codes
+
+```text
+{runtime_blocker_segment_source_codes}
+```
+
+# CFG Call Chain
+
+```text
+{cfg_call_chain}
+```
+
+# CFG Source Codes
+
+```text
+{cfg_source_codes}
+```
+
+# Triggering Input Hint
+
+- Path or source: `{triggering_input_path}`
+
+```text
+{triggering_input_preview}
+```
+
+# Reference Template
+
+```cpp
+{template_code}
+```
+
+# Requirements
+
+1. Output a single complete `.c` or `.cpp` file with `int main(void)`.
+2. Include `#include <klee/klee.h>`.
+3. Create at least one symbolic object using `klee_make_symbolic`.
+4. The main extracted object name should normally be `input` unless you have a strong reason to use another short name.
+5. Make the symbolic space as small and focused as possible.
+6. It is acceptable to keep most bytes concrete and only make a small field symbolic.
+7. It is acceptable to add `klee_assume` constraints if they are directly justified by the code and help focus the solve.
+8. Still call a real project API or realistic parser entry, not a fake oracle.
+9. Avoid STL, `FuzzedDataProvider`, and unnecessary wrappers.
+10. Keep the harness compact and buildable.
+
+# Output Format
+
+Return **only** a single JSON object. No markdown fences. No extra commentary.
+
+The JSON object must have exactly these keys:
+
+- `analysis_summary`: array of short strings
+- `harness_design_rationale`: string
+- `harness_filename`: string
+- `harness_code`: string
+- `klee_extract_object`: string
+

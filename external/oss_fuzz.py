@@ -5,8 +5,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 import zipfile
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -47,6 +49,9 @@ class OSSFuzz:
         self.build_corpus_dir: Path = self.oss_fuzz_dir / "build" / "corpus"
         self.empty_fuzz_target_c: Path = Path(__file__).parent / "llm_fuzzgen_empty.c"
         self.empty_fuzz_target_cc: Path = Path(__file__).parent / "llm_fuzzgen_empty.cc"
+        self.fuzz_introspector_cli: Path = (
+            Path(__file__).parent / "fuzz-introspector" / "src" / "fuzz_introspector" / "cli.py"
+        )
 
     def _get_project_yaml(self, proj_name: str) -> dict:
         """Read and parse project.yaml file."""
@@ -54,7 +59,7 @@ class OSSFuzz:
         with open(proj_yaml_path) as f:
             return yaml.safe_load(f)
 
-    def _run_helper_command(self, args: list[str]) -> tuple[bool, str, str]:
+    def _run_helper_command(self, args: list[str], timeout: float | None = None) -> tuple[bool, str, str]:
         """Run helper.py command and return success status, stdout, and stderr."""
         try:
             process = subprocess.run(
@@ -64,11 +69,23 @@ class OSSFuzz:
                 check=False,
                 text=True,
                 errors="ignore",
+                timeout=timeout,
             )
             return process.returncode == 0, process.stdout, process.stderr
+        except subprocess.TimeoutExpired as e:
+            logger.warning(f"Helper command '{args}' timed out after {timeout:.2f}s")
+            stdout = e.stdout.decode(errors="ignore") if isinstance(e.stdout, bytes) else e.stdout
+            stderr = e.stderr.decode(errors="ignore") if isinstance(e.stderr, bytes) else e.stderr
+            return False, stdout or "", stderr or "timed out"
         except BaseException as e:
             logger.warning(f"Helper command '{args}' failed with exception: {e}")
             return False, "", str(e)
+
+    def _remaining_timeout(self, deadline: float | None) -> float | None:
+        if deadline is None:
+            return None
+        remaining = deadline - time.monotonic()
+        return remaining if remaining > 0 else 0
 
     def _extract_build_error_message(self, output: str) -> str:
         """Extract relevant error message from compiler output."""
@@ -106,9 +123,20 @@ class OSSFuzz:
                 # 我們就退回到萬能的 'utf-8'。
                 return seed_str.encode("utf-8")
 
-    def build_fuzzers(self, proj_name: str, sanitizer: str = "address") -> CompilationResult:
+    def build_fuzzers(
+        self,
+        proj_name: str,
+        sanitizer: str = "address",
+        deadline: float | None = None,
+    ) -> CompilationResult:
         """Builds fuzzers for the given project."""
-        success, stdout, stderr = self._run_helper_command(["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"])
+        timeout = self._remaining_timeout(deadline)
+        if timeout == 0:
+            return CompilationResult(success=False, error="deadline reached")
+        success, stdout, stderr = self._run_helper_command(
+            ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
+            timeout=timeout,
+        )
 
         if success:
             return CompilationResult(success=True)
@@ -117,16 +145,39 @@ class OSSFuzz:
         logger.error(f"Compilation failed: {error_message}")
         return CompilationResult(success=False, error=error_message)
 
-    def run_fuzzer(self, proj_name: str, fuzzer_name: str, seconds: int = 30, build_fuzzer: bool = True) -> CompilationResult:
+    def run_fuzzer(
+        self,
+        proj_name: str,
+        fuzzer_name: str,
+        seconds: int = 30,
+        build_fuzzer: bool = True,
+        deadline: float | None = None,
+    ) -> CompilationResult:
         """Runs the fuzzer for the given project and fuzzer name."""
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.info(f"Skipping fuzzer {fuzzer_name}; deadline already reached.")
+                return CompilationResult(success=False, error="deadline reached")
+            seconds = min(seconds, max(1, int(remaining)))
+
         logger.info(f"Running fuzzer {fuzzer_name} for {seconds} seconds for project {proj_name}")
 
-        if build_fuzzer and not (build_result := self.build_fuzzers(proj_name)).success:
+        if build_fuzzer and not (build_result := self.build_fuzzers(proj_name, deadline=deadline)).success:
             logger.error(f"Fuzzer {fuzzer_name} for project {proj_name} failed to build.")
             return CompilationResult(success=False, error=build_result.error)
 
         corpus_dir = self.build_corpus_dir / proj_name / fuzzer_name
         corpus_dir.mkdir(parents=True, exist_ok=True)
+
+        timeout = None
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.info(f"Skipping fuzzer {fuzzer_name}; deadline reached before execution.")
+                return CompilationResult(success=False, error="deadline reached")
+            seconds = min(seconds, max(1, int(remaining)))
+            timeout = remaining
 
         success, stdout, stderr = self._run_helper_command(
             [
@@ -135,7 +186,8 @@ class OSSFuzz:
                 proj_name,
                 fuzzer_name,
                 f" -max_total_time={seconds} ",  # Add space to avoid issues with command parsing
-            ]
+            ],
+            timeout=timeout,
         )
 
         if not success:
@@ -149,12 +201,21 @@ class OSSFuzz:
         logger.info(f"Fuzzer {fuzzer_name} ran successfully")
         return CompilationResult(success=True, error="")
 
-    def run_all_fuzzers(self, project_name: str, seconds: int = 30, max_workers: int | None = None):
+    def run_all_fuzzers(
+        self,
+        project_name: str,
+        seconds: int = 30,
+        max_workers: int | None = None,
+        deadline: float | None = None,
+    ):
         """Builds and runs all fuzzers for a given project."""
         logger.info(f"Building all fuzzers for project {project_name}")
-        build_result = self.build_fuzzers(project_name)
+        build_result = self.build_fuzzers(project_name, deadline=deadline)
         if not build_result.success:
             logger.error(f"Failed to build fuzzers for project {project_name}.")
+            return
+        if deadline is not None and deadline - time.monotonic() <= 0:
+            logger.info(f"Skipping fuzzers for {project_name}; deadline reached after build.")
             return
 
         fuzzer_dir = self.build_out_dir / project_name
@@ -165,8 +226,16 @@ class OSSFuzz:
         try:
             with ThreadPoolExecutor(max_workers) as executor:
                 futures = {
-                    executor.submit(self.run_fuzzer, project_name, fuzzer_name, seconds, build_fuzzer=False)
+                    executor.submit(
+                        self.run_fuzzer,
+                        project_name,
+                        fuzzer_name,
+                        seconds,
+                        build_fuzzer=False,
+                        deadline=deadline,
+                    )
                     for fuzzer_name in fuzzers_to_run
+                    if deadline is None or deadline - time.monotonic() > 0
                 }
                 for future in as_completed(futures):
                     try:
@@ -177,7 +246,12 @@ class OSSFuzz:
             logger.info("Fuzzing interrupted by user. Shutting down...")
 
     def coverage(
-        self, proj_name: str, fuzzer_name: str = None, seconds: int = 60, fun_name_regex: str = None
+        self,
+        proj_name: str,
+        fuzzer_name: str = None,
+        seconds: int = 60,
+        fun_name_regex: str = None,
+        deadline: float | None = None,
     ) -> TotalCoverageSummary | None:
         """
         Run fuzzer and return the coverage percentage of the given fuzzer.
@@ -191,10 +265,14 @@ class OSSFuzz:
 
         # If fuzzer_name is provided, run the fuzzer to build the corpus
         if fuzzer_name:
-            self.run_fuzzer(proj_name, fuzzer_name, seconds)
+            self.run_fuzzer(proj_name, fuzzer_name, seconds, deadline=deadline)
+
+        if deadline is not None and deadline - time.monotonic() <= 0:
+            logger.info(f"Skipping coverage for {proj_name}; deadline reached.")
+            return None
 
         # Build with coverage instrumentation
-        if not self.build_fuzzers(proj_name, "coverage").success:
+        if not self.build_fuzzers(proj_name, "coverage", deadline=deadline).success:
             logger.error(f"Failed to build coverage for {proj_name}")
             return None
 
@@ -202,7 +280,11 @@ class OSSFuzz:
         cmd = ["coverage", "--no-corpus-download", "--no-serve", proj_name]
         if fun_name_regex:
             cmd.extend(["--", f"--name-regex={fun_name_regex}"])
-        success, stdout, stderr = self._run_helper_command(cmd)
+        timeout = self._remaining_timeout(deadline)
+        if timeout == 0:
+            logger.info(f"Skipping coverage report for {proj_name}; deadline reached.")
+            return None
+        success, stdout, stderr = self._run_helper_command(cmd, timeout=timeout)
 
         if not success:
             logger.error(f"Coverage computation failed: \n {stdout}{stderr}")
@@ -219,7 +301,13 @@ class OSSFuzz:
         logger.error(f"Could not retrieve coverage for {proj_name} {source_info}")
         return None
 
-    def generate_report(self, proj_name: str, seconds: int = 10, clean: bool = False) -> bool:
+    def generate_report(
+        self,
+        proj_name: str,
+        seconds: int = 10,
+        clean: bool = False,
+        deadline: float | None = None,
+    ) -> bool:
         """Generates an introspector report for the given project."""
         logger.info(f"Creating introspector reports for {proj_name}")
 
@@ -228,13 +316,120 @@ class OSSFuzz:
             cmd.append("--clean")
         cmd.append(proj_name)
 
-        success, stdout, stderr = self._run_helper_command(cmd)
+        timeout = self._remaining_timeout(deadline)
+        if timeout == 0:
+            logger.info(f"Skipping introspector report for {proj_name}; deadline reached.")
+            return False
+        success, stdout, stderr = self._run_helper_command(cmd, timeout=timeout)
 
         if not success:
             logger.error(f"Failed to generate report for {proj_name}: \n {stdout}{stderr}")
             return False
 
         logger.info(f"Introspector reports created for {proj_name}")
+        return True
+
+    def _introspector_output_dir(self, proj_name: str) -> Path:
+        return self.build_out_dir / proj_name / "inspector"
+
+    def _introspector_correlation_file(self, proj_name: str) -> Path:
+        return self._introspector_output_dir(proj_name) / "exe_to_fuzz_introspector_logs.yaml"
+
+    def _textcov_reports_dir(self, proj_name: str) -> Path:
+        return self.build_out_dir / proj_name / "textcov_reports"
+
+    def _sync_covreports_into_introspector(self, proj_name: str) -> bool:
+        introspector_dir = self._introspector_output_dir(proj_name)
+        textcov_dir = self._textcov_reports_dir(proj_name)
+        if not introspector_dir.is_dir():
+            logger.error("Introspector directory does not exist for %s: %s", proj_name, introspector_dir)
+            return False
+        if not textcov_dir.is_dir():
+            logger.error("Textcov directory does not exist for %s: %s", proj_name, textcov_dir)
+            return False
+
+        synced = 0
+        for covreport in textcov_dir.glob("*.covreport"):
+            destination = introspector_dir / covreport.name
+            shutil.copy2(covreport, destination)
+            synced += 1
+
+        if synced == 0:
+            logger.error("No .covreport files were found for %s under %s", proj_name, textcov_dir)
+            return False
+
+        logger.info("Synced %d covreport files into %s", synced, introspector_dir)
+        return True
+
+    def refresh_blocker_report_from_existing_introspector(
+        self,
+        proj_name: str,
+        deadline: float | None = None,
+    ) -> bool:
+        """Re-run introspector report generation using existing static data."""
+        timeout = self._remaining_timeout(deadline)
+        if timeout == 0:
+            logger.info("Skipping light blocker report refresh for %s; deadline reached.", proj_name)
+            return False
+
+        introspector_dir = self._introspector_output_dir(proj_name)
+        if not introspector_dir.is_dir():
+            logger.error("Cannot light-refresh blocker report for %s: missing %s", proj_name, introspector_dir)
+            return False
+        if not self.fuzz_introspector_cli.is_file():
+            logger.error("Cannot locate fuzz-introspector CLI at %s", self.fuzz_introspector_cli)
+            return False
+        if not self._sync_covreports_into_introspector(proj_name):
+            return False
+
+        correlation_file = self._introspector_correlation_file(proj_name)
+        cmd = [
+            "python3",
+            str(self.fuzz_introspector_cli),
+            "report",
+            "--target-dir",
+            str(introspector_dir),
+            "--out-dir",
+            str(introspector_dir),
+            "--name",
+            proj_name,
+            "--language",
+            self.proj_lang(proj_name),
+        ]
+        if correlation_file.is_file():
+            cmd.extend(["--correlation-file", str(correlation_file)])
+
+        env = {**os.environ, "PYTHONPATH": str(self.fuzz_introspector_cli.parent.parent)}
+        logger.info("Refreshing blocker report from existing introspector data for %s", proj_name)
+        try:
+            process = subprocess.run(
+                cmd,
+                cwd=str(self.fuzz_introspector_cli.parent.parent),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                check=False,
+                text=True,
+                errors="ignore",
+                env=env,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("Light blocker report refresh timed out for %s", proj_name)
+            return False
+        except BaseException as exc:
+            logger.error("Failed to execute light blocker report refresh for %s: %s", proj_name, exc)
+            return False
+
+        if process.returncode != 0:
+            logger.error(
+                "Light blocker report refresh failed for %s:\n%s%s",
+                proj_name,
+                process.stdout,
+                process.stderr,
+            )
+            return False
+
+        logger.info("Light blocker report refresh completed for %s", proj_name)
         return True
 
     def get_project_info(self, proj_name: str, key: str, default: str = "") -> str:
