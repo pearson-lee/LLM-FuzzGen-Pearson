@@ -39,6 +39,7 @@ def setup_logging(
         format="%(asctime)s - %(name)s.%(funcName)s:%(lineno)d - %(levelname)s - %(message)s\033[0m\r",
         datefmt="%H:%M:%S",
         handlers=handlers,
+        force=True,
     )
     logging.info("=== Configuration ===")
     logging.info(f"Project Name: {project_name}")

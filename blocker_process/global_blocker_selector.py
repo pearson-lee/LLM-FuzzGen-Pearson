@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+from glob import glob
 from typing import Any, Dict, Iterable, List, Optional
 from blocker_process.coverage_utils import get_line_execution_count
 
@@ -57,6 +58,22 @@ def _normalize_count(raw: Any) -> int:
     return int(value * multipliers[suffix])
 
 
+def _normalize_source_path(path: Any) -> str:
+    text = str(path or "").strip()
+    if not text:
+        return ""
+
+    normalized = os.path.normpath(text).replace("\\", "/")
+
+    # Keep source-rooted paths stable across reports that may use `/src/...`,
+    # `src/...`, or contain redundant `./` segments.
+    if normalized == ".":
+        return ""
+    if not normalized.startswith("/"):
+        normalized = f"/{normalized}"
+    return normalized
+
+
 def _infer_project_artifact_paths(json_path: str) -> tuple[Optional[str], Optional[str]]:
     base_dir = os.path.dirname(os.path.abspath(json_path))
     all_functions_path = os.path.join(base_dir, "all_functions.js")
@@ -71,11 +88,11 @@ def _infer_project_artifact_paths(json_path: str) -> tuple[Optional[str], Option
         summary_path,
     )
 
-def _infer_project_linecov_report(json_path: str) -> Optional[str]:
+def _infer_project_linecov_report_dir(json_path: str) -> Optional[str]:
     inspector_dir = os.path.dirname(os.path.abspath(json_path))
     project_dir = os.path.dirname(inspector_dir)
-    candidate = os.path.join(project_dir, "textcov_reports", "project.linecovreport")
-    return candidate if os.path.isfile(candidate) else None
+    candidate = os.path.join(project_dir, "textcov_reports")
+    return candidate if os.path.isdir(candidate) else None
 
 def _extract_js_array_payload(raw_js: str) -> str:
     marker = "var all_functions_table_data ="
@@ -107,7 +124,7 @@ def load_project_function_coverage(all_functions_js_path: Optional[str]) -> Dict
         func_name = match.group(1).strip()
         function_coverage[func_name] = {
             "function_name": func_name,
-            "filename": row.get("Functions filename", ""),
+            "filename": _normalize_source_path(row.get("Functions filename", "")),
             "runtime_hit": str(row.get("Fuzzers runtime hit", "")).strip().lower() == "yes",
             "line_coverage_percent": _safe_float(row.get("Func lines hit %", "0%")),
             "cyclomatic_complexity": _safe_int(row.get("Cyclomatic complexity", 0)),
@@ -127,7 +144,7 @@ def load_project_file_coverage(summary_json_path: Optional[str]) -> Dict[str, Di
 
     for entry in summary.get("data", []):
         for file_entry in entry.get("files", []):
-            filename = file_entry.get("filename", "")
+            filename = _normalize_source_path(file_entry.get("filename", ""))
             stats = file_entry.get("summary", {})
             file_coverage[filename] = {
                 "filename": filename,
@@ -194,7 +211,7 @@ def _summarize_blocker_file(
     source_file: str,
     file_coverage_map: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
-    info = file_coverage_map.get(source_file)
+    info = file_coverage_map.get(_normalize_source_path(source_file))
     if not info:
         return {
             "project_file_lines_percent": None,
@@ -222,15 +239,19 @@ def _summarize_blocker_file(
 
 def aggregate_and_score_blockers(
     json_path: str,
-    top_k: int = 12,
+    top_k: Optional[int] = None,
     all_functions_js_path: Optional[str] = None,
     summary_json_path: Optional[str] = None,
+    preloaded_data: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    try:
-        data = _read_json(json_path)
-    except FileNotFoundError:
-        print(f"[Error] File not found: {json_path}")
-        return []
+    if preloaded_data is not None:
+        data = preloaded_data
+    else:
+        try:
+            data = _read_json(json_path)
+        except FileNotFoundError:
+            print(f"[Error] File not found: {json_path}")
+            return []
 
     if all_functions_js_path is None or summary_json_path is None:
         inferred_all_functions, inferred_summary = _infer_project_artifact_paths(json_path)
@@ -243,8 +264,8 @@ def aggregate_and_score_blockers(
     global_blockers: Dict[tuple[str, str, str], Dict[str, Any]] = {}
 
     for target_name, blockers in data.items():
-        for blocker in blockers[:top_k]:
-            source_file = blocker.get("source_file", "")
+        for blocker in blockers:
+            source_file = _normalize_source_path(blocker.get("source_file", ""))
             branch_line = str(blocker.get("branch_line_number", ""))
             blocked_side = str(blocker.get("blocked_side", ""))
             key = (source_file, branch_line, blocked_side)
@@ -342,12 +363,112 @@ def aggregate_and_score_blockers(
         ),
         reverse=True,
     )
+    if top_k is not None and top_k > 0:
+        return result[:top_k]
     return result
 
 
-def annotate_blockers_with_project_coverage(
+def aggregate_blockers(
+    json_path: str,
+    top_k: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    try:
+        data = _read_json(json_path)
+    except FileNotFoundError:
+        print(f"[Error] File not found: {json_path}")
+        return []
+
+    global_blockers: Dict[tuple[str, str, str], Dict[str, Any]] = {}
+
+    for target_name, blockers in data.items():
+        for blocker in blockers:
+            source_file = blocker.get("source_file", "")
+            branch_line = str(blocker.get("branch_line_number", ""))
+            blocked_side = str(blocker.get("blocked_side", ""))
+            key = (source_file, branch_line, blocked_side)
+
+            if key not in global_blockers:
+                global_blockers[key] = {
+                    "source_file": source_file,
+                    "branch_line_number": branch_line,
+                    "blocked_side": blocked_side,
+                    "function_name": blocker.get("function_name", ""),
+                    "blocked_side_line_numder": blocker.get("blocked_side_line_numder", ""),
+                    "occurrence_count": 0,
+                    "blocked_unique_not_covered_complexity": 0,
+                    "blocked_unique_reachable_complexity": 0,
+                    "blocked_not_covered_complexity": 0,
+                    "blocked_reachable_complexity": 0,
+                    "sides_hitcount_diff": 0,
+                    "blocked_unique_functions": set(),
+                    "contributing_targets": set(),
+                    "best_target": target_name,
+                    "best_target_score": (-1, -1),
+                }
+
+            gb = global_blockers[key]
+            gb["occurrence_count"] += 1
+            gb["contributing_targets"].add(target_name)
+
+            gb["blocked_unique_not_covered_complexity"] = max(
+                gb["blocked_unique_not_covered_complexity"],
+                blocker.get("blocked_unique_not_covered_complexity", 0),
+            )
+            gb["blocked_unique_reachable_complexity"] = max(
+                gb["blocked_unique_reachable_complexity"],
+                blocker.get("blocked_unique_reachable_complexity", 0),
+            )
+            gb["blocked_not_covered_complexity"] = max(
+                gb["blocked_not_covered_complexity"],
+                blocker.get("blocked_not_covered_complexity", 0),
+            )
+            gb["blocked_reachable_complexity"] = max(
+                gb["blocked_reachable_complexity"],
+                blocker.get("blocked_reachable_complexity", 0),
+            )
+
+            hitcount_diff = blocker.get("sides_hitcount_diff", 0)
+            gb["sides_hitcount_diff"] += hitcount_diff
+
+            current_complexity = blocker.get("blocked_unique_not_covered_complexity", 0)
+            current_hitcount = blocker.get("sides_hitcount_diff", 0)
+            if (current_complexity, current_hitcount) > gb["best_target_score"]:
+                gb["best_target_score"] = (current_complexity, current_hitcount)
+                gb["best_target"] = target_name
+
+            funcs = blocker.get("blocked_unique_functions", [])
+            if funcs:
+                gb["blocked_unique_functions"].update(funcs)
+
+    result = []
+    for gb in global_blockers.values():
+        gb["blocked_unique_functions"] = sorted(gb["blocked_unique_functions"])
+        gb["contributing_targets"] = sorted(gb["contributing_targets"])
+        result.append(gb)
+
+    if top_k is not None and top_k > 0:
+        return result[:top_k]
+    return result
+
+
+def _load_project_target_reports(linecov_dir: Optional[str]) -> Dict[str, str]:
+    if not linecov_dir or not os.path.isdir(linecov_dir):
+        return {}
+
+    reports: Dict[str, str] = {}
+    for path in sorted(glob(os.path.join(linecov_dir, "*.linecovreport"))):
+        basename = os.path.basename(path)
+        target_name, _ = os.path.splitext(basename)
+        if target_name == "project":
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            reports[target_name] = f.read()
+    return reports
+
+
+def annotate_blockers_with_project_target_coverage(
     blockers: List[Dict[str, Any]],
-    project_linecov_report: str,
+    project_target_reports: Dict[str, str],
 ) -> List[Dict[str, Any]]:
     annotated: List[Dict[str, Any]] = []
     for blocker in blockers:
@@ -356,36 +477,68 @@ def annotate_blockers_with_project_coverage(
             blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)),
             0,
         )
+        function_name = blocker.get("function_name")
 
-        branch_raw = get_line_execution_count(
-            project_linecov_report,
-            branch_line,
-            function_name=blocker.get("function_name"),
-        )
-        blocked_raw = get_line_execution_count(
-            project_linecov_report,
-            blocked_side_line,
-            function_name=blocker.get("function_name"),
-        )
-        branch_hits = _normalize_count(branch_raw)
-        blocked_hits = _normalize_count(blocked_raw)
+        branch_hits_sum = 0
+        blocked_hits_sum = 0
+        branch_reached_targets: List[str] = []
+        blocked_side_reached_targets: List[str] = []
+        per_target_hits: List[Dict[str, Any]] = []
+
+        for target_name, report_text in project_target_reports.items():
+            branch_raw = get_line_execution_count(
+                report_text,
+                branch_line,
+                function_name=function_name,
+            )
+            blocked_raw = get_line_execution_count(
+                report_text,
+                blocked_side_line,
+                function_name=function_name,
+            )
+            branch_hits = _normalize_count(branch_raw)
+            blocked_hits = _normalize_count(blocked_raw)
+
+            branch_hits_sum += branch_hits
+            blocked_hits_sum += blocked_hits
+
+            if branch_hits > 0:
+                branch_reached_targets.append(target_name)
+            if blocked_hits > 0:
+                blocked_side_reached_targets.append(target_name)
+
+            if branch_hits > 0 or blocked_hits > 0:
+                per_target_hits.append(
+                    {
+                        "target_name": target_name,
+                        "branch_hit_count": branch_hits,
+                        "blocked_hit_count": blocked_hits,
+                    }
+                )
 
         annotated_blocker = dict(blocker)
         annotated_blocker.update(
             {
-                "project_branch_hit_count_raw": branch_raw or "0",
-                "project_blocked_hit_count_raw": blocked_raw or "0",
-                "project_branch_hit_count": branch_hits,
-                "project_blocked_hit_count": blocked_hits,
-                "project_branch_reached": branch_hits > 0,
-                "project_blocked_side_reached": blocked_hits > 0,
+                "project_branch_hit_count": branch_hits_sum,
+                "project_blocked_hit_count": blocked_hits_sum,
+                "project_branch_reached": branch_hits_sum > 0,
+                "project_blocked_side_reached": blocked_hits_sum > 0,
+                "project_branch_reached_targets": sorted(branch_reached_targets),
+                "project_blocked_side_reached_targets": sorted(blocked_side_reached_targets),
+                "project_branch_reached_target_count": len(branch_reached_targets),
+                "project_blocked_side_reached_target_count": len(blocked_side_reached_targets),
+                "project_target_hit_details": sorted(
+                    per_target_hits,
+                    key=lambda item: (item["blocked_hit_count"], item["branch_hit_count"]),
+                    reverse=True,
+                ),
             }
         )
 
-        if blocked_hits > 0:
+        if blocked_hits_sum > 0:
             annotated_blocker["project_blocker_state"] = "resolved"
             annotated_blocker["project_relevant"] = False
-        elif branch_hits > 0:
+        elif branch_hits_sum > 0:
             annotated_blocker["project_blocker_state"] = "stalled_at_branch"
             annotated_blocker["project_relevant"] = True
         else:
@@ -393,33 +546,71 @@ def annotate_blockers_with_project_coverage(
             annotated_blocker["project_relevant"] = True
 
         annotated.append(annotated_blocker)
+
     return annotated
 
 
 def aggregate_score_and_revalidate_blockers(
     json_path: str,
-    project_linecov_report: str,
-    top_k: int = 12,
+    project_target_reports: Dict[str, str],
+    top_k: Optional[int] = 12,
     all_functions_js_path: Optional[str] = None,
     summary_json_path: Optional[str] = None,
     include_resolved: bool = False,
 ) -> List[Dict[str, Any]]:
-    blockers = aggregate_and_score_blockers(
-        json_path=json_path,
-        top_k=top_k,
-        all_functions_js_path=all_functions_js_path,
-        summary_json_path=summary_json_path,
-    )
-    annotated = annotate_blockers_with_project_coverage(blockers, project_linecov_report)
+    blockers = aggregate_blockers(json_path=json_path, top_k=None)
+    annotated = annotate_blockers_with_project_target_coverage(blockers, project_target_reports)
+
     if not include_resolved:
         annotated = [blocker for blocker in annotated if blocker.get("project_relevant")]
+
+    if not annotated:
+        return []
+
+    scored = aggregate_and_score_blockers(
+        json_path=json_path,
+        top_k=None,
+        all_functions_js_path=all_functions_js_path,
+        summary_json_path=summary_json_path,
+        preloaded_data={"revalidated": annotated},
+    )
+
+    # `aggregate_and_score_blockers` expects a target->blockers mapping. For revalidated
+    # blockers we already have global entries, so score them inline instead.
+    if "revalidated" in {"revalidated": annotated}:
+        function_coverage_map = load_project_function_coverage(all_functions_js_path)
+        file_coverage_map = load_project_file_coverage(summary_json_path)
+        scored = []
+        for blocker in annotated:
+            enriched = dict(blocker)
+            function_signal = _summarize_blocked_functions(
+                enriched["blocked_unique_functions"], function_coverage_map
+            )
+            file_signal = _summarize_blocker_file(enriched["source_file"], file_coverage_map)
+            enriched.update(function_signal)
+            enriched.update(file_signal)
+
+            structural_score = (
+                enriched["blocked_unique_not_covered_complexity"]
+                * math.log1p(enriched["occurrence_count"])
+                * math.log1p(max(1, enriched["sides_hitcount_diff"]))
+            )
+            project_coverage_bonus = (
+                enriched["project_function_coverage_signal"] + enriched["project_file_coverage_signal"]
+            )
+            enriched["score_components"] = {
+                "structural_score": round(structural_score, 4),
+                "project_coverage_bonus": round(project_coverage_bonus, 4),
+            }
+            enriched["score"] = structural_score + project_coverage_bonus
+            scored.append(enriched)
 
     state_priority = {
         "stalled_at_branch": 2,
         "unreached_branch": 1,
         "resolved": 0,
     }
-    annotated.sort(
+    scored.sort(
         key=lambda blocker: (
             state_priority.get(str(blocker.get("project_blocker_state")), -1),
             blocker.get("project_branch_hit_count", 0),
@@ -429,7 +620,9 @@ def aggregate_score_and_revalidate_blockers(
         ),
         reverse=True,
     )
-    return annotated
+    if top_k is not None and top_k > 0:
+        return scored[:top_k]
+    return scored
 
 
 def main() -> None:
@@ -438,40 +631,38 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=12)
     parser.add_argument("--all-functions-js", default=None)
     parser.add_argument("--summary-json", default=None)
-    parser.add_argument("--project-linecov-report", default=None)
+    parser.add_argument("--project-linecov-dir", default=None)
     parser.add_argument("--include-resolved", action="store_true")
     args = parser.parse_args()
 
     print("[Info] Aggregate and evaluate global blockers...")
-    project_linecov_path = args.project_linecov_report or _infer_project_linecov_report(
+    project_linecov_dir = args.project_linecov_dir or _infer_project_linecov_report_dir(
         args.json_path
     )
+    project_target_reports = _load_project_target_reports(project_linecov_dir)
 
-    if project_linecov_path:
-        with open(project_linecov_path, "r", encoding="utf-8") as f:
-            report_text = f.read()
-        global_blockers = aggregate_score_and_revalidate_blockers(
-            json_path=args.json_path,
-            project_linecov_report=report_text,
-            top_k=args.top_k,
-            all_functions_js_path=args.all_functions_js,
-            summary_json_path=args.summary_json,
-            include_resolved=args.include_resolved,
+    if not project_target_reports:
+        print(
+            "[Warn] No per-target .linecovreport files found in textcov_reports/. "
+            "Project-level blocker revalidation requires aggregated target coverage."
         )
-    else:
-        global_blockers = aggregate_and_score_blockers(
-            json_path=args.json_path,
-            top_k=args.top_k,
-            all_functions_js_path=args.all_functions_js,
-            summary_json_path=args.summary_json,
-        )
+        return
+
+    global_blockers = aggregate_score_and_revalidate_blockers(
+        json_path=args.json_path,
+        project_target_reports=project_target_reports,
+        top_k=args.top_k,
+        all_functions_js_path=args.all_functions_js,
+        summary_json_path=args.summary_json,
+        include_resolved=args.include_resolved,
+    )
 
     if not global_blockers:
         print("[Warn] No blockers found or file missing.")
         return
 
     print(f"[Info] Total unique global blockers aggregated: {len(global_blockers)}")
-    print(json.dumps(global_blockers[0], indent=2, ensure_ascii=False))
+    print(json.dumps(global_blockers, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
