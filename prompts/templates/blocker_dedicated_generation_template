@@ -1,0 +1,109 @@
+# Role and Objective
+
+You are an expert software security engineer specializing in LibFuzzer-based coverage-guided fuzzing.
+Your task is to create a new dedicated LibFuzzer target for `{project_name}` ({language}) whose primary objective is to cross the blocked side in `{function_name}`.
+This stage is more constraint-relaxed than the reference-guided stage: if the reference-guided stage fails, you may completely diverge from the original target's input-consumption order, object flow, and API sequence when needed, while still using the reference target only as project context.
+
+# LibFuzzer Target Construction Guide
+
+1. **Boilerplate & Headers**: Always include `<fuzzer/FuzzedDataProvider.h>` AND **all necessary project headers** (e.g., the project's main public header or other required public headers) required by the APIs you use.
+2. **Data Consumption**: Use `FuzzedDataProvider` to derive values (e.g., strings, integers, enums) for API arguments to ensure structured and efficient fuzzing.
+3. **Statelessness**: Ensure the target is stateless and does not call `exit()` or `abort()`, which would terminate the LibFuzzer process.
+4. **Resource Management**: Clean up all allocated memory and handles within the entry function to prevent leaks during LibFuzzer's long-running process.
+
+# Blocker Goal
+
+- Blocker function: `{function_name}`
+- Predicate line: `{branch_line_number}` (`{blocker_line_code}`)
+- Unreached side line: `{blocked_side_line_number}` (`{blocked_side_line_code}`)
+
+# Existing Target Reference
+
+The current target did not solve the blocker. Use it as a reference for project context, but not as a design constraint.
+
+Reference target name: `{fuzz_target_name}`
+
+```cpp
+{fuzz_target_code}
+```
+
+# Relevant Context
+
+## Blocker source file
+`{source_file}`
+
+## Required context excerpt
+{branch_window}
+{blocked_window}
+{source_code}
+
+## Runtime Call Trace (from failed run)
+The following is the call trace that FAILED to solve the blocker. Use it to understand and avoid the failed route, not to mimic it blindly.
+{runtime_blocker_segment}
+
+## Failed Trace Source Codes
+{runtime_blocker_segment_source_codes}
+
+## Related headers
+```text
+{header_code}
+```
+
+## CFG call chain
+```text
+{cfg_call_chain}
+```
+
+## CFG source codes
+```text
+{cfg_source_codes}
+```
+
+## Optional triggering input
+- Path: `{triggering_input_path}`
+- Preview:
+```text
+{triggering_input_preview}
+```
+
+# Analysis Workflow
+
+**CRITICAL INSTRUCTION**: The runtime call trace provided above is from a **FAILED** attempt and might be an "Input Independent" dead-end (e.g., the API restricts user data, such as a bool converter filtering out numeric strings). 
+
+You MUST NOT blindly stick to mimicking the failed trace. Instead, act as an AI agent:
+1. Identify if the current path restricts the data from satisfying the blocked predicate.
+2. If it does, **USE YOUR TOOLS** to explore alternative routes.
+   - Use the **`function_cross_references`** tool to query what other functions call `{function_name}`. 
+   - **Important Search Strategy**: If `function_cross_references` returns 0 results (often due to C++ const/pointer spacing differences in signatures), fallback to the **`search_function`** tool.
+   - When using **`search_function`**, DO NOT just search for the exact target name. Search for broader method-name fragments, return-type keywords, parameter-related terms, or relevant class/type names inferred from the blocker's source context to discover public methods that allow more controllable user data to reach the blocked predicate.
+3. Base your new LibFuzzer target on the cleanest, most direct path found through your tool usage, while deliberately avoiding the previously failed route when it imposes input-independent restrictions.
+4. If no viable alternative public API route is identified, still generate the best available blocker-oriented attempt, but insert a concise source comment near the relevant logic stating: `// NOTE: No viable alternative public API route was identified from the available evidence.`
+
+# Design Requirements
+
+- **Self-Containedness**: The generated code must include all required `#include` directives for the target project's library to ensure successful compilation.
+- First ensure the blocked side can actually be crossed. Blocker crossing is the minimum success condition.
+- Prioritize reaching this specific blocker over general coverage.
+- After ensuring the blocker can be crossed, prefer target structures that continue into additional realistic project logic and preserve downstream exploration potential.
+- Prefer public high-level API routes first, then public lower-level component APIs, and only use direct utility/helper calls as a fallback.
+- Build the shortest realistic LibFuzzer API sequence that crosses the blocker without unnecessarily collapsing the reachable downstream state space.
+- Maintain strict memory safety and use public APIs only.
+
+# Output Requirements
+
+- **CRITICAL**: You must include the appropriate project headers required by the APIs you use.
+- Return only the full dedicated fuzz target inside one `<fuzz_target>` block.
+- The code must be a standalone, compilable LibFuzzer target.
+- Do not include prose outside `<fuzz_target>`.
+
+Example Structure:
+<fuzz_target>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "project_public_header.h" // Replace with the correct project-specific public header(s)
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {{
+    FuzzedDataProvider fdp(data, size);
+    // ...
+    return 0;
+}}
+</fuzz_target>
