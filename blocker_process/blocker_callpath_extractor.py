@@ -17,6 +17,10 @@ try:
     from blocker_process.global_blocker_selector import aggregate_and_score_blockers
 except Exception:
     from global_blocker_selector import aggregate_and_score_blockers
+try:
+    from blocker_process.find_blocker_seeds_by_coverage import find_matching_seeds
+except Exception:
+    from find_blocker_seeds_by_coverage import find_matching_seeds
 
 try:
     from external.introspector import Introspector
@@ -282,6 +286,8 @@ def run_gdb(
         "-ex",
         f"break {breakpoint}",
         "-ex",
+        "info breakpoints",
+        "-ex",
         f"run {runs_arg} -artifact_prefix={artifact_prefix} {run_target}",
         "-ex",
         "echo \\n\\n================ ACTUAL CALL CHAIN ================\\n\\n",
@@ -299,11 +305,24 @@ def run_gdb(
         errors="replace",
     )
     output = completed.stdout + completed.stderr
+    lines = output.splitlines()
+    breakpoint_info_lines = [
+        line for line in lines if line.strip().startswith("Breakpoint ") or line.strip().startswith("Num ")
+    ]
+    breakpoint_set = any("Breakpoint " in line for line in lines)
+    breakpoint_resolved = any(" in " in line and "Breakpoint " in line for line in lines)
+    breakpoint_warning_lines = [
+        line for line in lines if "Function" in line or "Make breakpoint pending" in line or "not defined" in line
+    ]
 
     return {
         "command": cmd,
         "returncode": completed.returncode,
         "output": output,
+        "breakpoint_set": breakpoint_set,
+        "breakpoint_resolved": breakpoint_resolved,
+        "breakpoint_info": "\n".join(breakpoint_info_lines).strip(),
+        "breakpoint_warnings": "\n".join(breakpoint_warning_lines).strip(),
         "breakpoint_hit": "Breakpoint " in output and "#0 " in output,
         "gdb_frames": parse_gdb_backtrace(output),
         "triggering_input": extract_last_running_input(output),
@@ -313,41 +332,48 @@ def run_gdb(
 def find_runtime_call_chain_with_gdb(
     target_name: str,
     breakpoint: str,
+    seed_path: str,
     out_dir: str = DEFAULT_OUT_DIR,
-    corpus_root: str = DEFAULT_CORPUS_ROOT,
-    max_inputs: int = 50,
+    fallback_breakpoint: str | None = None,
 ) -> dict:
-    paths = resolve_fuzzer_paths(target_name, out_dir=out_dir, corpus_root=corpus_root)
+    paths = resolve_fuzzer_paths(target_name, out_dir=out_dir, corpus_root=DEFAULT_CORPUS_ROOT)
     if not paths["fuzzer_exists"]:
         return {"error": f"Fuzzer binary not found: {paths['fuzzer_bin']}"}
-    if not paths["corpus_exists"]:
-        return {"error": f"Corpus directory not found: {paths['corpus_dir']}"}
+    input_path = str(Path(seed_path).resolve())
+    attempted_breakpoints = [breakpoint]
+    if fallback_breakpoint and fallback_breakpoint != breakpoint:
+        attempted_breakpoints.append(fallback_breakpoint)
 
-    corpus_inputs = list_corpus_inputs(paths["corpus_dir"], limit=max_inputs)
-    if not corpus_inputs:
-        return {"error": f"No corpus inputs found under: {paths['corpus_dir']}"}
-
-    for input_path in corpus_inputs:
+    last_result: dict | None = None
+    for breakpoint_spec in attempted_breakpoints:
         gdb_result = run_gdb(
             paths["fuzzer_bin"],
             input_path,
-            breakpoint,
+            breakpoint_spec,
             "-runs=0 -rss_limit_mb=0 -timeout=0",
         )
+        last_result = gdb_result
         if gdb_result["breakpoint_hit"]:
             return {
                 "target": target_name,
-                "breakpoint": breakpoint,
+                "breakpoint": breakpoint_spec,
                 "triggering_input": gdb_result["triggering_input"] or input_path,
                 "gdb_frames": gdb_result["gdb_frames"],
                 "raw_gdb_output": gdb_result["output"],
+                "seed": input_path,
+                "breakpoint_strategy": "line" if breakpoint_spec == breakpoint else "function",
+                "breakpoint_info": gdb_result.get("breakpoint_info", ""),
+                "breakpoint_warnings": gdb_result.get("breakpoint_warnings", ""),
             }
-
     return {
-        "error": f"GDB did not hit breakpoint '{breakpoint}' in the first {len(corpus_inputs)} corpus inputs.",
+        "error": f"GDB did not hit breakpoints {attempted_breakpoints} with seed {input_path}.",
         "target": target_name,
         "breakpoint": breakpoint,
-        "checked_inputs": len(corpus_inputs),
+        "seed": input_path,
+        "selected_seed": input_path,
+        "attempted_breakpoints": attempted_breakpoints,
+        "breakpoint_info": (last_result or {}).get("breakpoint_info", ""),
+        "breakpoint_warnings": (last_result or {}).get("breakpoint_warnings", ""),
     }
 
 
@@ -538,7 +564,7 @@ def extract_blocker_callchain_info(
     yaml_file: str,
     project_name: str,
     use_gdb: bool = True,
-    max_gdb_inputs: int = 50,
+    max_gdb_inputs: int = 0,
 ) -> dict:
     if not INTROSPECTOR_AVAILABLE:
         return {
@@ -556,13 +582,49 @@ def extract_blocker_callchain_info(
     project_corpus_root = get_project_corpus_root(project_name)
 
     if use_gdb:
-        gdb_result = find_runtime_call_chain_with_gdb(
-            target,
-            breakpoint,
-            out_dir=project_out_dir,
-            corpus_root=project_corpus_root,
-            max_inputs=max_gdb_inputs,
-        )
+        source_file = blocker.get("source_file", "")
+        seed_limit = max_gdb_inputs if max_gdb_inputs and max_gdb_inputs > 0 else None
+        try:
+            matching_seeds, resolved_source_file = find_matching_seeds(
+                project=project_name,
+                target=target,
+                function_name=breakpoint,
+                branch_line=int(blocker["branch_line_number"]),
+                blocked_side_line=int(
+                    blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)) or 0
+                ),
+                corpus_dir=Path(project_corpus_root) / target,
+                limit=seed_limit,
+                source_file=source_file,
+                skip_build=True,
+                stop_after_first=True,
+            )
+        except Exception as exc:
+            matching_seeds = []
+            resolved_source_file = source_file
+            result["gdb_error"] = f"Seed discovery failed: {exc}"
+
+        result["matching_seeds"] = matching_seeds
+        if matching_seeds:
+            selected_seed = matching_seeds[0]["seed"]
+            line_breakpoint = f"{source_file}:{blocker['branch_line_number']}"
+            gdb_result = find_runtime_call_chain_with_gdb(
+                target,
+                line_breakpoint,
+                selected_seed,
+                out_dir=project_out_dir,
+                fallback_breakpoint=breakpoint,
+            )
+            gdb_result["seed_source"] = "find_blocker_seeds_by_coverage"
+            gdb_result["selected_seed"] = selected_seed
+            gdb_result["resolved_source_file"] = resolved_source_file
+        else:
+            gdb_result = {
+                "error": f"No branch-reaching seed found for breakpoint '{breakpoint}'.",
+                "target": target,
+                "breakpoint": breakpoint,
+                "seed_source": "find_blocker_seeds_by_coverage",
+            }
         if "gdb_frames" in gdb_result:
             runtime_segment = extract_runtime_segment_between_functions(
                 gdb_result["gdb_frames"],
@@ -647,6 +709,7 @@ def build_classifier_args_from_result(
     cfg_result = extraction_result.get("cfg_result", {})
     runtime_status, runtime_error = format_runtime_collection_status(gdb_result)
     cfg_status, cfg_error = format_cfg_collection_status(cfg_result, extraction_result.get("cfg_error", ""))
+    blocked_side_line_number = blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder"))
 
     return SimpleNamespace(
         backend=backend,
@@ -654,7 +717,7 @@ def build_classifier_args_from_result(
         project_name=project_name,
         function_name=blocker["function_name"],
         branch_line_number=str(blocker["branch_line_number"]),
-        blocked_side_line_number=str(blocker["blocked_side_line_numder"]),
+        blocked_side_line_number=str(blocked_side_line_number),
         source_file=to_prompt_source_path(blocker["source_file"], project_name),
         fuzz_file=fuzz_file,
         header_file=header_file,
@@ -705,7 +768,12 @@ def main():
     parser.add_argument("--yaml-file", default=None)
     parser.add_argument("--top-k", type=int, default=12)
     parser.add_argument("--index", type=int, default=0, help="Which ranked blocker to process")
-    parser.add_argument("--max-gdb-inputs", type=int, default=50)
+    parser.add_argument(
+        "--max-gdb-inputs",
+        type=int,
+        default=0,
+        help="Max corpus inputs to try for GDB runtime call path collection. Use 0 to scan the full corpus.",
+    )
     parser.add_argument("--classify", action="store_true", help="Run blocker classification after extraction")
     parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
     parser.add_argument("--model", default=None)
@@ -735,7 +803,7 @@ def main():
         blocker = {
             "function_name": args.manual_function,
             "branch_line_number": args.manual_branch_line,
-            "blocked_side_line_numder": args.manual_blocked_side_line, # 注意這裡沿用舊的 key 拼字以防其他地方報錯
+            "blocked_side_line_number": args.manual_blocked_side_line,
             "source_file": args.manual_source_file,
             "best_target": args.manual_target
         }
@@ -767,6 +835,14 @@ def main():
     if gdb_result:
         if "error" in gdb_result:
             print(f"[Warn] {gdb_result['error']}")
+            if gdb_result.get("selected_seed"):
+                print(f"[Info] Seed used for GDB: {gdb_result['selected_seed']}")
+            if gdb_result.get("breakpoint_info"):
+                print("\n=== GDB Breakpoint Info ===")
+                print(gdb_result["breakpoint_info"])
+            if gdb_result.get("breakpoint_warnings"):
+                print("\n=== GDB Breakpoint Warnings ===")
+                print(gdb_result["breakpoint_warnings"])
         else:
             print("\n=== Information 1: Runtime Blocker Segment ===")
             print(gdb_result.get("runtime_blocker_segment_structure", "Unavailable"))

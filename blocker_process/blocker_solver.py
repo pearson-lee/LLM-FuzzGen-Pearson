@@ -70,7 +70,7 @@ def sanitize_name(value: str) -> str:
 def setup_file_logging(func_name: str) -> None:
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{timestamp}_{safe_func_name}_blocker_iter.log"
+    log_filename = f"{timestamp}_{safe_func_name}_blocker_solver.log"
 
     log_dir = REPO_ROOT / "logs"
     log_dir.mkdir(exist_ok=True)
@@ -238,6 +238,7 @@ def evaluate_target_with_coverage(
     fuzzer_name: str,
     function_name: str,
     source_file: str,
+    source_api_file: str | None,
     branch_line: int,
     blocked_side_line: int,
     fuzz_seconds: int,
@@ -252,7 +253,8 @@ def evaluate_target_with_coverage(
 
     out_dir = oss_fuzz.build_out_dir / project_name
     corpus_root = oss_fuzz.build_corpus_dir / project_name
-    container_source_file = guess_container_source_file(project_name, source_file)
+    coverage_source = source_api_file or source_file
+    container_source_file = guess_container_source_file(project_name, coverage_source)
     command = (
         "rm -f /tmp/blocker.profraw /tmp/blocker.profdata && "
         "LLVM_PROFILE_FILE=/tmp/blocker.profraw "
@@ -324,39 +326,21 @@ def run_in_ossfuzz(project_name: str, out_dir: Path, corpus_root: Path, command:
 
 
 def format_refinement_feedback(
+    project_name: str,
+    language: str,
     compile_error: str,
     previous_code: str,
     iteration_feedback: str,
     preserve_seed_compatibility: bool,
 ) -> str:
-    compatibility_rule = (
-        "Do not change the existing top-level Data/Size consume order, FuzzedDataProvider consume order, or the semantic layout expected by existing seeds."
-        if preserve_seed_compatibility
-        else "You may redesign the input handling if it improves blocker reachability."
+    return prompt_generator.blocker_compile_fix_prompt(
+        project_name=project_name,
+        language=language,
+        compile_error=compile_error,
+        previous_code=previous_code,
+        iteration_feedback=iteration_feedback,
+        preserve_seed_compatibility=preserve_seed_compatibility,
     )
-    return f"""
-The previous fuzz target did not compile or needs correction.
-
-Requirements:
-- Fix the compilation/runtime issue while preserving the blocker-oriented strategy.
-- Return the full corrected fuzz target inside a single <fuzz_target> block.
-- {compatibility_rule}
-
-Compiler or runtime error:
-```text
-{compile_error or 'N/A'}
-```
-
-Previous iteration feedback:
-```text
-{iteration_feedback or 'N/A'}
-```
-
-Current code to fix:
-```cpp
-{previous_code}
-```
-"""
 
 
 def build_iteration_prompt(
@@ -443,6 +427,8 @@ def generate_and_build_target(
         logging.warning("Candidate build failed on attempt %d: %s", attempt, build_result.error)
         oss_fuzz.remove_target(project_name, target_path.stem)
         current_prompt = format_refinement_feedback(
+            project_name=project_name,
+            language=oss_fuzz.proj_lang(project_name) or "unknown",
             compile_error=build_result.error,
             previous_code=code,
             iteration_feedback=iteration_feedback,
@@ -468,10 +454,26 @@ def run_strategy_iterations(
     source_corpus_fuzzer: str,
     preserve_seed_compatibility: bool,
     max_iterations: int,
-) -> list[dict]:
+    baseline_evaluation: dict | None = None,
+    no_growth_threshold: int = config.NO_GROWTH_STOP_THRESHOLD,
+) -> dict:
     iterations: list[dict] = []
     previous_evaluation: dict | None = None
-    previous_code = read_optional_file(args.fuzz_file) if strategy_name == "refine_existing" else ""
+    previous_code = read_optional_file(args.fuzz_file) if strategy_name == "reference_guided" else ""
+    accepted_evaluation: dict = dict(baseline_evaluation or {})
+    accepted_evaluation.setdefault("blocked_side_hit_count", 0)
+    accepted_evaluation.setdefault("blocked_side_line_reached", False)
+    accepted_evaluation.setdefault(
+        "note",
+        (
+            "baseline target: "
+            f"{args.fuzz_file} "
+            f"(blocked={accepted_evaluation.get('blocked_side_hit_count_raw', '0')})"
+        ),
+    )
+    accepted_target_path = str(args.fuzz_file)
+    no_growth_count = 0
+    stalled_out = False
 
     for iteration_index in range(1, max_iterations + 1):
         iteration_dir = output_dir / strategy_name / f"iter_{iteration_index:02d}"
@@ -518,6 +520,7 @@ def run_strategy_iterations(
             fuzzer_name=target_path.stem,
             function_name=args.function_name,
             source_file=args.source_file,
+            source_api_file=getattr(args, "source_api_file", None),
             branch_line=int(args.branch_line_number),
             blocked_side_line=int(args.blocked_side_line_number),
             fuzz_seconds=args.fuzz_seconds,
@@ -532,17 +535,67 @@ def run_strategy_iterations(
                 f"blocked={evaluation.get('blocked_side_hit_count_raw', '0')}"
             )
         else:
-            record["note"] = evaluation.get("error", "coverage evaluation failed")
+            record["note"] = (
+                f"branch={evaluation.get('branch_hit_count_raw', '0')}, "
+                f"blocked={evaluation.get('blocked_side_hit_count_raw', '0')}"
+                if evaluation.get("branch_hit_count_raw") is not None
+                else evaluation.get("error", "coverage evaluation failed")
+            )
+
+        candidate_blocked_hit = int(evaluation.get("blocked_side_hit_count", 0))
+        accepted_blocked_hit = int(accepted_evaluation.get("blocked_side_hit_count", 0))
+        record["candidate_score"] = {
+            "blocked_side_hit_count": candidate_blocked_hit,
+        }
+        record["rollback_target_path"] = accepted_target_path
+
+        should_accept = bool(evaluation.get("blocked_side_line_reached"))
+        record["accepted"] = should_accept
+
+        if not should_accept:
+            logging.info(
+                "Discarding candidate %s for strategy %s at iteration %d; blocker not crossed.",
+                target_path.stem,
+                strategy_name,
+                iteration_index,
+            )
+            oss_fuzz.remove_target(args.project_name, target_path.stem)
+            record["rolled_back"] = True
+            no_growth_count += 1
+            record["no_growth_count"] = no_growth_count
+            record["note"] = (
+                f"{record['note']} | rolled back to {accepted_target_path} "
+                f"(blocked={accepted_blocked_hit})"
+            )
+            iterations.append(record)
+            previous_evaluation = accepted_evaluation
+            if no_growth_count >= no_growth_threshold:
+                stalled_out = True
+                logging.info(
+                    "Strategy %s stalled after %d consecutive non-improving iterations; switching strategy.",
+                    strategy_name,
+                    no_growth_count,
+                )
+                break
+            continue
 
         iterations.append(record)
         previous_evaluation = evaluation | {"note": record["note"]}
+        accepted_evaluation = previous_evaluation
+        accepted_target_path = str(target_path)
         previous_code = build_info.get("code", "")
+        no_growth_count = 0
 
         if record["success"]:
             logging.info("Strategy %s succeeded at iteration %d", strategy_name, iteration_index)
             break
 
-    return iterations
+    return {
+        "iterations": iterations,
+        "stalled_out": stalled_out,
+        "accepted_target_path": accepted_target_path,
+        "accepted_evaluation": accepted_evaluation,
+    }
 
 
 def summarize_best_iteration(iterations: list[dict]) -> dict | None:
@@ -563,7 +616,7 @@ def summarize_best_iteration(iterations: list[dict]) -> dict | None:
     return best
 
 
-def run_blocker_iteration(args: argparse.Namespace) -> dict:
+def run_blocker_solver(args: argparse.Namespace) -> dict:
     setup_file_logging(args.function_name)
     oss_fuzz = OSSFuzz()
     llm = LLMClient(backend=args.backend, model_name=args.model)
@@ -579,6 +632,7 @@ def run_blocker_iteration(args: argparse.Namespace) -> dict:
         fuzzer_name=source_fuzzer_name,
         function_name=args.function_name,
         source_file=args.source_file,
+        source_api_file=getattr(args, "source_api_file", None),
         branch_line=int(args.branch_line_number),
         blocked_side_line=int(args.blocked_side_line_number),
         fuzz_seconds=args.fuzz_seconds,
@@ -595,64 +649,77 @@ def run_blocker_iteration(args: argparse.Namespace) -> dict:
             "iterations": [],
         }
 
-    refine_prompt = prompt_generator.blocker_refinement_prompt(**prompt_context)
-    regenerate_prompt = prompt_generator.blocker_targeted_regeneration_prompt(**prompt_context)
+    reference_guided_prompt = prompt_generator.blocker_reference_guided_prompt(**prompt_context)
+    dedicated_generation_prompt = prompt_generator.blocker_dedicated_generation_prompt(**prompt_context)
+    iteration_budget = config.ITERATION_LOOP
 
-    refine_iterations = run_strategy_iterations(
+    reference_guided_result = run_strategy_iterations(
         args=args,
         oss_fuzz=oss_fuzz,
         llm=llm,
         output_dir=output_dir,
-        base_prompt=refine_prompt,
-        strategy_name="refine_existing",
+        base_prompt=reference_guided_prompt,
+        strategy_name="reference_guided",
         source_corpus_fuzzer=source_fuzzer_name,
         preserve_seed_compatibility=True,
-        max_iterations=args.max_iterations,
+        max_iterations=iteration_budget,
+        baseline_evaluation=baseline_evaluation,
+        no_growth_threshold=config.NO_GROWTH_STOP_THRESHOLD,
     )
-    if any(item.get("success") for item in refine_iterations):
+    reference_guided_iterations = reference_guided_result["iterations"]
+    if any(item.get("success") for item in reference_guided_iterations):
         return {
             "success": True,
-            "pipeline_methods": ["refine_existing_harness"],
+            "pipeline_methods": ["reference_guided_generation"],
             "output_dir": str(output_dir),
             "baseline_evaluation": baseline_evaluation,
-            "best_iteration": summarize_best_iteration(refine_iterations),
-            "iterations": refine_iterations,
+            "iteration_budget": iteration_budget,
+            "best_iteration": summarize_best_iteration(reference_guided_iterations),
+            "iterations": reference_guided_iterations,
             "fallback_iterations": [],
         }
 
-    regenerate_iterations = run_strategy_iterations(
+    dedicated_generation_result = run_strategy_iterations(
         args=args,
         oss_fuzz=oss_fuzz,
         llm=llm,
         output_dir=output_dir,
-        base_prompt=regenerate_prompt,
-        strategy_name="generate_dedicated",
+        base_prompt=dedicated_generation_prompt,
+        strategy_name="dedicated_generation",
         source_corpus_fuzzer=source_fuzzer_name,
         preserve_seed_compatibility=False,
-        max_iterations=max(1, min(2, args.max_iterations)),
+        max_iterations=iteration_budget,
+        baseline_evaluation=reference_guided_result["accepted_evaluation"],
+        no_growth_threshold=config.NO_GROWTH_STOP_THRESHOLD,
     )
+    dedicated_generation_iterations = dedicated_generation_result["iterations"]
 
-    all_iterations = refine_iterations + regenerate_iterations
+    all_iterations = reference_guided_iterations + dedicated_generation_iterations
     return {
         "success": any(item.get("success") for item in all_iterations),
         "pipeline_methods": [
             method
             for method, used in [
-                ("refine_existing_harness", bool(refine_iterations)),
-                ("generate_dedicated_harness", bool(regenerate_iterations)),
+                ("reference_guided_generation", bool(reference_guided_iterations)),
+                ("dedicated_generation", bool(dedicated_generation_iterations)),
             ]
             if used
         ],
         "output_dir": str(output_dir),
         "baseline_evaluation": baseline_evaluation,
+        "iteration_budget": iteration_budget,
+        "reference_guided_stalled_out": reference_guided_result["stalled_out"],
+        "dedicated_generation_stalled_out": dedicated_generation_result["stalled_out"],
         "best_iteration": summarize_best_iteration(all_iterations),
-        "iterations": refine_iterations,
-        "fallback_iterations": regenerate_iterations,
+        "iterations": reference_guided_iterations,
+        "fallback_iterations": dedicated_generation_iterations,
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Iterate on input-independent blockers via fuzz target refinement.")
+    parser = argparse.ArgumentParser(
+        description="Solve input-independent blockers via reference-guided and dedicated fuzz target generation."
+    )
     parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--project-name", required=True)
@@ -660,7 +727,9 @@ def main() -> None:
     parser.add_argument("--branch-line-number", required=True)
     parser.add_argument("--blocked-side-line-number", required=True)
     parser.add_argument("--source-file", required=True)
+    parser.add_argument("--source-api-file", default=None)
     parser.add_argument("--fuzz-file", required=True)
+    parser.add_argument("--target-name", default=None)
     parser.add_argument("--header-file", default=None)
     parser.add_argument("--language", default=None)
     parser.add_argument("--blocker-line-code", default="N/A")
@@ -674,13 +743,14 @@ def main() -> None:
     parser.add_argument("--cfg-call-chain", default=None)
     parser.add_argument("--cfg-source-codes", default=None)
     parser.add_argument("--triggering-input", default="")
-    parser.add_argument("--max-iterations", type=int, default=3)
+    parser.add_argument("--seed", action="append", default=[])
+    parser.add_argument("--max-iterations", type=int, default=config.ITERATION_LOOP)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     args = parser.parse_args()
 
     try:
-        result = run_blocker_iteration(args)
+        result = run_blocker_solver(args)
     except FileNotFoundError as exc:
         logging.error("%s", exc)
         sys.exit(1)
@@ -688,7 +758,7 @@ def main() -> None:
         logging.error("%s", exc)
         sys.exit(2)
     except Exception as exc:
-        logging.error("Blocker iteration failed: %s", exc, exc_info=True)
+        logging.error("Blocker solver failed: %s", exc, exc_info=True)
         sys.exit(3)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))

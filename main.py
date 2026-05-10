@@ -182,6 +182,7 @@ def run_blocker_pipeline(
             )
             return {"success": False, "reason": "blocker_index_out_of_range", "dependency_result": None}
         blocker = blockers[blocker_index]
+    blocked_side_line_number = blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder"))
     logger.info(
         "Running blocker pipeline for %s using blocker #%d: %s:%s target=%s",
         project_name,
@@ -196,7 +197,7 @@ def run_blocker_pipeline(
         blocker_index=blocker_index,
         function_name=blocker.get("function_name"),
         branch_line_number=blocker.get("branch_line_number"),
-        blocked_side_line_number=blocker.get("blocked_side_line_numder"),
+        blocked_side_line_number=blocked_side_line_number,
         target_name=blocker.get("best_target"),
     )
 
@@ -206,7 +207,7 @@ def run_blocker_pipeline(
         project_name=project_name,
         function_name=blocker.get("function_name"),
         branch_line_number=blocker.get("branch_line_number"),
-        blocked_side_line_number=blocker.get("blocked_side_line_numder"),
+        blocked_side_line_number=blocked_side_line_number,
         blocker_json=None,
         blocker_json_file=str(resolved_json_path),
         source_file=None,
@@ -215,7 +216,7 @@ def run_blocker_pipeline(
         header_file=None,
         target_name=blocker.get("best_target"),
         yaml_file=None,
-        max_gdb_inputs=50,
+        max_gdb_inputs=0,
         runtime_blocker_segment_file=None,
         runtime_blocker_segment_source_codes_file=None,
         cfg_call_chain_file=None,
@@ -348,7 +349,7 @@ def run_blocker_session(
             {
                 "function_name": blocker.get("function_name"),
                 "branch_line_number": blocker.get("branch_line_number"),
-                "blocked_side_line_number": blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder")),
+                "blocked_side_line_number": blocker.get("blocked_side_line_number"),
                 "best_target": blocker.get("best_target"),
                 "project_blocker_state": blocker.get("project_blocker_state"),
                 "project_branch_hit_count": blocker.get("project_branch_hit_count"),
@@ -410,7 +411,7 @@ def run_blocker_session(
             elapsed_seconds=elapsed_seconds,
             function_name=blocker.get("function_name"),
             branch_line_number=blocker.get("branch_line_number"),
-            blocked_side_line_number=blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder")),
+            blocked_side_line_number=blocker.get("blocked_side_line_number"),
             line_coverage=_get_coverage_metric(post_summary, "lines"),
             branch_coverage=_get_coverage_metric(post_summary, "branches"),
             functions_coverage=_get_coverage_metric(post_summary, "functions"),

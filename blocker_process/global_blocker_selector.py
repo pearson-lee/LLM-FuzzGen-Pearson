@@ -74,6 +74,17 @@ def _normalize_source_path(path: Any) -> str:
     return normalized
 
 
+def _blocked_side_line_number(blocker: Dict[str, Any]) -> str:
+    return str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "")))
+
+
+def _canonicalize_blocker(blocker: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(blocker)
+    blocked_side_line_number = _blocked_side_line_number(blocker)
+    normalized["blocked_side_line_number"] = blocked_side_line_number
+    return normalized
+
+
 def _infer_project_artifact_paths(json_path: str) -> tuple[Optional[str], Optional[str]]:
     base_dir = os.path.dirname(os.path.abspath(json_path))
     all_functions_path = os.path.join(base_dir, "all_functions.js")
@@ -265,9 +276,11 @@ def aggregate_and_score_blockers(
 
     for target_name, blockers in data.items():
         for blocker in blockers:
+            blocker = _canonicalize_blocker(blocker)
             source_file = _normalize_source_path(blocker.get("source_file", ""))
             branch_line = str(blocker.get("branch_line_number", ""))
             blocked_side = str(blocker.get("blocked_side", ""))
+            blocked_side_line_number = blocker["blocked_side_line_number"]
             key = (source_file, branch_line, blocked_side)
 
             if key not in global_blockers:
@@ -276,7 +289,7 @@ def aggregate_and_score_blockers(
                     "branch_line_number": branch_line,
                     "blocked_side": blocked_side,
                     "function_name": blocker.get("function_name", ""),
-                    "blocked_side_line_numder": blocker.get("blocked_side_line_numder", ""),
+                    "blocked_side_line_number": blocked_side_line_number,
                     "occurrence_count": 0,
                     "blocked_unique_not_covered_complexity": 0,
                     "blocked_unique_reachable_complexity": 0,
@@ -382,9 +395,11 @@ def aggregate_blockers(
 
     for target_name, blockers in data.items():
         for blocker in blockers:
+            blocker = _canonicalize_blocker(blocker)
             source_file = blocker.get("source_file", "")
             branch_line = str(blocker.get("branch_line_number", ""))
             blocked_side = str(blocker.get("blocked_side", ""))
+            blocked_side_line_number = blocker["blocked_side_line_number"]
             key = (source_file, branch_line, blocked_side)
 
             if key not in global_blockers:
@@ -393,7 +408,7 @@ def aggregate_blockers(
                     "branch_line_number": branch_line,
                     "blocked_side": blocked_side,
                     "function_name": blocker.get("function_name", ""),
-                    "blocked_side_line_numder": blocker.get("blocked_side_line_numder", ""),
+                    "blocked_side_line_number": blocked_side_line_number,
                     "occurrence_count": 0,
                     "blocked_unique_not_covered_complexity": 0,
                     "blocked_unique_reachable_complexity": 0,

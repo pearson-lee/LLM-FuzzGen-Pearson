@@ -2,6 +2,7 @@
 """Find corpus seeds that reach a branch blocker using OSS-Fuzz coverage tools."""
 
 import argparse
+import json
 import os
 import re
 import shlex
@@ -181,6 +182,98 @@ def iter_seed_files(corpus_dir: Path) -> list[Path]:
     return sorted([p for p in corpus_dir.iterdir() if p.is_file()])
 
 
+def find_matching_seeds(
+    *,
+    project: str,
+    target: str,
+    function_name: str,
+    branch_line: int,
+    blocked_side_line: int | None = None,
+    corpus_dir: Path | None = None,
+    limit: int | None = None,
+    source_file: str | None = None,
+    skip_build: bool = False,
+    stop_after_first: bool = False,
+) -> tuple[list[dict], str]:
+    raw_function_name = get_raw_function_name(project, function_name)
+    if not raw_function_name:
+        raise RuntimeError(f"Could not resolve raw function name for: {function_name}")
+
+    oss_fuzz = OSSFuzz() if skip_build else build_coverage_target(project)
+    fuzz_target_bin = oss_fuzz.build_out_dir / project / target
+    if not fuzz_target_bin.exists():
+        raise RuntimeError(f"Coverage fuzz target not found: {fuzz_target_bin}")
+
+    resolved_corpus_dir = corpus_dir if corpus_dir else (oss_fuzz.build_corpus_dir / project / target)
+    if not resolved_corpus_dir.is_dir():
+        raise RuntimeError(f"Corpus directory not found: {resolved_corpus_dir}")
+
+    resolved_source_file = guess_container_source_file(project, source_file or f"{project}.cpp")
+    seed_files = iter_seed_files(resolved_corpus_dir)
+    if limit is not None:
+        seed_files = seed_files[:limit]
+    if not seed_files:
+        raise RuntimeError(f"No seed files found in: {resolved_corpus_dir}")
+
+    matches: list[dict] = []
+    container_name: Optional[str] = None
+    try:
+        container_name = start_ossfuzz_container(
+            project,
+            oss_fuzz.build_out_dir / project,
+            oss_fuzz.build_corpus_dir / project,
+        )
+        for seed_path in seed_files:
+            report = render_linecov_report_in_ossfuzz(
+                container_name,
+                target,
+                seed_path,
+                resolved_source_file,
+                raw_function_name,
+            )
+            branch_count_raw = get_line_execution_count(
+                report,
+                branch_line,
+                function_name=function_name,
+                raw_function_name=raw_function_name,
+            )
+            branch_count = normalize_count(branch_count_raw)
+            if branch_count <= 0:
+                continue
+
+            blocked_side_count_raw = ""
+            blocked_side_count = 0
+            if blocked_side_line:
+                blocked_side_count_raw = get_line_execution_count(
+                    report,
+                    blocked_side_line,
+                    function_name=function_name,
+                    raw_function_name=raw_function_name,
+                )
+                blocked_side_count = normalize_count(blocked_side_count_raw)
+
+            matches.append(
+                {
+                    "seed": str(seed_path),
+                    "target": target,
+                    "function_name": function_name,
+                    "source_file": resolved_source_file,
+                    "branch_line": branch_line,
+                    "branch_hit_count": branch_count_raw,
+                    "blocked_side_line": blocked_side_line,
+                    "blocked_side_hit_count": blocked_side_count_raw,
+                    "blocked_side_reached": blocked_side_count > 0,
+                }
+            )
+            if stop_after_first:
+                break
+    finally:
+        if container_name:
+            stop_ossfuzz_container(container_name)
+
+    return matches, resolved_source_file
+
+
 def guess_container_source_file(project_name: str, local_source_file: str) -> str:
     """Map a local source filename/path to the corresponding /out path inside the OSS-Fuzz container."""
     source_path = Path(local_source_file)
@@ -245,6 +338,7 @@ def main() -> int:
         default=None,
         help="Breakpoint passed to get_callchain.sh, e.g. tinyxml2.cpp:1972 or tinyxml2::XMLElement::ParseAttributes(char*, int*).",
     )
+    parser.add_argument("--json", action="store_true", help="Emit a machine-readable JSON summary at the end.")
     args = parser.parse_args()
 
     if args.run_callchain and not args.breakpoint:
@@ -347,10 +441,14 @@ def main() -> int:
             if branch_count > 0:
                 match = {
                     "seed": str(seed_path),
+                    "target": args.target,
+                    "function_name": args.function_name,
+                    "source_file": source_file,
                     "branch_line": args.branch_line,
                     "branch_hit_count": branch_count_raw,
                     "blocked_side_line": args.blocked_side_line,
                     "blocked_side_hit_count": blocked_side_count_raw,
+                    "blocked_side_reached": blocked_side_count > 0,
                 }
                 matches.append(match)
                 print(f"[match] seed reaches blocker: {seed_path}")
@@ -367,12 +465,42 @@ def main() -> int:
     print("=== Matching seeds ===")
     if not matches:
         print("No seed reached the target blocker line.")
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "project": args.project,
+                        "target": args.target,
+                        "function_name": args.function_name,
+                        "source_file": source_file,
+                        "branch_line": args.branch_line,
+                        "blocked_side_line": args.blocked_side_line,
+                        "matches": [],
+                    },
+                    ensure_ascii=False,
+                )
+            )
         return 1
 
     for match in matches:
         print(
             f"{match['seed']} | branch {match['branch_line']} -> {match['branch_hit_count']} | "
             f"blocked side {match['blocked_side_line']} -> {match['blocked_side_hit_count'] or 'NA'}"
+        )
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "project": args.project,
+                    "target": args.target,
+                    "function_name": args.function_name,
+                    "source_file": source_file,
+                    "branch_line": args.branch_line,
+                    "blocked_side_line": args.blocked_side_line,
+                    "matches": matches,
+                },
+                ensure_ascii=False,
+            )
         )
     return 0
 

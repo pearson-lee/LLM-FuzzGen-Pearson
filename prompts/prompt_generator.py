@@ -37,6 +37,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
 """,
 }
 
+DEFAULT_FUZZ_TARGET_EXAMPLE = FUZZ_TARGET_EXAMPLES["c++"]
+
 
 def _load_and_format_template(template_name: str, input_variables: list, **kwargs) -> str:
     """
@@ -182,7 +184,7 @@ def crash_analysis_prompt(
     )
 
 
-def blocker_refinement_prompt(
+def blocker_reference_guided_prompt(
     *,
     project_name: str,
     language: str,
@@ -206,9 +208,9 @@ def blocker_refinement_prompt(
     triggering_input_path: str,
     triggering_input_preview: str,
 ) -> str:
-    output_example = FUZZ_TARGET_EXAMPLES.get(language.lower(), "")
+    output_example = FUZZ_TARGET_EXAMPLES.get(language.lower(), DEFAULT_FUZZ_TARGET_EXAMPLE)
     return _load_and_format_template(
-        template_name="blocker_refinement_template",
+        template_name="blocker_reference_guided_template",
         input_variables=[
             "project_name",
             "language",
@@ -258,7 +260,7 @@ def blocker_refinement_prompt(
     )
 
 
-def blocker_targeted_regeneration_prompt(
+def blocker_dedicated_generation_prompt(
     *,
     project_name: str,
     language: str,
@@ -282,9 +284,9 @@ def blocker_targeted_regeneration_prompt(
     triggering_input_path: str,
     triggering_input_preview: str,
 ) -> str:
-    output_example = FUZZ_TARGET_EXAMPLES.get(language.lower(), "")
+    output_example = FUZZ_TARGET_EXAMPLES.get(language.lower(), DEFAULT_FUZZ_TARGET_EXAMPLE)
     return _load_and_format_template(
-        template_name="blocker_targeted_regeneration_template",
+        template_name="blocker_dedicated_generation_template",
         input_variables=[
             "project_name",
             "language",
@@ -329,4 +331,40 @@ def blocker_targeted_regeneration_prompt(
         triggering_input_path=triggering_input_path,
         triggering_input_preview=triggering_input_preview,
         output_example=output_example,
+    )
+
+
+def blocker_compile_fix_prompt(
+    *,
+    project_name: str,
+    language: str,
+    compile_error: str,
+    previous_code: str,
+    iteration_feedback: str,
+    preserve_seed_compatibility: bool,
+) -> str:
+    seed_compatibility_requirement = _load_and_format_template(
+        template_name=(
+            "blocker_compile_fix_seed_compatible_template"
+            if preserve_seed_compatibility
+            else "blocker_compile_fix_seed_flexible_template"
+        ),
+        input_variables=[],
+    )
+    return _load_and_format_template(
+        template_name="blocker_compile_fix_template",
+        input_variables=[
+            "project_name",
+            "language",
+            "compile_error",
+            "previous_code",
+            "iteration_feedback",
+            "seed_compatibility_requirement",
+        ],
+        project_name=project_name or "N/A",
+        language=language or "N/A",
+        compile_error=compile_error or "N/A",
+        previous_code=previous_code or "N/A",
+        iteration_feedback=iteration_feedback or "N/A",
+        seed_compatibility_requirement=seed_compatibility_requirement,
     )

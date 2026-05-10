@@ -417,7 +417,7 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
     blocker = {
         "function_name": args.function_name,
         "branch_line_number": str(args.branch_line_number),
-        "blocked_side_line_numder": str(args.blocked_side_line_number),
+        "blocked_side_line_number": str(args.blocked_side_line_number),
         "source_file": getattr(args, "source_api_file", None) or args.source_file or "",
         "best_target": args.target_name,
     }
@@ -436,7 +436,7 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
         blocker=blocker,
         yaml_file=yaml_file,
         project_name=args.project_name,
-        max_gdb_inputs=getattr(args, "max_gdb_inputs", 50),
+        max_gdb_inputs=getattr(args, "max_gdb_inputs", 0),
     )
 
     gdb_result = extraction_result.get("gdb_result", {})
@@ -595,11 +595,16 @@ def _infer_pipeline_methods(dependency_result: str, pipeline_output: dict | None
                 for item in [*iterations, *fallback_iterations]
                 if isinstance(item, dict) and item.get("strategy")
             }
-            if "refine_existing" in strategies:
-                methods.append("refine_existing_harness")
-            if "generate_dedicated" in strategies:
-                methods.append("generate_dedicated_harness")
-        return methods or ["input_independent_harness_update"]
+            if "reference_guided" in strategies:
+                methods.append("reference_guided_generation")
+            if "dedicated_generation" in strategies:
+                methods.append("dedicated_generation")
+            if not methods:
+                if "refine_existing" in strategies:
+                    methods.append("reference_guided_generation")
+                if "generate_dedicated" in strategies:
+                    methods.append("dedicated_generation")
+        return methods or ["input_independent_target_generation"]
 
     return []
 
@@ -621,6 +626,9 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
         "--fuzz-file",
         args.fuzz_file,
     ]
+
+    if getattr(args, "source_api_file", None):
+        forwarded.extend(["--source-api-file", args.source_api_file])
 
     if getattr(args, "target_name", None):
         forwarded.extend(["--target-name", args.target_name])
@@ -663,7 +671,7 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
     return forwarded
 
 
-def build_blocker_iteration_args(args: argparse.Namespace) -> list[str]:
+def build_blocker_solver_args(args: argparse.Namespace) -> list[str]:
     forwarded = build_seed_generation_args(args)
     if getattr(args, "blocker_line_code", None):
         forwarded.extend(["--blocker-line-code", args.blocker_line_code])
@@ -841,7 +849,7 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
         if dependency_result == "Input Independent":
             logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
-            pipeline_output = run_program(MODULE_ROOT / "blocker_iteration.py", build_blocker_iteration_args(args))
+            pipeline_output = run_program(MODULE_ROOT / "blocker_solver.py", build_blocker_solver_args(args))
             output["pipeline_returncode"] = pipeline_output["returncode"]
             output["pipeline_output"] = pipeline_output
             output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
@@ -869,7 +877,12 @@ def main():
     parser.add_argument("--header-file", default=None, help="Path to related header file to embed")
     parser.add_argument("--target-name", default=None, help="Optional fuzz target executable name used for auto-resolving fuzz target source")
     parser.add_argument("--yaml-file", default=None, help="Optional introspector exe_to_fuzz_introspector_logs.yaml path for auto call-path collection")
-    parser.add_argument("--max-gdb-inputs", type=int, default=50, help="Max corpus inputs to try when auto-collecting runtime call path")
+    parser.add_argument(
+        "--max-gdb-inputs",
+        type=int,
+        default=0,
+        help="Max corpus inputs to try when auto-collecting runtime call path. Use 0 to scan the full corpus.",
+    )
     parser.add_argument("--runtime-blocker-segment-file", default=None, help="Path to the runtime blocker segment text")
     parser.add_argument("--runtime-blocker-segment-source-codes-file", default=None, help="Path to runtime blocker segment source codes")
     parser.add_argument("--cfg-call-chain-file", default=None, help="Path to CFG call chain text")
