@@ -671,7 +671,7 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
     return forwarded
 
 
-def build_blocker_solver_args(args: argparse.Namespace) -> list[str]:
+def build_input_independent_solver_args(args: argparse.Namespace) -> list[str]:
     forwarded = build_seed_generation_args(args)
     if getattr(args, "blocker_line_code", None):
         forwarded.extend(["--blocker-line-code", args.blocker_line_code])
@@ -840,16 +840,22 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
             return output
 
         if dependency_result == "Input Dependent":
-            logging.info("--> Routing to Input Dependent Pipeline (Seed Gen -> Symbolic Execution)")
-            pipeline_output = run_program(MODULE_ROOT / "dependent_pipeline.py", build_seed_generation_args(args))
+            logging.info("--> Routing to Input Dependent Solver (Seed Gen -> Symbolic Execution)")
+            pipeline_output = run_program(
+                MODULE_ROOT / "dependent" / "input_dependent_solver.py",
+                build_seed_generation_args(args),
+            )
             output["pipeline_returncode"] = pipeline_output["returncode"]
             output["pipeline_output"] = pipeline_output
             output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
             return output
 
         if dependency_result == "Input Independent":
-            logging.info("--> Routing to Input Independent Pipeline (Fuzz Target Refine -> New Target -> Drop)")
-            pipeline_output = run_program(MODULE_ROOT / "blocker_solver.py", build_blocker_solver_args(args))
+            logging.info("--> Routing to Input Independent Solver (Fuzz Target Refine -> New Target -> Drop)")
+            pipeline_output = run_program(
+                MODULE_ROOT / "independent" / "input_independent_solver.py",
+                build_input_independent_solver_args(args),
+            )
             output["pipeline_returncode"] = pipeline_output["returncode"]
             output["pipeline_output"] = pipeline_output
             output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
@@ -862,8 +868,8 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
 def main():
     parser = argparse.ArgumentParser(description="Classify blocker via template and dispatch to appropriate program.")
-    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default="gemini-2.5-flash")
 
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", default=None)

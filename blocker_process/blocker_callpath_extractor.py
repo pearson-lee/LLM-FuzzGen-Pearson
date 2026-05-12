@@ -276,6 +276,7 @@ def run_gdb(
     artifact_prefix: str = DEFAULT_ARTIFACT_PREFIX,
 ) -> dict:
     os.makedirs(artifact_prefix, exist_ok=True)
+    profile_output = os.path.join(artifact_prefix, "gdb_run.profraw")
     cmd = [
         "gdb",
         "-batch",
@@ -296,6 +297,8 @@ def run_gdb(
         "--args",
         fuzzer_bin,
     ]
+    env = os.environ.copy()
+    env["LLVM_PROFILE_FILE"] = profile_output
 
     completed = subprocess.run(
         cmd,
@@ -303,7 +306,12 @@ def run_gdb(
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=env,
     )
+    try:
+        os.remove(profile_output)
+    except FileNotFoundError:
+        pass
     output = completed.stdout + completed.stderr
     lines = output.splitlines()
     breakpoint_info_lines = [
@@ -775,8 +783,8 @@ def main():
         help="Max corpus inputs to try for GDB runtime call path collection. Use 0 to scan the full corpus.",
     )
     parser.add_argument("--classify", action="store_true", help="Run blocker classification after extraction")
-    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--fuzz-file", default=None, help="Override fuzz target source file path")
     parser.add_argument("--header-file", default=None, help="Optional related header file path")
     parser.add_argument(

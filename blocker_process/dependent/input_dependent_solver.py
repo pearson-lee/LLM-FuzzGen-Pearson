@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = MODULE_ROOT.parent
+REPO_ROOT = MODULE_ROOT.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-SEED_GENERATOR = MODULE_ROOT / "seeds_generation.py"
-HARNESS_GENERATOR = MODULE_ROOT / "harness_generator.py"
+SEED_GENERATOR = MODULE_ROOT / "input_dependent_seed_generator.py"
+HARNESS_GENERATOR = MODULE_ROOT / "input_dependent_harness_generator.py"
 SYMCC_THEN_KLEE = MODULE_ROOT / "symcc_then_klee.py"
 OUTPUT_ROOT = MODULE_ROOT / "generated_symbolic_runs"
 
@@ -24,6 +24,50 @@ def sanitize_name(value: str) -> str:
     import re
 
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("._-") or "unknown"
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
+    stages = result.get("stages", {}) if isinstance(result.get("stages"), dict) else {}
+    stage_statuses: dict[str, dict] = {}
+    for stage_name, stage_payload in stages.items():
+        if isinstance(stage_payload, dict):
+            stage_statuses[stage_name] = {
+                "success": stage_payload.get("success"),
+                "returncode": stage_payload.get("returncode"),
+                "final_status": stage_payload.get("final_status"),
+                "message": stage_payload.get("message"),
+            }
+        else:
+            stage_statuses[stage_name] = {"success": None}
+
+    return {
+        "solver": "input_dependent",
+        "project_name": args.project_name,
+        "function_name": args.function_name,
+        "branch_line_number": int(args.branch_line_number),
+        "blocked_side_line_number": int(args.blocked_side_line_number),
+        "reference_target_name": args.target_name or Path(args.fuzz_file).stem,
+        "reference_target_path": args.fuzz_file,
+        "success": bool(result.get("success")),
+        "success_stage": result.get("success_stage"),
+        "failure_stage": result.get("failure_stage"),
+        "pipeline_methods": result.get("pipeline_methods", []),
+        "klee_enabled": result.get("klee_enabled"),
+        "used_llm_seed_generator": result.get("used_llm_seed_generator"),
+        "used_symcc": result.get("used_symcc"),
+        "used_klee": result.get("used_klee"),
+        "seed_inputs": result.get("seed_inputs", []),
+        "output_dir": result.get("output_dir"),
+        "llm_seed_final_status": result.get("llm_seed_final_status"),
+        "llm_seed_progress_iteration_count": result.get("llm_seed_progress_iteration_count"),
+        "message": result.get("message"),
+        "stage_statuses": stage_statuses,
+        "stages": stages,
+    }
 
 
 def run_program(cmd: list[str], *, json_output_file: Path | None = None) -> dict:
@@ -88,6 +132,8 @@ def build_context_args(args: argparse.Namespace) -> list[str]:
         "--fuzz-file",
         args.fuzz_file,
     ]
+    if getattr(args, "source_api_file", None):
+        forwarded.extend(["--source-api-file", args.source_api_file])
     if args.model:
         forwarded.extend(["--model", args.model])
     if args.header_file:
@@ -126,6 +172,7 @@ def blocker_payload(args: argparse.Namespace, seeds: list[str]) -> dict:
         "branch_line_number": int(args.branch_line_number),
         "blocked_side_line_number": int(args.blocked_side_line_number),
         "source_file": args.source_file,
+        "source_api_file": getattr(args, "source_api_file", None),
         "fuzz_file": args.fuzz_file,
         "seeds": seeds,
     }
@@ -217,7 +264,7 @@ def successful(parsed_output: dict | None) -> bool:
     return bool(parsed_output and parsed_output.get("success"))
 
 
-def run_dependent_pipeline(args: argparse.Namespace) -> dict:
+def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     seeds = existing_seed_inputs(args)
     if not seeds:
         raise RuntimeError(
@@ -242,6 +289,7 @@ def run_dependent_pipeline(args: argparse.Namespace) -> dict:
         "used_llm_seed_generator": False,
         "used_symcc": False,
         "used_klee": False,
+        "klee_enabled": bool(args.enable_klee_fallback),
         "output_dir": str(output_dir),
         "seed_inputs": seeds,
         "stages": {},
@@ -266,6 +314,10 @@ def run_dependent_pipeline(args: argparse.Namespace) -> dict:
         "stdout": llm_seed_result["stdout"],
         "stderr": llm_seed_result["stderr"],
     }
+    parsed_llm_seed = llm_seed_result.get("parsed_output") if isinstance(llm_seed_result.get("parsed_output"), dict) else {}
+    if isinstance(parsed_llm_seed, dict):
+        result["llm_seed_final_status"] = parsed_llm_seed.get("final_status")
+        result["llm_seed_progress_iteration_count"] = parsed_llm_seed.get("progress_iteration_count", 0)
     if successful(llm_seed_result.get("parsed_output")):
         result["success"] = True
         result["success_stage"] = "llm_seed_generator"
@@ -332,6 +384,14 @@ def run_dependent_pipeline(args: argparse.Namespace) -> dict:
         result["success_stage"] = "symcc_generated_harness"
         return result
 
+    if not args.enable_klee_fallback:
+        result["failure_stage"] = "symcc_generated_harness"
+        result["message"] = (
+            "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback. "
+            "KLEE fallback is disabled by default to keep the framework stable."
+        )
+        return result
+
     klee_harness_cmd = [
         sys.executable,
         str(HARNESS_GENERATOR),
@@ -378,15 +438,16 @@ def run_dependent_pipeline(args: argparse.Namespace) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run the input-dependent blocker pipeline: generator -> SymCC probe -> SymCC harness -> KLEE harness."
+        description="Run the input-dependent blocker solver: generator -> SymCC probe -> SymCC harness, with optional KLEE fallback."
     )
-    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", required=True)
     parser.add_argument("--branch-line-number", required=True)
     parser.add_argument("--blocked-side-line-number", required=True)
     parser.add_argument("--source-file", required=True)
+    parser.add_argument("--source-api-file", default=None)
     parser.add_argument("--fuzz-file", required=True)
     parser.add_argument("--header-file", default=None)
     parser.add_argument("--language", default=None)
@@ -407,13 +468,24 @@ def main() -> None:
     parser.add_argument("--symcc-max-generations", type=int, default=1)
     parser.add_argument("--symcc-max-total-seeds", type=int, default=20)
     parser.add_argument("--symcc-timeout-sec", type=int, default=10)
+    parser.add_argument(
+        "--enable-klee-fallback",
+        action="store_true",
+        help="Enable the experimental KLEE fallback after the main LLM/SymCC pipeline fails.",
+    )
     parser.add_argument("--klee-max-time", type=int, default=60)
     parser.add_argument("--klee-max-tests", type=int, default=10)
     parser.add_argument("--keep-coverage-reports", action="store_true")
     args = parser.parse_args()
 
     try:
-        result = run_dependent_pipeline(args)
+        result = run_input_dependent_solver(args)
+        summary = build_solver_summary(args, result)
+        output_dir = Path(result["output_dir"])
+        summary_path = output_dir / "summary.json"
+        write_json(summary_path, summary)
+        result["summary_path"] = str(summary_path)
+        logging.info("Wrote input-dependent summary to %s", summary_path)
     except RuntimeError as exc:
         logging.error("%s", exc)
         sys.exit(2)

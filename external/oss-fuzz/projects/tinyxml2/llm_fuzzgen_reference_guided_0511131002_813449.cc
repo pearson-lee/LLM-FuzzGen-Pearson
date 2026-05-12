@@ -4,8 +4,7 @@
 #include <vector>
 #include <memory> // For std::unique_ptr
 #include <fuzzer/FuzzedDataProvider.h>
-#include <sstream> // For std::ostringstream
-#include <iomanip> // For std::hex
+#include <cctype> // For isxdigit
 
 // Include the necessary tinyxml2 header with the full project-relative path.
 #include "/src/tinyxml2/tinyxml2.h"
@@ -100,26 +99,33 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     printer.PushAttribute(printer_attr_name.c_str(), fdp.ConsumeBool());
 
     // --- Blocker-oriented fuzzing for tinyxml2::XMLUtil::ToInt(char const*, int*) ---
-    // Blocker goal: Reach line 607 (`if (TIXML_SSCANF(str, "%x", &v) == 1) {`) in tinyxml2.cpp.
-    // This requires an attribute value to be a hexadecimal string (e.g., "0x123").
-    // We will set an attribute with a hex string and then query it as a boolean,
-    // which will trigger the call chain to ToInt.
-    if (fdp.remaining_bytes() > 0) { // Only proceed if there's enough data for new consumptions
-        std::string hex_attr_name = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 50));
-        uint32_t hex_value = fdp.ConsumeIntegral<uint32_t>();
-        std::ostringstream oss;
-        oss << "0x" << std::hex << hex_value;
-        std::string hex_string_value = oss.str();
+    // Specifically targeting the 'if (IsPrefixHex(str))' branch and 'TIXML_SSCANF(str, "%x", &v)'
+    std::string hex_attr_name = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 50));
+    std::string hex_value_prefix = fdp.ConsumeBool() ? "0x" : "0X"; // Randomly choose 0x or 0X
+    std::string hex_digits_raw = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange(1, 10));
 
-        // Set an attribute with a hexadecimal string value.
-        root->SetAttribute(hex_attr_name.c_str(), hex_string_value.c_str());
-
-        // Call BoolAttribute on this element. This will cause QueryBoolValue to call ToBool,
-        // which in turn will call ToInt with the hexadecimal string value.
-        // This should satisfy IsPrefixHex() and then attempt sscanf with "%x".
-        // Reusing default_bool_val from above for consistency, though its value doesn't matter here.
-        root->BoolAttribute(hex_attr_name.c_str(), default_bool_val);
+    // Filter hex_digits_raw to ensure it contains only valid hexadecimal characters.
+    std::string filtered_hex_digits;
+    for (char c : hex_digits_raw) {
+        if (std::isxdigit(static_cast<unsigned char>(c))) {
+            filtered_hex_digits += c;
+        } else {
+            // Replace non-hex characters with a default hex digit to maintain structure.
+            filtered_hex_digits += '0';
+        }
     }
+    // Ensure there's at least one hex digit to make sscanf successful.
+    if (filtered_hex_digits.empty()) {
+        filtered_hex_digits = "1";
+    }
+
+    std::string hex_attr_value = hex_value_prefix + filtered_hex_digits;
+
+    root->SetAttribute(hex_attr_name.c_str(), hex_attr_value.c_str());
+
+    int int_value_out = 0;
+    // Calling QueryIntAttribute will lead to XMLUtil::ToInt, triggering the hexadecimal parsing branch.
+    root->QueryIntAttribute(hex_attr_name.c_str(), &int_value_out);
 
     // The XMLDocument and its associated nodes/attributes are automatically
     // deallocated when 'doc' goes out of scope due to std::unique_ptr.

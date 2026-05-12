@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = MODULE_ROOT.parent
+REPO_ROOT = MODULE_ROOT.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -70,7 +70,7 @@ def sanitize_name(value: str) -> str:
 def setup_file_logging(func_name: str) -> None:
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{timestamp}_{safe_func_name}_blocker_solver.log"
+    log_filename = f"{timestamp}_{safe_func_name}_input_independent_solver.log"
 
     log_dir = REPO_ROOT / "logs"
     log_dir.mkdir(exist_ok=True)
@@ -217,6 +217,58 @@ def collect_prompt_context(args: argparse.Namespace, oss_fuzz: OSSFuzz) -> dict[
 
 def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
+    baseline = result.get("baseline_evaluation") if isinstance(result.get("baseline_evaluation"), dict) else {}
+    best_iteration = result.get("best_iteration") if isinstance(result.get("best_iteration"), dict) else {}
+    iterations = result.get("iterations") if isinstance(result.get("iterations"), list) else []
+    fallback_iterations = result.get("fallback_iterations") if isinstance(result.get("fallback_iterations"), list) else []
+
+    return {
+        "solver": "input_independent",
+        "project_name": args.project_name,
+        "function_name": args.function_name,
+        "branch_line_number": int(args.branch_line_number),
+        "blocked_side_line_number": int(args.blocked_side_line_number),
+        "reference_target_name": Path(args.fuzz_file).stem,
+        "reference_target_path": args.fuzz_file,
+        "success": bool(result.get("success")),
+        "pipeline_methods": result.get("pipeline_methods", []),
+        "iteration_budget": result.get("iteration_budget"),
+        "output_dir": result.get("output_dir"),
+        "baseline": {
+            "success": baseline.get("success"),
+            "branch_hit_count": baseline.get("branch_hit_count"),
+            "branch_hit_count_raw": baseline.get("branch_hit_count_raw"),
+            "blocked_side_hit_count": baseline.get("blocked_side_hit_count"),
+            "blocked_side_hit_count_raw": baseline.get("blocked_side_hit_count_raw"),
+            "branch_line_reached": baseline.get("branch_line_reached"),
+            "blocked_side_line_reached": baseline.get("blocked_side_line_reached"),
+        },
+        "best_iteration": {
+            "iteration": best_iteration.get("iteration"),
+            "strategy": best_iteration.get("strategy"),
+            "target_path": best_iteration.get("target_path"),
+            "accepted": best_iteration.get("accepted"),
+            "success": best_iteration.get("success"),
+            "score": best_iteration.get("score"),
+            "evaluation": best_iteration.get("evaluation"),
+        }
+        if best_iteration
+        else None,
+        "reference_guided_iteration_count": len(iterations),
+        "dedicated_generation_iteration_count": len(fallback_iterations),
+        "reference_guided_stalled_out": result.get("reference_guided_stalled_out"),
+        "dedicated_generation_stalled_out": result.get("dedicated_generation_stalled_out"),
+        "message": result.get("message"),
+        "iterations": iterations,
+        "fallback_iterations": fallback_iterations,
+    }
 
 
 def copy_corpus_if_present(oss_fuzz: OSSFuzz, project_name: str, source_fuzzer_name: str, target_fuzzer_name: str) -> Path:
@@ -616,7 +668,7 @@ def summarize_best_iteration(iterations: list[dict]) -> dict | None:
     return best
 
 
-def run_blocker_solver(args: argparse.Namespace) -> dict:
+def run_input_independent_solver(args: argparse.Namespace) -> dict:
     setup_file_logging(args.function_name)
     oss_fuzz = OSSFuzz()
     llm = LLMClient(backend=args.backend, model_name=args.model)
@@ -720,8 +772,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Solve input-independent blockers via reference-guided and dedicated fuzz target generation."
     )
-    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", required=True)
     parser.add_argument("--branch-line-number", required=True)
@@ -750,7 +802,13 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        result = run_blocker_solver(args)
+        result = run_input_independent_solver(args)
+        summary = build_solver_summary(args, result)
+        output_dir = Path(result["output_dir"])
+        summary_path = output_dir / "summary.json"
+        write_json(summary_path, summary)
+        result["summary_path"] = str(summary_path)
+        logging.info("Wrote input-independent summary to %s", summary_path)
     except FileNotFoundError as exc:
         logging.error("%s", exc)
         sys.exit(1)

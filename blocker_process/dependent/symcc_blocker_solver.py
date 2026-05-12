@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SYMCC = REPO_ROOT / "symcc" / "build" / "symcc"
 DEFAULT_SYMPP = REPO_ROOT / "symcc" / "build" / "sym++"
 

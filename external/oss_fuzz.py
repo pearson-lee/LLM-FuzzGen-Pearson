@@ -1,4 +1,5 @@
 import codecs
+import hashlib
 import json
 import logging
 import re
@@ -9,7 +10,7 @@ import time
 import uuid
 import zipfile
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,8 +40,24 @@ class TotalCoverageSummary:
     lines: CoverageMetricSummary | None = None
 
 
+@dataclass
+class BuildState:
+    sanitizer: str
+    target_fingerprint: str
+
+
+@dataclass
+class FuzzerTimeSliceResult:
+    fuzzer_name: str
+    requested_seconds: int
+    actual_seconds: float
+    success: bool
+    error: str = ""
+
+
 class OSSFuzz:
     LANG_EXT: dict[str, str] = {"c": ".c", "c++": ".cc", "cpp": ".cc"}
+    DEFAULT_FUZZ_QUANTUM_SECONDS = 30
 
     def __init__(self, oss_fuzz_dir: Path | None = None):
         self.oss_fuzz_dir: Path = oss_fuzz_dir or Path(__file__).parent / "oss-fuzz"
@@ -52,6 +69,9 @@ class OSSFuzz:
         self.fuzz_introspector_cli: Path = (
             Path(__file__).parent / "fuzz-introspector" / "src" / "fuzz_introspector" / "cli.py"
         )
+        self.build_cache_dir: Path = self.oss_fuzz_dir / "build" / "artifact_cache"
+        self._project_build_state: dict[str, BuildState] = {}
+        self._fuzzer_served_seconds: dict[str, dict[str, float]] = {}
 
     def _get_project_yaml(self, proj_name: str) -> dict:
         """Read and parse project.yaml file."""
@@ -102,6 +122,191 @@ class OSSFuzz:
         # The error message is always in group(1).
         return match.group(1).strip() if match else output
 
+    def _iter_project_target_artifacts(self, proj_name: str) -> list[Path]:
+        project_dir = self.oss_fuzz_dir / "projects" / proj_name
+        if not project_dir.exists():
+            return []
+
+        patterns = (
+            "llm_fuzzgen*.c",
+            "llm_fuzzgen*.cc",
+            "llm_fuzzgen*.cpp",
+            "llm_fuzzgen*.options",
+            "llm_fuzzgen*_seed_corpus.zip",
+            "llm_fuzzgen.dict",
+        )
+        artifacts: list[Path] = []
+        for pattern in patterns:
+            artifacts.extend(project_dir.glob(pattern))
+        return sorted({path for path in artifacts})
+
+    def _get_project_target_fingerprint(self, proj_name: str) -> str:
+        digest = hashlib.sha256()
+        for path in self._iter_project_target_artifacts(proj_name):
+            digest.update(path.name.encode("utf-8"))
+            digest.update(b"\0")
+            try:
+                digest.update(path.read_bytes())
+            except OSError:
+                logger.warning("Failed to read target artifact for fingerprinting: %s", path)
+                digest.update(b"<unreadable>")
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    def _has_built_llm_targets(self, proj_name: str) -> bool:
+        build_dir = self.build_out_dir / proj_name
+        if not build_dir.exists():
+            return False
+        return any(path.is_file() and path.name.startswith("llm_fuzzgen") and not path.suffix for path in build_dir.iterdir())
+
+    def _artifact_cache_path(self, proj_name: str, sanitizer: str, fingerprint: str) -> Path:
+        return self.build_cache_dir / proj_name / sanitizer / fingerprint
+
+    def _clear_build_out_dir(self, proj_name: str) -> bool:
+        build_dir = self.build_out_dir / proj_name
+        if not build_dir.exists():
+            return True
+
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{build_dir}:/out",
+            "-t",
+            f"gcr.io/oss-fuzz/{proj_name}",
+            "/bin/bash",
+            "-c",
+            "find /out -mindepth 1 ! -path '/out/inspector' ! -path '/out/inspector/*' -delete",
+        ]
+        process = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            text=True,
+            errors="ignore",
+        )
+        if process.returncode == 0:
+            return True
+
+        logger.error(
+            "Failed to clear build output directory for %s before cache restore: %s%s",
+            proj_name,
+            process.stdout,
+            process.stderr,
+        )
+        return False
+
+    def _copy_directory_contents(self, source_dir: Path, destination_dir: Path) -> None:
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        for source_path in source_dir.iterdir():
+            destination_path = destination_dir / source_path.name
+            if source_path.is_dir():
+                shutil.copytree(source_path, destination_path, dirs_exist_ok=True)
+            else:
+                shutil.copy2(source_path, destination_path)
+
+    def _restore_build_artifacts_from_cache(self, proj_name: str, sanitizer: str, fingerprint: str) -> bool:
+        cache_dir = self._artifact_cache_path(proj_name, sanitizer, fingerprint)
+        if not cache_dir.exists():
+            logger.info(
+                "No cached %s build artifacts for %s with fingerprint %s.",
+                sanitizer,
+                proj_name,
+                fingerprint[:12],
+            )
+            return False
+
+        build_dir = self.build_out_dir / proj_name
+        build_dir.mkdir(parents=True, exist_ok=True)
+        if not self._clear_build_out_dir(proj_name):
+            return False
+        self._copy_directory_contents(cache_dir, build_dir)
+        self._record_build_state(proj_name, sanitizer, fingerprint)
+        logger.info(
+            "Restored %s build artifacts for %s from cache fingerprint %s.",
+            sanitizer,
+            proj_name,
+            fingerprint[:12],
+        )
+        return self._has_built_llm_targets(proj_name)
+
+    def _store_build_artifacts_in_cache(self, proj_name: str, sanitizer: str, fingerprint: str) -> None:
+        build_dir = self.build_out_dir / proj_name
+        if not build_dir.exists():
+            logger.warning(
+                "Skipping cache store for %s/%s because build output directory does not exist: %s",
+                proj_name,
+                sanitizer,
+                build_dir,
+            )
+            return
+
+        sanitizer_cache_root = self.build_cache_dir / proj_name / sanitizer
+        sanitizer_cache_root.mkdir(parents=True, exist_ok=True)
+        for existing in sanitizer_cache_root.iterdir():
+            if existing.name != fingerprint:
+                shutil.rmtree(existing, ignore_errors=True)
+
+        cache_dir = sanitizer_cache_root / fingerprint
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        self._copy_directory_contents(build_dir, cache_dir)
+        logger.info(
+            "Stored %s build artifacts for %s into cache fingerprint %s at %s",
+            sanitizer,
+            proj_name,
+            fingerprint[:12],
+            cache_dir,
+        )
+
+    def _should_rebuild(self, proj_name: str, sanitizer: str) -> bool:
+        fingerprint = self._get_project_target_fingerprint(proj_name)
+        build_state = self._project_build_state.get(proj_name)
+        logger.info(
+            "Build decision for %s/%s: fingerprint=%s, cached_state=%s, build_out_has_targets=%s",
+            proj_name,
+            sanitizer,
+            fingerprint[:12],
+            (
+                f"{build_state.sanitizer}:{build_state.target_fingerprint[:12]}"
+                if build_state is not None
+                else "none"
+            ),
+            self._has_built_llm_targets(proj_name),
+        )
+        if (
+            build_state is not None
+            and build_state.sanitizer == sanitizer
+            and build_state.target_fingerprint == fingerprint
+            and self._has_built_llm_targets(proj_name)
+        ):
+            logger.info(
+                "Skipping %s rebuild for %s; target fingerprint unchanged and build artifacts are present.",
+                sanitizer,
+                proj_name,
+            )
+            return False
+
+        if self._restore_build_artifacts_from_cache(proj_name, sanitizer, fingerprint):
+            return False
+
+        logger.info(
+            "Rebuild required for %s/%s: no reusable in-memory build state or artifact cache matched fingerprint %s.",
+            proj_name,
+            sanitizer,
+            fingerprint[:12],
+        )
+        return True
+
+    def _record_build_state(self, proj_name: str, sanitizer: str, fingerprint: str | None = None) -> None:
+        self._project_build_state[proj_name] = BuildState(
+            sanitizer=sanitizer,
+            target_fingerprint=fingerprint or self._get_project_target_fingerprint(proj_name),
+        )
+
     def _convert_str_to_seed_bytes(self, seed_str: str) -> bytes:
         # 第一層：處理來自 LLM 的、包含 "\\x" 字面文字的字串
         if r"\x" in seed_str:
@@ -130,6 +335,10 @@ class OSSFuzz:
         deadline: float | None = None,
     ) -> CompilationResult:
         """Builds fuzzers for the given project."""
+        if not self._should_rebuild(proj_name, sanitizer):
+            return CompilationResult(success=True)
+
+        logger.info("Starting %s rebuild for %s.", sanitizer, proj_name)
         timeout = self._remaining_timeout(deadline)
         if timeout == 0:
             return CompilationResult(success=False, error="deadline reached")
@@ -139,6 +348,15 @@ class OSSFuzz:
         )
 
         if success:
+            fingerprint = self._get_project_target_fingerprint(proj_name)
+            self._record_build_state(proj_name, sanitizer, fingerprint)
+            self._store_build_artifacts_in_cache(proj_name, sanitizer, fingerprint)
+            logger.info(
+                "Completed %s rebuild for %s with fingerprint %s.",
+                sanitizer,
+                proj_name,
+                fingerprint[:12],
+            )
             return CompilationResult(success=True)
 
         error_message = self._extract_build_error_message(stdout + stderr)
@@ -201,6 +419,48 @@ class OSSFuzz:
         logger.info(f"Fuzzer {fuzzer_name} ran successfully")
         return CompilationResult(success=True, error="")
 
+    def _list_project_fuzzers(self, project_name: str) -> list[str]:
+        fuzzer_dir = self.build_out_dir / project_name
+        if not fuzzer_dir.exists():
+            return []
+        return sorted(
+            f.name for f in fuzzer_dir.iterdir() if f.is_file() and f.name.startswith("llm_fuzzgen") and not f.suffix
+        )
+
+    def _sync_project_fuzzer_stats(self, project_name: str, fuzzers_to_run: list[str]) -> dict[str, float]:
+        served = self._fuzzer_served_seconds.setdefault(project_name, {})
+        active = set(fuzzers_to_run)
+        for stale in list(served):
+            if stale not in active:
+                del served[stale]
+        for fuzzer_name in fuzzers_to_run:
+            served.setdefault(fuzzer_name, 0.0)
+        return served
+
+    def _run_fuzzer_time_slice(
+        self,
+        project_name: str,
+        fuzzer_name: str,
+        seconds: int,
+        deadline: float | None = None,
+    ) -> FuzzerTimeSliceResult:
+        started_at = time.monotonic()
+        result = self.run_fuzzer(
+            project_name,
+            fuzzer_name,
+            seconds,
+            build_fuzzer=False,
+            deadline=deadline,
+        )
+        actual_seconds = max(0.0, time.monotonic() - started_at)
+        return FuzzerTimeSliceResult(
+            fuzzer_name=fuzzer_name,
+            requested_seconds=seconds,
+            actual_seconds=actual_seconds,
+            success=result.success,
+            error=result.error,
+        )
+
     def run_all_fuzzers(
         self,
         project_name: str,
@@ -208,7 +468,7 @@ class OSSFuzz:
         max_workers: int | None = None,
         deadline: float | None = None,
     ):
-        """Builds and runs all fuzzers for a given project."""
+        """Build and run fuzzers within a wall-clock budget using least-served-first scheduling."""
         logger.info(f"Building all fuzzers for project {project_name}")
         build_result = self.build_fuzzers(project_name, deadline=deadline)
         if not build_result.success:
@@ -218,30 +478,96 @@ class OSSFuzz:
             logger.info(f"Skipping fuzzers for {project_name}; deadline reached after build.")
             return
 
-        fuzzer_dir = self.build_out_dir / project_name
-        fuzzers_to_run = [
-            f.name for f in fuzzer_dir.iterdir() if f.is_file() and f.name.startswith("llm_fuzzgen") and not f.suffix
-        ]
+        fuzzers_to_run = self._list_project_fuzzers(project_name)
+        if not fuzzers_to_run:
+            logger.warning("No llm_fuzzgen fuzzers found for %s.", project_name)
+            return
+
+        served_seconds = self._sync_project_fuzzer_stats(project_name, fuzzers_to_run)
+        chunk_deadline = time.monotonic() + max(1, seconds)
+        effective_deadline = min(deadline, chunk_deadline) if deadline is not None else chunk_deadline
+        max_workers = max_workers or min(4, len(fuzzers_to_run)) or 1
+        quantum_seconds = max(1, min(self.DEFAULT_FUZZ_QUANTUM_SECONDS, seconds))
+        logger.info(
+            "Scheduling %d fuzzers for %s with wall-clock budget=%ds, workers=%d, quantum=%ds using least-served-first.",
+            len(fuzzers_to_run),
+            project_name,
+            seconds,
+            max_workers,
+            quantum_seconds,
+        )
 
         try:
             with ThreadPoolExecutor(max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        self.run_fuzzer,
-                        project_name,
-                        fuzzer_name,
-                        seconds,
-                        build_fuzzer=False,
-                        deadline=deadline,
+                in_flight: dict = {}
+
+                def schedule_one() -> bool:
+                    remaining = effective_deadline - time.monotonic()
+                    if remaining <= 1:
+                        return False
+                    available = [name for name in fuzzers_to_run if name not in in_flight.values()]
+                    if not available:
+                        return False
+                    next_fuzzer = min(available, key=lambda name: (served_seconds.get(name, 0.0), name))
+                    slice_seconds = max(1, min(quantum_seconds, int(remaining)))
+                    logger.info(
+                        "Dispatching %s for %ds (served_so_far=%.2fs, remaining_chunk_budget=%.2fs)",
+                        next_fuzzer,
+                        slice_seconds,
+                        served_seconds.get(next_fuzzer, 0.0),
+                        remaining,
                     )
-                    for fuzzer_name in fuzzers_to_run
-                    if deadline is None or deadline - time.monotonic() > 0
-                }
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except BaseException as exc:
-                        logger.error(f"Fuzzer execution generated an exception: {exc}")
+                    future = executor.submit(
+                        self._run_fuzzer_time_slice,
+                        project_name,
+                        next_fuzzer,
+                        slice_seconds,
+                        effective_deadline,
+                    )
+                    in_flight[future] = next_fuzzer
+                    return True
+
+                while len(in_flight) < max_workers and schedule_one():
+                    pass
+
+                while in_flight:
+                    timeout = max(0.1, effective_deadline - time.monotonic())
+                    done, _ = wait(in_flight.keys(), timeout=timeout, return_when=FIRST_COMPLETED)
+                    if not done:
+                        logger.info(
+                            "Reached wall-clock barrier for %s with %d fuzzer task(s) still draining.",
+                            project_name,
+                            len(in_flight),
+                        )
+                        done, _ = wait(in_flight.keys(), return_when=ALL_COMPLETED)
+                    for future in done:
+                        fuzzer_name = in_flight.pop(future)
+                        try:
+                            slice_result = future.result()
+                            served_seconds[fuzzer_name] = served_seconds.get(fuzzer_name, 0.0) + slice_result.actual_seconds
+                            logger.info(
+                                "Completed slice for %s: requested=%ds actual=%.2fs cumulative=%.2fs success=%s",
+                                fuzzer_name,
+                                slice_result.requested_seconds,
+                                slice_result.actual_seconds,
+                                served_seconds[fuzzer_name],
+                                slice_result.success,
+                            )
+                            if not slice_result.success and slice_result.error != "deadline reached":
+                                logger.error("Fuzzer %s slice failed: %s", fuzzer_name, slice_result.error)
+                        except BaseException as exc:
+                            logger.error(f"Fuzzer execution generated an exception: {exc}")
+                    while len(in_flight) < max_workers and schedule_one():
+                        pass
+
+                logger.info(
+                    "Finished wall-clock fuzzing chunk for %s. Top least-served targets: %s",
+                    project_name,
+                    ", ".join(
+                        f"{name}={served_seconds[name]:.2f}s"
+                        for name in sorted(served_seconds, key=lambda item: (served_seconds[item], item))[:5]
+                    ),
+                )
         except KeyboardInterrupt:
             logger.info("Fuzzing interrupted by user. Shutting down...")
 
@@ -310,6 +636,7 @@ class OSSFuzz:
     ) -> bool:
         """Generates an introspector report for the given project."""
         logger.info(f"Creating introspector reports for {proj_name}")
+        started_at = time.perf_counter()
 
         cmd = ["introspector", "--seconds", str(seconds)]
         if clean:
@@ -321,12 +648,25 @@ class OSSFuzz:
             logger.info(f"Skipping introspector report for {proj_name}; deadline reached.")
             return False
         success, stdout, stderr = self._run_helper_command(cmd, timeout=timeout)
+        elapsed = time.perf_counter() - started_at
 
         if not success:
-            logger.error(f"Failed to generate report for {proj_name}: \n {stdout}{stderr}")
+            logger.error(
+                "Failed to generate report for %s after %.2fs: \n %s%s",
+                proj_name,
+                elapsed,
+                stdout,
+                stderr,
+            )
             return False
 
-        logger.info(f"Introspector reports created for {proj_name}")
+        logger.info(
+            "Introspector reports created for %s in %.2fs (requested_seconds=%s, clean=%s)",
+            proj_name,
+            elapsed,
+            seconds,
+            clean,
+        )
         return True
 
     def _introspector_output_dir(self, proj_name: str) -> Path:

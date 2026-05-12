@@ -78,7 +78,7 @@ If coverage does not improve, the run is classified as one of:
 
 ## Existing Tooling In This Repo
 
-Use [symcc_blocker_solver.py](/home/kyliechien/LLM-FuzzGen/blocker_process/symcc_blocker_solver.py:1)
+Use [symcc_blocker_solver.py](/home/kyliechien/LLM-FuzzGen/blocker_process/dependent/symcc_blocker_solver.py:1)
 as the main SymCC driver. It already does the following:
 
 - builds a replay driver around a fuzz target source file;
@@ -98,13 +98,13 @@ as the main SymCC driver. It already does the following:
 6. If it fails, choose:
    - Mode A if the current fuzz target is SymCC-friendly;
    - Mode B if the current fuzz target has STL / FDP / complex unpacking.
-7. Run `symcc_blocker_solver.py`.
+7. Run `dependent/symcc_blocker_solver.py`.
 8. Accept the result only if coverage confirms the blocked side was reached.
 
 ## Minimal Command Shape
 
 ```bash
-python3 blocker_process/symcc_blocker_solver.py \
+python3 blocker_process/dependent/symcc_blocker_solver.py \
   --fuzz-target /path/to/fuzz_target_or_symex_harness.cpp \
   --source /path/to/project_source.cpp \
   --include-dir /path/to/include \
@@ -117,7 +117,7 @@ python3 blocker_process/symcc_blocker_solver.py \
 ## TinyXML2 Example
 
 ```bash
-python3 blocker_process/symcc_blocker_solver.py \
+python3 blocker_process/dependent/symcc_blocker_solver.py \
   --fuzz-target /home/kyliechien/LLM-FuzzGen/blocker_process/xmltest.cpp \
   --source /home/kyliechien/LLM-FuzzGen/blocker_process/tinyxml2.cpp \
   --include-dir /home/kyliechien/LLM-FuzzGen/blocker_process \

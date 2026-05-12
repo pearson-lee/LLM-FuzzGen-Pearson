@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = MODULE_ROOT.parent
+REPO_ROOT = MODULE_ROOT.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -240,14 +240,15 @@ def run_generation(args: argparse.Namespace) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a SymCC/KLEE-friendly harness for an input-dependent blocker.")
     parser.add_argument("--mode", required=True, choices=["symcc", "klee"])
-    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", required=True)
     parser.add_argument("--branch-line-number", required=True)
     parser.add_argument("--blocked-side-line-number", required=True)
     parser.add_argument("--source-file", required=True)
+    parser.add_argument("--source-api-file", default=None)
     parser.add_argument("--fuzz-file", required=True)
     parser.add_argument("--header-file", default=None)
     parser.add_argument("--language", default=None)

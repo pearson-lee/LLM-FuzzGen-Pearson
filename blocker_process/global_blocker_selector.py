@@ -248,6 +248,30 @@ def _summarize_blocker_file(
     }
 
 
+def _compute_actionability_score(blocker: Dict[str, Any]) -> float:
+    branch_hit_count = _safe_int(blocker.get("project_branch_hit_count", 0), 0)
+    branch_target_count = _safe_int(blocker.get("project_branch_reached_target_count", 0), 0)
+    side_gap = _safe_int(blocker.get("sides_hitcount_diff", 0), 0)
+
+    return (
+        math.log1p(branch_hit_count)
+        + 0.75 * math.log1p(branch_target_count)
+        + 0.3 * math.log1p(max(0, side_gap))
+    )
+
+
+def _compute_impact_score(blocker: Dict[str, Any]) -> float:
+    return (
+        1.2 * math.log1p(_safe_int(blocker.get("blocked_unique_not_covered_complexity", 0), 0))
+        + 0.8 * math.log1p(_safe_int(blocker.get("blocked_not_covered_complexity", 0), 0))
+        + 0.8 * math.log1p(_safe_int(blocker.get("blocked_unique_reachable_complexity", 0), 0))
+        + 0.5 * math.log1p(_safe_int(blocker.get("blocked_reachable_complexity", 0), 0))
+        + _safe_float(blocker.get("project_function_coverage_signal", 0.0), 0.0)
+        + _safe_float(blocker.get("project_file_coverage_signal", 0.0), 0.0)
+        + 0.5 * math.log1p(_safe_int(blocker.get("occurrence_count", 0), 0))
+    )
+
+
 def aggregate_and_score_blockers(
     json_path: str,
     top_k: Optional[int] = None,
@@ -348,25 +372,22 @@ def aggregate_and_score_blockers(
         gb.update(function_signal)
         gb.update(file_signal)
 
-        structural_score = (
-            gb["blocked_unique_not_covered_complexity"]
-            * math.log1p(gb["occurrence_count"])
-            * math.log1p(max(1, gb["sides_hitcount_diff"]))
-        )
-        project_coverage_bonus = (
-            gb["project_function_coverage_signal"] + gb["project_file_coverage_signal"]
-        )
+        actionability_score = _compute_actionability_score(gb)
+        impact_score = _compute_impact_score(gb)
 
         gb["score_components"] = {
-            "structural_score": round(structural_score, 4),
-            "project_coverage_bonus": round(project_coverage_bonus, 4),
+            "actionability_score": round(actionability_score, 4),
+            "impact_score": round(impact_score, 4),
         }
-        gb["score"] = structural_score + project_coverage_bonus
+        gb["actionability_score"] = actionability_score
+        gb["impact_score"] = impact_score
+        gb["score"] = actionability_score + impact_score
         result.append(gb)
 
     result.sort(
         key=lambda x: (
-            x["score"],
+            x["actionability_score"],
+            x["impact_score"],
             x["globally_unhit_function_count"],
             x["sum_blocked_function_undiscovered_complexity"],
             x["blocked_unique_not_covered_complexity"],
@@ -605,19 +626,15 @@ def aggregate_score_and_revalidate_blockers(
             enriched.update(function_signal)
             enriched.update(file_signal)
 
-            structural_score = (
-                enriched["blocked_unique_not_covered_complexity"]
-                * math.log1p(enriched["occurrence_count"])
-                * math.log1p(max(1, enriched["sides_hitcount_diff"]))
-            )
-            project_coverage_bonus = (
-                enriched["project_function_coverage_signal"] + enriched["project_file_coverage_signal"]
-            )
+            actionability_score = _compute_actionability_score(enriched)
+            impact_score = _compute_impact_score(enriched)
             enriched["score_components"] = {
-                "structural_score": round(structural_score, 4),
-                "project_coverage_bonus": round(project_coverage_bonus, 4),
+                "actionability_score": round(actionability_score, 4),
+                "impact_score": round(impact_score, 4),
             }
-            enriched["score"] = structural_score + project_coverage_bonus
+            enriched["actionability_score"] = actionability_score
+            enriched["impact_score"] = impact_score
+            enriched["score"] = actionability_score + impact_score
             scored.append(enriched)
 
     state_priority = {
@@ -628,8 +645,9 @@ def aggregate_score_and_revalidate_blockers(
     scored.sort(
         key=lambda blocker: (
             state_priority.get(str(blocker.get("project_blocker_state")), -1),
+            blocker.get("actionability_score", 0.0),
+            blocker.get("impact_score", 0.0),
             blocker.get("project_branch_hit_count", 0),
-            blocker.get("score", 0.0),
             blocker.get("globally_unhit_function_count", 0),
             blocker.get("sum_blocked_function_undiscovered_complexity", 0),
         ),

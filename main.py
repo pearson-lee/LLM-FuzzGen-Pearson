@@ -127,6 +127,19 @@ def _read_existing_project_linecov_report(project_name: str) -> str:
     return ""
 
 
+def _load_project_target_reports(project_name: str) -> dict[str, str]:
+    reports_dir = oss_fuzz.build_out_dir / project_name / "textcov_reports"
+    if not reports_dir.is_dir():
+        return {}
+
+    reports: dict[str, str] = {}
+    for report_path in sorted(reports_dir.glob("*.linecovreport")):
+        if report_path.stem == "project":
+            continue
+        reports[report_path.stem] = report_path.read_text(encoding="utf-8")
+    return reports
+
+
 def _blocker_identity(blocker: dict) -> tuple[str, str, str]:
     return (
         str(blocker.get("source_file", "")),
@@ -163,9 +176,13 @@ def run_blocker_pipeline(
 
     blocker = blocker_record
     if blocker is None:
+        project_target_reports = _load_project_target_reports(project_name)
+        if not project_target_reports:
+            logger.warning("No per-target line coverage reports available for blocker selection in %s.", project_name)
+            return {"success": False, "reason": "missing_project_target_linecov", "dependency_result": None}
         blockers = aggregate_score_and_revalidate_blockers(
             json_path=str(resolved_json_path),
-            project_linecov_report=_read_existing_project_linecov_report(project_name),
+            project_target_reports=project_target_reports,
             top_k=blocker_top_k,
             include_resolved=True,
         )
@@ -245,8 +262,16 @@ def run_blocker_pipeline(
     pipeline_output = result.get("pipeline_output") or {}
     pipeline_parsed_output = pipeline_output.get("parsed_output") if isinstance(pipeline_output, dict) else None
     pipeline_success = None
+    pipeline_output_dir = None
+    pipeline_summary_path = None
+    pipeline_success_stage = None
+    pipeline_failure_stage = None
     if isinstance(pipeline_parsed_output, dict):
         pipeline_success = pipeline_parsed_output.get("success")
+        pipeline_output_dir = pipeline_parsed_output.get("output_dir")
+        pipeline_summary_path = pipeline_parsed_output.get("summary_path")
+        pipeline_success_stage = pipeline_parsed_output.get("success_stage")
+        pipeline_failure_stage = pipeline_parsed_output.get("failure_stage")
 
     _log_experiment_event(
         "blocker_pipeline_finished",
@@ -255,7 +280,15 @@ def run_blocker_pipeline(
         dependency_result=result.get("dependency_result"),
         pipeline_methods=pipeline_methods,
         pipeline_success=pipeline_success,
+        pipeline_output_dir=pipeline_output_dir,
+        pipeline_summary_path=pipeline_summary_path,
+        pipeline_success_stage=pipeline_success_stage,
+        pipeline_failure_stage=pipeline_failure_stage,
         reason=result.get("reason"),
+        target_name=blocker.get("best_target"),
+        function_name=blocker.get("function_name"),
+        branch_line_number=blocker.get("branch_line_number"),
+        blocked_side_line_number=blocked_side_line_number,
     )
     if success:
         logger.info("Blocker pipeline finished successfully for %s.", project_name)
@@ -314,14 +347,14 @@ def run_blocker_session(
         logger.warning("Blocker session skipped for %s because branch-blockers.json is unavailable.", project_name)
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_blocker_json"}
 
-    project_linecov_report = _read_existing_project_linecov_report(project_name)
-    if not project_linecov_report:
-        logger.warning("No project line coverage report available for blocker selection in %s.", project_name)
-        return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_project_linecov"}
+    project_target_reports = _load_project_target_reports(project_name)
+    if not project_target_reports:
+        logger.warning("No per-target line coverage reports available for blocker selection in %s.", project_name)
+        return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_project_target_linecov"}
 
     blockers = aggregate_score_and_revalidate_blockers(
         json_path=str(resolved_json_path),
-        project_linecov_report=project_linecov_report,
+        project_target_reports=project_target_reports,
         top_k=blocker_top_k,
     )
     if not blockers:
@@ -404,7 +437,7 @@ def run_blocker_session(
             logger.info("Skipping post-blocker coverage for %s because the fuzzing deadline was reached.", project_name)
             break
         post_summary = oss_fuzz.coverage(project_name, deadline=deadline)
-        project_linecov_report = _read_existing_project_linecov_report(project_name)
+        project_target_reports = _load_project_target_reports(project_name)
         _log_experiment_event(
             "blocker_post_coverage",
             project_name=project_name,
@@ -420,7 +453,7 @@ def run_blocker_session(
             pipeline_success=pipeline_result.get("pipeline_success"),
         )
 
-        if attempted < blocker_session_size and project_linecov_report:
+        if attempted < blocker_session_size and project_target_reports:
             if state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker":
                 if not ensure_blocker_artifacts(
                     project_name=project_name,
@@ -430,9 +463,10 @@ def run_blocker_session(
                     deadline=deadline,
                 ):
                     break
+                project_target_reports = _load_project_target_reports(project_name)
             reranked = aggregate_score_and_revalidate_blockers(
                 json_path=str(resolved_json_path),
-                project_linecov_report=project_linecov_report,
+                project_target_reports=project_target_reports,
                 top_k=blocker_top_k,
             )
             selected_blockers = [
@@ -736,7 +770,7 @@ def run_all_fuzzer(
     blocker_keep_auto_context: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
-    llm_backend: str = "gemini",
+    llm_backend: str = "vertexai",
     model_name: str | None = None,
 ):
     """
@@ -974,13 +1008,13 @@ def _parse_args() -> argparse.Namespace:
     parser_process.add_argument(
         "--llm",
         choices=["gemini", "vertexai", "openrouter", "ollama"],
-        default="gemini",
+        default="vertexai",
         help="Specify the LLM backend to use.",
     )
     parser_process.add_argument(
         "--model",
         type=str,
-        default=None,
+        default="gemini-2.5-flash",
         help="Specify the model name to use, overriding the default in config.",
     )
     add_periodic_coverage_args(parser_process)
@@ -1030,13 +1064,13 @@ def _parse_args() -> argparse.Namespace:
     parser_run.add_argument(
         "--llm",
         choices=["gemini", "vertexai", "openrouter", "ollama"],
-        default="gemini",
+        default="vertexai",
         help="Specify the LLM backend to use.",
     )
     parser_run.add_argument(
         "--model",
         type=str,
-        default=None,
+        default="gemini-2.5-flash",
         help="Specify the model name to use, overriding the default in config.",
     )
     parser_run.add_argument(
@@ -1121,9 +1155,26 @@ def _parse_args() -> argparse.Namespace:
 
 
 def generate_report_and_start_webapp(project_name: str, seconds: int = 60, clean: bool = False) -> bool:
+    started_at = time.perf_counter()
     if not oss_fuzz.generate_report(project_name, seconds, clean):
+        _log_experiment_event(
+            "introspector_report_finished",
+            success=False,
+            project_name=project_name,
+            requested_seconds=seconds,
+            clean=clean,
+            elapsed_seconds=time.perf_counter() - started_at,
+        )
         logger.error(f"Failed to generate report for {project_name}")
         return False
+    _log_experiment_event(
+        "introspector_report_finished",
+        success=True,
+        project_name=project_name,
+        requested_seconds=seconds,
+        clean=clean,
+        elapsed_seconds=time.perf_counter() - started_at,
+    )
 
     if not introspector.update_start_webapp():
         logger.error("Failed to start web application")
@@ -1512,7 +1563,8 @@ def main() -> None:
         global llm_client
         global experiment_logger
         llm_client = LLMClient(backend=args.llm, model_name=args.model)
-        experiment_logger = ExperimentLogger(system_name="baseline", project_name=log_name)
+        system_name = "blocker" if args.command == "run_all_fuzzer" and args.use_blocker else "baseline"
+        experiment_logger = ExperimentLogger(system_name=system_name, project_name=log_name)
         _log_experiment_event(
             "run_started",
             command=args.command,

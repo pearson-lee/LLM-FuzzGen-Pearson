@@ -14,8 +14,9 @@ import tempfile
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SYMCC_SOLVER = REPO_ROOT / "blocker_process" / "symcc_blocker_solver.py"
+MODULE_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = MODULE_ROOT.parent.parent
+SYMCC_SOLVER = MODULE_ROOT / "symcc_blocker_solver.py"
 KLEE_IMAGE = "klee/klee:3.0"
 OSS_FUZZ_OUT = REPO_ROOT / "external" / "oss-fuzz" / "build" / "out"
 

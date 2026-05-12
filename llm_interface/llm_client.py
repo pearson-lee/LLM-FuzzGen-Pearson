@@ -83,7 +83,7 @@ class LLMClient:
             if backend == "vertexai":
                 import vertexai
                 import langchain_google_vertexai
-                PROJECT_ID = "modern-binder-493613-e7" 
+                PROJECT_ID = "regal-wall-495909-g5" 
                 LOCATION = "us-central1"
 
                 vertexai.init(project=PROJECT_ID, location=LOCATION)

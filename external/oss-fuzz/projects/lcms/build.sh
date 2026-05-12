@@ -82,3 +82,35 @@ cp $SRC/llm_fuzzgen.dict $OUT/ || true
 cp $SRC/llm_fuzzgen*.options $OUT/ || true
 cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 #######################
+
+# Export CLEAN Source Tree For KLEE
+PROJECT_NAME="lcms"
+OUT_PROJECT_DIR="$OUT/source_code"
+
+# Ensure clean dir (and avoid "file exists" if a file was created by mistake)
+if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then
+  rm -f "$OUT_PROJECT_DIR"
+fi
+mkdir -p "$OUT_PROJECT_DIR"
+
+# copy source files
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete --no-perms \
+    --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+    --exclude='build' --exclude='cmake' --exclude='CMakeFiles' \
+    --exclude='*.o' --exclude='*.a' --exclude='*.so' --exclude='*.dll' \
+    "$SRC/lcms/" "$OUT_PROJECT_DIR/"
+else
+  find "$SRC/lcms" -maxdepth 1 -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+    -exec cp {} "$OUT_PROJECT_DIR/" \;
+fi
+
+# copy include directory if exists
+if [ -d "$SRC/include" ]; then
+  rsync -a --delete --no-perms "$SRC/include/" "$OUT_PROJECT_DIR/include/" 2>/dev/null || \
+    { mkdir -p "$OUT_PROJECT_DIR/include"; cp -r "$SRC/include/." "$OUT_PROJECT_DIR/include/"; }
+fi
+
+# copy klee harness files if present
+find "$SRC" -maxdepth 1 -type f \( -name "klee_*.c" -o -name "klee_*.cpp" \) \
+  -exec cp {} "$OUT_PROJECT_DIR/" \;

@@ -12,12 +12,14 @@ import sys
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = MODULE_ROOT.parent
+REPO_ROOT = MODULE_ROOT.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from external.oss_fuzz import OSSFuzz
 from blocker_process.coverage_utils import get_line_execution_count
+from blocker_process.dependent.format_inference import FormatInfo, infer_input_format
+from blocker_process.dependent.format_strategies import build_format_strategy_notes
 import config.config as config
 
 try:
@@ -187,12 +189,24 @@ def seed_to_bytes(seed: str) -> bytes:
         return seed.encode("utf-8")
 
 
-def save_sample_seeds(output_dir: Path, sample_seeds: list[str]) -> list[Path]:
+def choose_seed_extension(seed: str, format_info: FormatInfo) -> str:
+    if format_info.extensions:
+        return format_info.extensions[0]
+
+    trimmed = seed.lstrip()
+    if trimmed.startswith("<"):
+        return ".xml"
+    if trimmed.startswith("{") or trimmed.startswith("["):
+        return ".json"
+    return ".txt" if format_info.is_text else ".bin"
+
+
+def save_sample_seeds(output_dir: Path, sample_seeds: list[str], format_info: FormatInfo) -> list[Path]:
     seeds_dir = output_dir / "sample_seeds"
     seeds_dir.mkdir(parents=True, exist_ok=True)
     saved_paths: list[Path] = []
     for index, seed in enumerate(sample_seeds, start=1):
-        suffix = ".xml" if seed.lstrip().startswith("<") else ".bin"
+        suffix = choose_seed_extension(seed, format_info)
         target = seeds_dir / f"seed_{index:02d}{suffix}"
         target.write_bytes(seed_to_bytes(seed))
         saved_paths.append(target)
@@ -235,6 +249,16 @@ def build_prompt(args: argparse.Namespace) -> str:
             max(branch_line, blocked_line) + 20,
         )
 
+    format_info = infer_input_format(
+        project_name=args.project_name,
+        function_name=args.function_name,
+        fuzz_target_code=fuzz_target_code,
+        source_code=source_code,
+        triggering_input_path=triggering_input_path if triggering_input_path != "inline" else args.triggering_input,
+        triggering_input_preview=triggering_input_preview,
+    )
+    format_strategy_notes = build_format_strategy_notes(format_info)
+
     mapping = {
         "project_name": args.project_name,
         "language": language,
@@ -268,7 +292,9 @@ def build_prompt(args: argparse.Namespace) -> str:
         ),
         "cfg_call_chain": clip_text(resolve_text(args.cfg_call_chain_file, args.cfg_call_chain), max_chars=6000),
         "cfg_source_codes": clip_text(resolve_text(args.cfg_source_codes_file, args.cfg_source_codes), max_chars=8000),
+        "format_strategy_notes": format_strategy_notes,
     }
+    mapping.update(format_info.to_prompt_mapping())
     template = load_text(TEMPLATE_PATH)
     return format_prompt(template, mapping)
 
@@ -620,6 +646,35 @@ def compute_coverage_delta(baseline: dict, post_merge: dict) -> dict:
     }
 
 
+def classify_iteration_status(
+    validation_ok: bool,
+    generated_seed_count: int,
+    baseline_evaluation: dict,
+    post_merge_evaluation: dict,
+    coverage_delta: dict,
+) -> tuple[str, str]:
+    if not validation_ok:
+        return "invalid_generator", "Generator validation failed."
+    if generated_seed_count <= 0:
+        return "invalid_generator", "Generator produced no materialized seeds."
+    if not baseline_evaluation.get("success"):
+        return "evaluation_failed", f"Baseline evaluation failed: {baseline_evaluation.get('error', 'unknown error')}"
+    if not post_merge_evaluation.get("success"):
+        return "evaluation_failed", f"Post-merge evaluation failed: {post_merge_evaluation.get('error', 'unknown error')}"
+    if post_merge_evaluation.get("blocked_side_line_reached"):
+        return "solved", "Blocked-side line reached after merging generated seeds."
+
+    branch_delta = int(coverage_delta.get("branch_hit_count_delta", 0))
+    blocked_delta = int(coverage_delta.get("blocked_side_hit_count_delta", 0))
+    if blocked_delta > 0:
+        return "progress", "Blocked-side hit count increased but blocker is not fully solved."
+    if branch_delta > 0:
+        return "progress", "Branch-line hit count increased."
+    if post_merge_evaluation.get("branch_line_reached") and not post_merge_evaluation.get("blocked_side_line_reached"):
+        return "stalled_at_branch", "Seeds still reach the branch line but do not cross the blocked side."
+    return "no_progress", "No useful coverage growth was observed from generated seeds."
+
+
 def summarize_evaluation(
     iteration_index: int,
     generated_seed_count: int,
@@ -631,9 +686,13 @@ def summarize_evaluation(
     baseline_evaluation: dict,
     post_merge_evaluation: dict,
     coverage_delta: dict,
+    iteration_status: str,
+    status_reason: str,
 ) -> str:
     lines = [
         f"Iteration: {iteration_index}",
+        f"Iteration status: {iteration_status}",
+        f"Status reason: {status_reason}",
         f"Generator validation: {'success' if validation_ok else 'failed'}",
         f"Materialized seed count: {generated_seed_count}",
         f"Added seed count this iteration: {added_seed_count}",
@@ -680,6 +739,15 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
 
     setup_file_logging(args.function_name)
     base_prompt = build_prompt(args)
+    triggering_input_path, triggering_input_preview = resolve_triggering_input(args.triggering_input)
+    format_info = infer_input_format(
+        project_name=args.project_name,
+        function_name=args.function_name,
+        fuzz_target_code=read_optional_file(args.fuzz_file),
+        source_code=read_optional_file(args.source_file),
+        triggering_input_path=triggering_input_path if triggering_input_path != "inline" else args.triggering_input,
+        triggering_input_preview=triggering_input_preview,
+    )
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_project = sanitize_name(args.project_name)
     safe_function = sanitize_name(args.function_name)
@@ -734,7 +802,9 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         (iteration_dir / "parsed.json").write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
 
         generator_path = write_generator(iteration_dir, generator_code, generator_filename)
-        saved_seed_paths = save_sample_seeds(iteration_dir, sample_seeds) if isinstance(sample_seeds, list) else []
+        saved_seed_paths = (
+            save_sample_seeds(iteration_dir, sample_seeds, format_info) if isinstance(sample_seeds, list) else []
+        )
 
         validation_ok, validation_output, generated_dir = validate_generator(generator_path, iteration_dir)
         generated_seed_count = len([p for p in generated_dir.rglob("*") if p.is_file()]) if generated_dir.exists() else 0
@@ -811,6 +881,14 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 "error": "Generator validation failed or no seeds were materialized.",
             }
 
+        iteration_status, status_reason = classify_iteration_status(
+            validation_ok=validation_ok,
+            generated_seed_count=generated_seed_count,
+            baseline_evaluation=baseline_evaluation,
+            post_merge_evaluation=post_merge_evaluation,
+            coverage_delta=coverage_delta,
+        )
+
         evaluation_summary = summarize_evaluation(
             iteration_index=iteration_index,
             generated_seed_count=generated_seed_count,
@@ -822,6 +900,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             baseline_evaluation=baseline_evaluation,
             post_merge_evaluation=post_merge_evaluation,
             coverage_delta=coverage_delta,
+            iteration_status=iteration_status,
+            status_reason=status_reason,
         )
         (iteration_dir / "evaluation.txt").write_text(evaluation_summary, encoding="utf-8")
 
@@ -844,7 +924,10 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "coverage_delta": coverage_delta,
             "evaluation": post_merge_evaluation,
             "evaluation_summary": evaluation_summary,
-            "success": bool(post_merge_evaluation.get("blocked_side_line_reached")),
+            "success": iteration_status == "solved",
+            "iteration_status": iteration_status,
+            "status_reason": status_reason,
+            "format_info": format_info.to_prompt_mapping(),
         }
         iterations.append(iteration_record)
 
@@ -874,30 +957,42 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         previous_seed_preview = seed_preview
 
     success = any(item.get("success") for item in iterations)
+    progress_iteration_count = sum(1 for item in iterations if item.get("iteration_status") == "progress")
+    stalled_iteration_count = sum(1 for item in iterations if item.get("iteration_status") == "stalled_at_branch")
+    invalid_iteration_count = sum(
+        1 for item in iterations if item.get("iteration_status") in {"invalid_generator", "evaluation_failed"}
+    )
+    final_status = "solved" if success else "progress" if progress_iteration_count > 0 else "stalled_at_branch" if stalled_iteration_count > 0 else "failed"
     return {
         "output_dir": str(output_dir),
         "success": success,
+        "final_status": final_status,
         "pipeline_methods": ["llm_seed_generator"],
         "used_llm_seed_generator": True,
         "used_symcc": False,
         "used_klee": False,
         "iterations_run": len(iterations),
+        "progress_iteration_count": progress_iteration_count,
+        "stalled_iteration_count": stalled_iteration_count,
+        "invalid_iteration_count": invalid_iteration_count,
         "max_iterations": args.max_iterations,
         "fuzz_seconds_per_iteration": args.fuzz_seconds,
         "best_iteration": best_iteration,
         "iterations": iterations,
+        "format_info": format_info.to_prompt_mapping(),
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a blocker-oriented Python seed generator with an LLM.")
-    parser.add_argument("--backend", default="gemini", choices=["gemini", "vertexai", "openrouter", "ollama"])
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
+    parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--project-name", required=True)
     parser.add_argument("--function-name", required=True)
     parser.add_argument("--branch-line-number", required=True)
     parser.add_argument("--blocked-side-line-number", required=True)
     parser.add_argument("--source-file", required=True)
+    parser.add_argument("--source-api-file", default=None)
     parser.add_argument("--fuzz-file", required=True)
     parser.add_argument("--header-file", default=None)
     parser.add_argument("--language", default=None)

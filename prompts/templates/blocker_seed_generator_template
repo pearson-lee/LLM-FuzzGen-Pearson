@@ -103,11 +103,32 @@ This is dynamic evidence from a real execution path that reached the blocker.
 {triggering_input_preview}
 ```
 
+## Inferred native input format
+- Family: `{format_family}`
+- MIME hint: `{format_mime_hint}`
+- Text format: `{format_is_text}`
+- Preferred extensions: `{format_extensions}`
+- Encoding: `{format_encoding}`
+- Container style: `{format_container_style}`
+- Structural features: `{format_features}`
+- Confidence: `{format_confidence}`
+
+Reasoning:
+{format_reasoning}
+
+Structured view:
+```json
+{format_info_json}
+```
+
+## Format-specific generator guidance
+{format_strategy_notes}
+
 # What To Infer
 
 From the code and blocker location, infer:
 
-1. What native input structure reaches this code.
+1. What native input structure reaches this code. Prefer the inferred format above unless the code strongly contradicts it.
 2. Which input features are most likely to control the blocked branch.
 3. Which boundary values, malformed forms, or encoding variants should be systematically generated.
 4. How to organize those hypotheses into maintainable Python code instead of one-off samples.
@@ -139,7 +160,8 @@ The JSON object must have exactly these keys:
 - `generator_code` must be valid Python 3.
 - `sample_seeds` must be representative outputs of the generator.
 - Keep the generator compact and readable.
-- If the target format is text-based, emit text seeds. If binary is needed, generate bytes in Python code.
+- If the inferred target format is text-based, emit text seeds in that native format. If binary is needed, generate bytes in Python code.
+- The generated filenames inside `build_seeds()` should use the preferred extension when practical.
 - Prefer explicit boundary values over probabilistic logic.
 
 # Final Reminder
