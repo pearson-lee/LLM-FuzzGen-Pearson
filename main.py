@@ -176,15 +176,32 @@ def run_blocker_pipeline(
 
     blocker = blocker_record
     if blocker is None:
+        reports_started_at = time.perf_counter()
         project_target_reports = _load_project_target_reports(project_name)
+        reports_elapsed = time.perf_counter() - reports_started_at
+        logger.info(
+            "Loaded %d per-target line coverage reports for %s in %.2fs.",
+            len(project_target_reports),
+            project_name,
+            reports_elapsed,
+        )
         if not project_target_reports:
             logger.warning("No per-target line coverage reports available for blocker selection in %s.", project_name)
             return {"success": False, "reason": "missing_project_target_linecov", "dependency_result": None}
+        ranking_started_at = time.perf_counter()
         blockers = aggregate_score_and_revalidate_blockers(
             json_path=str(resolved_json_path),
             project_target_reports=project_target_reports,
             top_k=blocker_top_k,
             include_resolved=True,
+        )
+        ranking_elapsed = time.perf_counter() - ranking_started_at
+        logger.info(
+            "Global blocker reranking for %s produced %d candidate(s) in %.2fs (top_k=%d).",
+            project_name,
+            len(blockers),
+            ranking_elapsed,
+            blocker_top_k,
         )
         if not blockers:
             logger.warning("No blockers available in %s.", resolved_json_path)
@@ -488,6 +505,56 @@ def run_blocker_session(
     return {"success": succeeded > 0, "attempted": attempted, "succeeded": succeeded, "reason": "completed"}
 
 
+def run_blocker_once(
+    project_name: str,
+    llm_backend: str,
+    model_name: str | None,
+    blocker_json_path: Path | None = None,
+    blocker_index: int = 0,
+    blocker_top_k: int = 12,
+    blocker_max_iterations: int = 3,
+    blocker_fuzz_seconds: int = 15,
+    blocker_reset_corpus_per_iteration: bool = False,
+    blocker_keep_auto_context: bool = False,
+    blocker_artifact_report_seconds: int = 30,
+    prepare_artifacts: bool = False,
+    force_refresh_artifacts: bool = False,
+    artifact_refresh_mode: str = "reuse",
+    timeout_seconds: int = 0,
+) -> bool:
+    state = BlockerRuntimeState()
+    deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
+
+    if prepare_artifacts:
+        if not ensure_blocker_artifacts(
+            project_name=project_name,
+            report_seconds=blocker_artifact_report_seconds,
+            state=state,
+            force_refresh=force_refresh_artifacts or artifact_refresh_mode == "refresh",
+            deadline=deadline,
+        ):
+            logger.error("Failed to prepare blocker artifacts for %s.", project_name)
+            return False
+
+    result = run_blocker_pipeline(
+        project_name=project_name,
+        llm_backend=llm_backend,
+        model_name=model_name,
+        blocker_json_path=blocker_json_path,
+        blocker_index=blocker_index,
+        blocker_top_k=blocker_top_k,
+        blocker_max_iterations=blocker_max_iterations,
+        blocker_fuzz_seconds=blocker_fuzz_seconds,
+        blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
+        blocker_keep_auto_context=blocker_keep_auto_context,
+        deadline=deadline,
+    )
+    if not result.get("success"):
+        logger.warning("Direct blocker run failed for %s: %s", project_name, result.get("reason"))
+        return False
+    return True
+
+
 def _coverage_metric_to_dict(summary: TotalCoverageSummary | None, metric_name: str) -> dict[str, float | int] | None:
     if not summary:
         return None
@@ -499,6 +566,28 @@ def _coverage_metric_to_dict(summary: TotalCoverageSummary | None, metric_name: 
         "covered": metric.covered,
         "percent": metric.percent,
     }
+
+
+def _log_final_run_coverage(
+    project_name: str,
+    run_seconds: int,
+    summary: TotalCoverageSummary | None,
+    *,
+    includes_blocker: bool,
+) -> None:
+    _log_experiment_event(
+        "final_run_coverage",
+        project_name=project_name,
+        coverage_scope="final_post_fuzzing_and_blocker" if includes_blocker else "final_post_fuzzing",
+        fuzzing_time_budget_seconds=run_seconds,
+        recorded_after_fuzzing_deadline=True,
+        line_coverage=_get_coverage_metric(summary, "lines"),
+        branch_coverage=_get_coverage_metric(summary, "branches"),
+        functions_coverage=_get_coverage_metric(summary, "functions"),
+        line_coverage_summary=_coverage_metric_to_dict(summary, "lines"),
+        branch_coverage_summary=_coverage_metric_to_dict(summary, "branches"),
+        functions_coverage_summary=_coverage_metric_to_dict(summary, "functions"),
+    )
 
 
 class CoverageTimelineRecorder:
@@ -645,8 +734,13 @@ def run_fuzzers_and_get_coverage(
 
     if not use_blocker:
         oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
-        if get_coverage and time.monotonic() < deadline:
-            oss_fuzz.coverage(proj_name, deadline=deadline)
+        if get_coverage:
+            _log_final_run_coverage(
+                proj_name,
+                run_seconds,
+                oss_fuzz.coverage(proj_name),
+                includes_blocker=False,
+            )
         return
 
     if not get_coverage or coverage_interval <= 0 or coverage_interval >= run_seconds:
@@ -656,8 +750,13 @@ def run_fuzzers_and_get_coverage(
             proj_name,
         )
         oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
-        if get_coverage and time.monotonic() < deadline:
-            oss_fuzz.coverage(proj_name, deadline=deadline)
+        if get_coverage:
+            _log_final_run_coverage(
+                proj_name,
+                run_seconds,
+                oss_fuzz.coverage(proj_name),
+                includes_blocker=True,
+            )
         return
 
     recorder = CoverageTimelineRecorder(
@@ -705,7 +804,7 @@ def run_fuzzers_and_get_coverage(
             chunk_seconds, int(remaining_seconds)
         )
         
-        oss_fuzz.run_all_fuzzers(
+        oss_fuzz.run_all_fuzzers_scheduled(
             proj_name,
             chunk_seconds,
             max_workers=fuzz_targets_parallel,
@@ -745,6 +844,14 @@ def run_fuzzers_and_get_coverage(
                 break
             logger.warning("Continuing fuzzing for %s despite stagnant coverage.", proj_name)
 
+    final_summary = oss_fuzz.coverage(proj_name)
+    _log_final_run_coverage(
+        proj_name,
+        run_seconds,
+        final_summary,
+        includes_blocker=use_blocker,
+    )
+
 def run_all_fuzzer(
     project_names: list[str],
     run_seconds: int,
@@ -778,6 +885,7 @@ def run_all_fuzzer(
     and optionally shows the coverage summary.
     """
     logger.info("Running all fuzzers")
+    overall_success = True
 
     # Determine which projects to process
     build_out_dir = Path("./external/oss-fuzz/build/out/")
@@ -833,8 +941,10 @@ def run_all_fuzzer(
                     future.result()  # We don't need the result, but this will raise exceptions if any occurred
                     logger.info(f"Successfully completed fuzzing for {project_name}")
                 except BaseException:
+                    overall_success = False
                     logger.exception(f"Failed to complete fuzzing for {project_name}")
     except KeyboardInterrupt:
+        overall_success = False
         logger.info("Fuzzing interrupted by user. Shutting down...")
 
     if analyze_crashes:
@@ -846,7 +956,7 @@ def run_all_fuzzer(
         introspector.shutdown_webapp()
 
     if not print_coverage:
-        return
+        return overall_success
 
     # Collect data for the table
     table_data = []
@@ -892,7 +1002,7 @@ def run_all_fuzzer(
     # Display table
     if not table_data:
         logger.info("No projects found to display.")
-        return
+        return overall_success
 
     headers = ["Project", "Branches (%)", "Functions (%)", "Lines (%)", "Fuzz Targets"]
 
@@ -910,6 +1020,7 @@ def run_all_fuzzer(
 
     logger.info("Coverage Summary")
     logger.info("=" * len(header_line))
+    return overall_success
     logger.info(header_line)
     logger.info(separator_line)
 
@@ -1149,6 +1260,73 @@ def _parse_args() -> argparse.Namespace:
         help="Seconds passed to introspector report generation when refreshing blocker artifacts. Default 30.",
     )
     add_periodic_coverage_args(parser_run)
+
+    parser_blocker = subparsers.add_parser("run_blocker_once", help="Run a single blocker pipeline directly.")
+    parser_blocker.add_argument("project_name", help="The project name to run the blocker pipeline for.")
+    parser_blocker.add_argument(
+        "--llm",
+        choices=["gemini", "vertexai", "openrouter", "ollama"],
+        default="vertexai",
+        help="Specify the LLM backend to use.",
+    )
+    parser_blocker.add_argument(
+        "--model",
+        type=str,
+        default="gemini-2.5-flash",
+        help="Specify the model name to use, overriding the default in config.",
+    )
+    parser_blocker.add_argument(
+        "--blocker-json-path",
+        type=Path,
+        default=None,
+        help="Path to branch-blockers.json. If omitted, common project report locations are checked automatically.",
+    )
+    parser_blocker.add_argument("--blocker-index", type=int, default=0, help="Which ranked blocker to solve. Default 0.")
+    parser_blocker.add_argument("--blocker-top-k", type=int, default=12, help="How many blockers to consider. Default 12.")
+    parser_blocker.add_argument("--blocker-max-iterations", type=int, default=3, help="Maximum blocker iterations.")
+    parser_blocker.add_argument("--blocker-fuzz-seconds", type=int, default=15, help="Fuzzing seconds per iteration.")
+    parser_blocker.add_argument(
+        "--blocker-reset-corpus-per-iteration",
+        action="store_true",
+        default=False,
+        help="Reset blocker corpus between iterations.",
+    )
+    parser_blocker.add_argument(
+        "--blocker-keep-auto-context",
+        action="store_true",
+        default=False,
+        help="Keep auto-resolved blocker context files under logs/auto_context.",
+    )
+    parser_blocker.add_argument(
+        "--blocker-artifact-report-seconds",
+        type=int,
+        default=30,
+        help="Seconds passed to introspector report generation when preparing blocker artifacts.",
+    )
+    parser_blocker.add_argument(
+        "--prepare-artifacts",
+        action="store_true",
+        default=False,
+        help="Prepare blocker artifacts before running the selected blocker.",
+    )
+    parser_blocker.add_argument(
+        "--force-refresh-artifacts",
+        action="store_true",
+        default=False,
+        help="Force a blocker artifact refresh when preparing artifacts.",
+    )
+    parser_blocker.add_argument(
+        "--artifact-refresh-mode",
+        choices=["reuse", "refresh"],
+        default="reuse",
+        help="Whether artifact preparation reuses current data or forces a refresh.",
+    )
+    parser_blocker.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=0,
+        help="Optional wall-clock timeout for the entire direct blocker run. 0 disables the timeout.",
+    )
 
     args = parser.parse_args()
     return args
@@ -1574,7 +1752,7 @@ def main() -> None:
         )
         
         if args.command == "run_all_fuzzer":
-            run_all_fuzzer(
+            run_success = run_all_fuzzer(
                 args.project_names,
                 args.run_fuzzers,
                 args.parallel,
@@ -1602,7 +1780,29 @@ def main() -> None:
                 args.llm,
                 args.model,
             )
-            _log_experiment_event("run_finished", success=True, total_seconds=time.perf_counter() - t0)
+            _log_experiment_event("run_finished", success=run_success, total_seconds=time.perf_counter() - t0)
+            logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
+            return
+
+        if args.command == "run_blocker_once":
+            run_success = run_blocker_once(
+                project_name=args.project_name,
+                llm_backend=args.llm,
+                model_name=args.model,
+                blocker_json_path=args.blocker_json_path,
+                blocker_index=args.blocker_index,
+                blocker_top_k=args.blocker_top_k,
+                blocker_max_iterations=args.blocker_max_iterations,
+                blocker_fuzz_seconds=args.blocker_fuzz_seconds,
+                blocker_reset_corpus_per_iteration=args.blocker_reset_corpus_per_iteration,
+                blocker_keep_auto_context=args.blocker_keep_auto_context,
+                blocker_artifact_report_seconds=args.blocker_artifact_report_seconds,
+                prepare_artifacts=args.prepare_artifacts,
+                force_refresh_artifacts=args.force_refresh_artifacts,
+                artifact_refresh_mode=args.artifact_refresh_mode,
+                timeout_seconds=args.timeout_seconds,
+            )
+            _log_experiment_event("run_finished", success=run_success, total_seconds=time.perf_counter() - t0)
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
             return
 

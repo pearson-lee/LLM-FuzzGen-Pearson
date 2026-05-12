@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+import time
 from glob import glob
 from typing import Any, Dict, Iterable, List, Optional
 from blocker_process.coverage_utils import get_line_execution_count
@@ -506,8 +507,12 @@ def annotate_blockers_with_project_target_coverage(
     blockers: List[Dict[str, Any]],
     project_target_reports: Dict[str, str],
 ) -> List[Dict[str, Any]]:
+    started_at = time.perf_counter()
     annotated: List[Dict[str, Any]] = []
+    total_target_scans = 0
+    slowest_blocker: tuple[str, float, int] | None = None
     for blocker in blockers:
+        blocker_started_at = time.perf_counter()
         branch_line = _safe_int(blocker.get("branch_line_number", 0))
         blocked_side_line = _safe_int(
             blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)),
@@ -522,6 +527,7 @@ def annotate_blockers_with_project_target_coverage(
         per_target_hits: List[Dict[str, Any]] = []
 
         for target_name, report_text in project_target_reports.items():
+            total_target_scans += 1
             branch_raw = get_line_execution_count(
                 report_text,
                 branch_line,
@@ -582,6 +588,23 @@ def annotate_blockers_with_project_target_coverage(
             annotated_blocker["project_relevant"] = True
 
         annotated.append(annotated_blocker)
+        blocker_elapsed = time.perf_counter() - blocker_started_at
+        blocker_label = (
+            f"{annotated_blocker.get('function_name', 'unknown')}:{annotated_blocker.get('branch_line_number', 'unknown')}"
+        )
+        if slowest_blocker is None or blocker_elapsed > slowest_blocker[1]:
+            slowest_blocker = (blocker_label, blocker_elapsed, len(project_target_reports))
+
+    total_elapsed = time.perf_counter() - started_at
+    avg_targets_per_blocker = (total_target_scans / len(blockers)) if blockers else 0.0
+    slowest_label = slowest_blocker[0] if slowest_blocker else "n/a"
+    slowest_elapsed = slowest_blocker[1] if slowest_blocker else 0.0
+    print(
+        "[Timing] annotate_blockers_with_project_target_coverage: "
+        f"blockers={len(blockers)} targets={len(project_target_reports)} "
+        f"target_scans={total_target_scans} avg_targets_per_blocker={avg_targets_per_blocker:.2f} "
+        f"slowest_blocker={slowest_label} slowest_elapsed={slowest_elapsed:.2f}s total={total_elapsed:.2f}s"
+    )
 
     return annotated
 
@@ -594,15 +617,29 @@ def aggregate_score_and_revalidate_blockers(
     summary_json_path: Optional[str] = None,
     include_resolved: bool = False,
 ) -> List[Dict[str, Any]]:
+    started_at = time.perf_counter()
+    aggregate_started_at = time.perf_counter()
     blockers = aggregate_blockers(json_path=json_path, top_k=None)
+    aggregate_elapsed = time.perf_counter() - aggregate_started_at
+    annotate_started_at = time.perf_counter()
     annotated = annotate_blockers_with_project_target_coverage(blockers, project_target_reports)
+    annotate_elapsed = time.perf_counter() - annotate_started_at
 
+    filter_started_at = time.perf_counter()
     if not include_resolved:
         annotated = [blocker for blocker in annotated if blocker.get("project_relevant")]
+    filter_elapsed = time.perf_counter() - filter_started_at
 
     if not annotated:
+        total_elapsed = time.perf_counter() - started_at
+        print(
+            "[Timing] aggregate_score_and_revalidate_blockers: "
+            f"aggregate={aggregate_elapsed:.2f}s annotate={annotate_elapsed:.2f}s "
+            f"filter={filter_elapsed:.2f}s total={total_elapsed:.2f}s blockers_in={len(blockers)} annotated=0"
+        )
         return []
 
+    pre_score_started_at = time.perf_counter()
     scored = aggregate_and_score_blockers(
         json_path=json_path,
         top_k=None,
@@ -610,10 +647,12 @@ def aggregate_score_and_revalidate_blockers(
         summary_json_path=summary_json_path,
         preloaded_data={"revalidated": annotated},
     )
+    pre_score_elapsed = time.perf_counter() - pre_score_started_at
 
     # `aggregate_and_score_blockers` expects a target->blockers mapping. For revalidated
     # blockers we already have global entries, so score them inline instead.
     if "revalidated" in {"revalidated": annotated}:
+        inline_score_started_at = time.perf_counter()
         function_coverage_map = load_project_function_coverage(all_functions_js_path)
         file_coverage_map = load_project_file_coverage(summary_json_path)
         scored = []
@@ -636,12 +675,16 @@ def aggregate_score_and_revalidate_blockers(
             enriched["impact_score"] = impact_score
             enriched["score"] = actionability_score + impact_score
             scored.append(enriched)
+        inline_score_elapsed = time.perf_counter() - inline_score_started_at
+    else:
+        inline_score_elapsed = 0.0
 
     state_priority = {
         "stalled_at_branch": 2,
         "unreached_branch": 1,
         "resolved": 0,
     }
+    sort_started_at = time.perf_counter()
     scored.sort(
         key=lambda blocker: (
             state_priority.get(str(blocker.get("project_blocker_state")), -1),
@@ -652,6 +695,15 @@ def aggregate_score_and_revalidate_blockers(
             blocker.get("sum_blocked_function_undiscovered_complexity", 0),
         ),
         reverse=True,
+    )
+    sort_elapsed = time.perf_counter() - sort_started_at
+    total_elapsed = time.perf_counter() - started_at
+    print(
+        "[Timing] aggregate_score_and_revalidate_blockers: "
+        f"aggregate={aggregate_elapsed:.2f}s annotate={annotate_elapsed:.2f}s "
+        f"filter={filter_elapsed:.2f}s pre_score={pre_score_elapsed:.2f}s "
+        f"inline_score={inline_score_elapsed:.2f}s sort={sort_elapsed:.2f}s "
+        f"total={total_elapsed:.2f}s blockers_in={len(blockers)} annotated={len(annotated)} scored={len(scored)}"
     )
     if top_k is not None and top_k > 0:
         return scored[:top_k]

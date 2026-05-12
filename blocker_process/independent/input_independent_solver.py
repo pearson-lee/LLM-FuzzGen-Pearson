@@ -694,6 +694,8 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
     if baseline_evaluation.get("blocked_side_line_reached"):
         return {
             "success": True,
+            "success_stage": "baseline_evaluation",
+            "failure_stage": None,
             "pipeline_methods": [],
             "output_dir": str(output_dir),
             "baseline_evaluation": baseline_evaluation,
@@ -722,6 +724,8 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
     if any(item.get("success") for item in reference_guided_iterations):
         return {
             "success": True,
+            "success_stage": "reference_guided_generation",
+            "failure_stage": None,
             "pipeline_methods": ["reference_guided_generation"],
             "output_dir": str(output_dir),
             "baseline_evaluation": baseline_evaluation,
@@ -747,8 +751,11 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
     dedicated_generation_iterations = dedicated_generation_result["iterations"]
 
     all_iterations = reference_guided_iterations + dedicated_generation_iterations
+    final_success = any(item.get("success") for item in all_iterations)
     return {
-        "success": any(item.get("success") for item in all_iterations),
+        "success": final_success,
+        "success_stage": "dedicated_generation" if final_success else None,
+        "failure_stage": None if final_success else "dedicated_generation",
         "pipeline_methods": [
             method
             for method, used in [

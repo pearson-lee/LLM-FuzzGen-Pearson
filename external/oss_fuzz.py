@@ -10,7 +10,7 @@ import time
 import uuid
 import zipfile
 import os
-from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -201,6 +201,9 @@ class OSSFuzz:
     def _copy_directory_contents(self, source_dir: Path, destination_dir: Path) -> None:
         destination_dir.mkdir(parents=True, exist_ok=True)
         for source_path in source_dir.iterdir():
+            if source_path.name == "inspector":
+                logger.info("Skipping cached inspector artifacts from %s during copy.", source_dir)
+                continue
             destination_path = destination_dir / source_path.name
             if source_path.is_dir():
                 shutil.copytree(source_path, destination_path, dirs_exist_ok=True)
@@ -468,7 +471,51 @@ class OSSFuzz:
         max_workers: int | None = None,
         deadline: float | None = None,
     ):
-        """Build and run fuzzers within a wall-clock budget using least-served-first scheduling."""
+        """Build and run all fuzzers using the original per-target execution model."""
+        logger.info(f"Building all fuzzers for project {project_name}")
+        build_result = self.build_fuzzers(project_name, deadline=deadline)
+        if not build_result.success:
+            logger.error(f"Failed to build fuzzers for project {project_name}.")
+            return
+        if deadline is not None and deadline - time.monotonic() <= 0:
+            logger.info(f"Skipping fuzzers for {project_name}; deadline reached after build.")
+            return
+
+        fuzzers_to_run = self._list_project_fuzzers(project_name)
+        if not fuzzers_to_run:
+            logger.warning("No llm_fuzzgen fuzzers found for %s.", project_name)
+            return
+
+        try:
+            with ThreadPoolExecutor(max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self.run_fuzzer,
+                        project_name,
+                        fuzzer_name,
+                        seconds,
+                        build_fuzzer=False,
+                        deadline=deadline,
+                    )
+                    for fuzzer_name in fuzzers_to_run
+                    if deadline is None or deadline - time.monotonic() > 0
+                }
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except BaseException as exc:
+                        logger.error(f"Fuzzer execution generated an exception: {exc}")
+        except KeyboardInterrupt:
+            logger.info("Fuzzing interrupted by user. Shutting down...")
+
+    def run_all_fuzzers_scheduled(
+        self,
+        project_name: str,
+        seconds: int = 30,
+        max_workers: int | None = None,
+        deadline: float | None = None,
+    ):
+        """Run fuzzers within a wall-clock budget using least-served-first scheduling."""
         logger.info(f"Building all fuzzers for project {project_name}")
         build_result = self.build_fuzzers(project_name, deadline=deadline)
         if not build_result.success:

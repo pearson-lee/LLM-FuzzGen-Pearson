@@ -1,5 +1,16 @@
+import logging
+import os
 import re
+from functools import lru_cache
 
+
+logger = logging.getLogger(__name__)
+ENABLE_CACHED_LOOKUP_VALIDATION = os.environ.get("BLOCKER_VALIDATE_CACHED_LOOKUP", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 _LINE_ENTRY_RE = re.compile(r"^\s*(?P<line>\d+)\|(?P<count>[^|]*)\|(?P<code>.*)$")
 
@@ -63,18 +74,13 @@ def _extract_count_from_lines(lines: list[str], line_no: int) -> list[str]:
     return matches
 
 
-def get_line_execution_count(
+def _legacy_get_line_execution_count(
     report: str,
     line_no: int,
     *,
     function_name: str | None = None,
     raw_function_name: str | None = None,
 ) -> str:
-    """Extract the execution count for a source line from llvm-cov output.
-
-    Prefer the target function's section when llvm-cov emits multiple function blocks.
-    Fall back to scanning the full report when the report is a single-file listing.
-    """
     if not report or line_no <= 0:
         return ""
 
@@ -96,3 +102,105 @@ def get_line_execution_count(
     if global_matches:
         return global_matches[0]
     return ""
+
+
+@lru_cache(maxsize=64)
+def _build_report_index(report: str) -> tuple[dict[str, dict[int, list[str]]], dict[int, list[str]]]:
+    sections = _iter_function_sections(report)
+    section_indexes: dict[str, dict[int, list[str]]] = {}
+    global_index: dict[int, list[str]] = {}
+
+    for header, section_lines in sections:
+        header_key = _normalize_name(header)
+        line_index: dict[int, list[str]] = {}
+        for line in section_lines:
+            match = _LINE_ENTRY_RE.match(line)
+            if not match:
+                continue
+            line_no = int(match.group("line"))
+            count = match.group("count").strip()
+            line_index.setdefault(line_no, []).append(count)
+            global_index.setdefault(line_no, []).append(count)
+        if header_key:
+            existing = section_indexes.setdefault(header_key, {})
+            for line_no, counts in line_index.items():
+                existing.setdefault(line_no, []).extend(counts)
+
+    if not global_index:
+        for line in report.splitlines():
+            match = _LINE_ENTRY_RE.match(line)
+            if not match:
+                continue
+            line_no = int(match.group("line"))
+            count = match.group("count").strip()
+            global_index.setdefault(line_no, []).append(count)
+
+    return section_indexes, global_index
+
+
+def _cached_get_line_execution_count(
+    report: str,
+    line_no: int,
+    *,
+    function_name: str | None = None,
+    raw_function_name: str | None = None,
+) -> str:
+    if not report or line_no <= 0:
+        return ""
+
+    section_indexes, global_index = _build_report_index(report)
+    candidates = [_normalize_name(function_name), _normalize_name(raw_function_name)]
+    candidates = [candidate for candidate in candidates if candidate]
+
+    for header_key, line_index in section_indexes.items():
+        if not any(candidate in header_key for candidate in candidates):
+            continue
+        matches = line_index.get(line_no, [])
+        if matches:
+            return matches[0]
+
+    global_matches = global_index.get(line_no, [])
+    if len(global_matches) == 1:
+        return global_matches[0]
+    if global_matches:
+        return global_matches[0]
+    return ""
+
+
+def get_line_execution_count(
+    report: str,
+    line_no: int,
+    *,
+    function_name: str | None = None,
+    raw_function_name: str | None = None,
+) -> str:
+    """Extract the execution count for a source line from llvm-cov output.
+
+    Prefer the target function's section when llvm-cov emits multiple function blocks.
+    Fall back to scanning the full report when the report is a single-file listing.
+    """
+    legacy_result = _legacy_get_line_execution_count(
+        report,
+        line_no,
+        function_name=function_name,
+        raw_function_name=raw_function_name,
+    )
+    if not ENABLE_CACHED_LOOKUP_VALIDATION:
+        return legacy_result
+
+    cached_result = _cached_get_line_execution_count(
+        report,
+        line_no,
+        function_name=function_name,
+        raw_function_name=raw_function_name,
+    )
+    if legacy_result != cached_result:
+        logger.warning(
+            "Coverage lookup mismatch at line=%s function=%s raw_function=%s legacy=%r cached=%r",
+            line_no,
+            function_name,
+            raw_function_name,
+            legacy_result,
+            cached_result,
+        )
+    return legacy_result

@@ -675,6 +675,58 @@ def classify_iteration_status(
     return "no_progress", "No useful coverage growth was observed from generated seeds."
 
 
+def diagnose_iteration(
+    iteration_status: str,
+    validation_ok: bool,
+    generated_seed_count: int,
+    staging_metadata: dict,
+    baseline_evaluation: dict,
+    post_merge_evaluation: dict,
+    coverage_delta: dict,
+) -> dict:
+    branch_delta = int(coverage_delta.get("branch_hit_count_delta", 0) or 0)
+    blocked_delta = int(coverage_delta.get("blocked_side_hit_count_delta", 0) or 0)
+    added_seed_count = int(staging_metadata.get("added_seed_count", 0) or 0)
+    skipped_duplicate_seed_count = int(staging_metadata.get("skipped_duplicate_seed_count", 0) or 0)
+    branch_reached = bool(post_merge_evaluation.get("branch_line_reached"))
+    blocked_reached = bool(post_merge_evaluation.get("blocked_side_line_reached"))
+
+    if not validation_ok or generated_seed_count <= 0:
+        code = "generator_invalid"
+        action = "Inspect generator_code and validation_output before changing prompt strategy."
+    elif added_seed_count == 0 and skipped_duplicate_seed_count > 0:
+        code = "generated_seeds_duplicate_existing_behavior"
+        action = "Ask the next iteration for structurally different seed families."
+    elif not baseline_evaluation.get("success") or not post_merge_evaluation.get("success"):
+        code = "coverage_evaluation_failed"
+        action = "Fix build or coverage evaluation before interpreting seed quality."
+    elif blocked_reached:
+        code = "solved"
+        action = "Stop seed generation for this blocker."
+    elif branch_reached and blocked_delta <= 0:
+        code = "reaches_branch_but_condition_not_satisfied"
+        action = "Refine blocker-controlled fields or escalate to SymCC if the path is stable."
+    elif branch_delta > 0 or blocked_delta > 0:
+        code = "partial_coverage_progress"
+        action = "Preserve useful seed families and refine values near the blocker."
+    else:
+        code = "structure_not_reaching_blocker"
+        action = "Change higher-level input structure or revisit inferred format."
+
+    return {
+        "diagnosis_code": code,
+        "recommended_next_action": action,
+        "symcc_candidate": code == "reaches_branch_but_condition_not_satisfied",
+        "branch_hit_count_delta": branch_delta,
+        "blocked_side_hit_count_delta": blocked_delta,
+        "added_seed_count": added_seed_count,
+        "skipped_duplicate_seed_count": skipped_duplicate_seed_count,
+        "branch_line_reached": branch_reached,
+        "blocked_side_line_reached": blocked_reached,
+        "iteration_status": iteration_status,
+    }
+
+
 def summarize_evaluation(
     iteration_index: int,
     generated_seed_count: int,
@@ -688,11 +740,15 @@ def summarize_evaluation(
     coverage_delta: dict,
     iteration_status: str,
     status_reason: str,
+    diagnosis: dict,
 ) -> str:
     lines = [
         f"Iteration: {iteration_index}",
         f"Iteration status: {iteration_status}",
         f"Status reason: {status_reason}",
+        f"Diagnosis: {diagnosis.get('diagnosis_code', 'unknown')}",
+        f"Recommended next action: {diagnosis.get('recommended_next_action', 'N/A')}",
+        f"SymCC candidate: {diagnosis.get('symcc_candidate', False)}",
         f"Generator validation: {'success' if validation_ok else 'failed'}",
         f"Materialized seed count: {generated_seed_count}",
         f"Added seed count this iteration: {added_seed_count}",
@@ -888,6 +944,15 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             post_merge_evaluation=post_merge_evaluation,
             coverage_delta=coverage_delta,
         )
+        diagnosis = diagnose_iteration(
+            iteration_status=iteration_status,
+            validation_ok=validation_ok,
+            generated_seed_count=generated_seed_count,
+            staging_metadata=staging_metadata,
+            baseline_evaluation=baseline_evaluation,
+            post_merge_evaluation=post_merge_evaluation,
+            coverage_delta=coverage_delta,
+        )
 
         evaluation_summary = summarize_evaluation(
             iteration_index=iteration_index,
@@ -902,6 +967,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             coverage_delta=coverage_delta,
             iteration_status=iteration_status,
             status_reason=status_reason,
+            diagnosis=diagnosis,
         )
         (iteration_dir / "evaluation.txt").write_text(evaluation_summary, encoding="utf-8")
 
@@ -927,6 +993,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "success": iteration_status == "solved",
             "iteration_status": iteration_status,
             "status_reason": status_reason,
+            "diagnosis": diagnosis,
             "format_info": format_info.to_prompt_mapping(),
         }
         iterations.append(iteration_record)
@@ -962,6 +1029,16 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     invalid_iteration_count = sum(
         1 for item in iterations if item.get("iteration_status") in {"invalid_generator", "evaluation_failed"}
     )
+    diagnosis_counts: dict[str, int] = {}
+    symcc_candidate_iteration_count = 0
+    for item in iterations:
+        diagnosis = item.get("diagnosis", {})
+        if not isinstance(diagnosis, dict):
+            continue
+        diagnosis_code = str(diagnosis.get("diagnosis_code", "unknown"))
+        diagnosis_counts[diagnosis_code] = diagnosis_counts.get(diagnosis_code, 0) + 1
+        if diagnosis.get("symcc_candidate"):
+            symcc_candidate_iteration_count += 1
     final_status = "solved" if success else "progress" if progress_iteration_count > 0 else "stalled_at_branch" if stalled_iteration_count > 0 else "failed"
     return {
         "output_dir": str(output_dir),
@@ -975,6 +1052,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         "progress_iteration_count": progress_iteration_count,
         "stalled_iteration_count": stalled_iteration_count,
         "invalid_iteration_count": invalid_iteration_count,
+        "symcc_candidate_iteration_count": symcc_candidate_iteration_count,
+        "diagnosis_counts": diagnosis_counts,
         "max_iterations": args.max_iterations,
         "fuzz_seconds_per_iteration": args.fuzz_seconds,
         "best_iteration": best_iteration,
