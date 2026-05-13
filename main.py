@@ -197,10 +197,10 @@ def run_blocker_pipeline(
         )
         ranking_elapsed = time.perf_counter() - ranking_started_at
         logger.info(
-            "Global blocker reranking for %s produced %d candidate(s) in %.2fs (top_k=%d).",
+            "Blocker selector for %s completed in %.2fs and produced %d candidate(s) (top_k=%d).",
             project_name,
-            len(blockers),
             ranking_elapsed,
+            len(blockers),
             blocker_top_k,
         )
         if not blockers:
@@ -369,10 +369,19 @@ def run_blocker_session(
         logger.warning("No per-target line coverage reports available for blocker selection in %s.", project_name)
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_project_target_linecov"}
 
+    selection_started_at = time.perf_counter()
     blockers = aggregate_score_and_revalidate_blockers(
         json_path=str(resolved_json_path),
         project_target_reports=project_target_reports,
         top_k=blocker_top_k,
+    )
+    selection_elapsed = time.perf_counter() - selection_started_at
+    logger.info(
+        "Blocker selector for %s completed in %.2fs and produced %d candidate(s) (top_k=%d).",
+        project_name,
+        selection_elapsed,
+        len(blockers),
+        blocker_top_k,
     )
     if not blockers:
         logger.warning("Blocker session skipped for %s because no blockers were found.", project_name)
@@ -481,10 +490,19 @@ def run_blocker_session(
                 ):
                     break
                 project_target_reports = _load_project_target_reports(project_name)
+            rerank_started_at = time.perf_counter()
             reranked = aggregate_score_and_revalidate_blockers(
                 json_path=str(resolved_json_path),
                 project_target_reports=project_target_reports,
                 top_k=blocker_top_k,
+            )
+            rerank_elapsed = time.perf_counter() - rerank_started_at
+            logger.info(
+                "Blocker selector rerank for %s completed in %.2fs and produced %d candidate(s) (top_k=%d).",
+                project_name,
+                rerank_elapsed,
+                len(reranked),
+                blocker_top_k,
             )
             selected_blockers = [
                 candidate

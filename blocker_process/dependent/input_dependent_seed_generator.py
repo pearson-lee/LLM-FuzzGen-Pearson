@@ -549,6 +549,7 @@ def evaluate_iteration_with_coverage(
     fuzzer_name: str,
     function_name: str,
     source_file: str,
+    source_api_file: str | None,
     branch_line: int,
     blocked_side_line: int,
     fuzz_seconds: int,
@@ -563,7 +564,8 @@ def evaluate_iteration_with_coverage(
             "error": f"Coverage build failed: {build_result.error}",
         }
 
-    container_source_file = guess_container_source_file(project_name, source_file)
+    coverage_source = source_api_file or source_file
+    container_source_file = guess_container_source_file(project_name, coverage_source)
     out_dir = oss_fuzz.build_out_dir / project_name
     corpus_root = oss_fuzz.build_corpus_dir / project_name
     corpus_name = corpus_subdir_name or fuzzer_name
@@ -880,6 +882,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 fuzzer_name=fuzzer_name,
                 function_name=args.function_name,
                 source_file=args.source_file,
+                source_api_file=args.source_api_file,
                 branch_line=int(args.branch_line_number),
                 blocked_side_line=int(args.blocked_side_line_number),
                 fuzz_seconds=args.fuzz_seconds,
@@ -908,6 +911,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 fuzzer_name=fuzzer_name,
                 function_name=args.function_name,
                 source_file=args.source_file,
+                source_api_file=args.source_api_file,
                 branch_line=int(args.branch_line_number),
                 blocked_side_line=int(args.blocked_side_line_number),
                 fuzz_seconds=args.fuzz_seconds,

@@ -621,6 +621,10 @@ def aggregate_score_and_revalidate_blockers(
     aggregate_started_at = time.perf_counter()
     blockers = aggregate_blockers(json_path=json_path, top_k=None)
     aggregate_elapsed = time.perf_counter() - aggregate_started_at
+    print(
+        "[Info] aggregate_score_and_revalidate_blockers: "
+        f"deduplicated_global_blockers={len(blockers)}"
+    )
     annotate_started_at = time.perf_counter()
     annotated = annotate_blockers_with_project_target_coverage(blockers, project_target_reports)
     annotate_elapsed = time.perf_counter() - annotate_started_at
