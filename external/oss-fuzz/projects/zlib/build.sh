@@ -48,7 +48,7 @@ for f in $(find $SRC -name '*_fuzzer.c'); do
     $CC $CFLAGS -I. $f -c -o /tmp/$b.o
     $CXX $CXXFLAGS -o $OUT/$b /tmp/$b.o -stdlib=libc++ $LIB_FUZZING_ENGINE -Wl,--whole-archive ./libz.a -Wl,--no-whole-archive
     rm -f /tmp/$b.o
-    ln -sf $OUT/seed_corpus.zip $OUT/${b}_seed_corpus.zip
+    cp $OUT/seed_corpus.zip $OUT/${b}_seed_corpus.zip
 done
 
 ##### LLM-FuzzGen #####
@@ -70,3 +70,22 @@ cp $SRC/llm_fuzzgen.dict $OUT/ || true
 cp $SRC/llm_fuzzgen*.options $OUT/ || true
 cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
 #######################
+
+# Export CLEAN Source Tree
+OUT_PROJECT_DIR="$OUT/source_code"
+
+if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then
+  rm -f "$OUT_PROJECT_DIR"
+fi
+mkdir -p "$OUT_PROJECT_DIR"
+
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete --no-perms \
+    --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+    --exclude='build' --exclude='CMakeFiles' \
+    --exclude='*.o' --exclude='*.a' --exclude='*.so' --exclude='*.dll' \
+    "$SRC/zlib/" "$OUT_PROJECT_DIR/"
+else
+  find "$SRC/zlib" -maxdepth 1 -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+    -exec cp {} "$OUT_PROJECT_DIR/" \;
+fi

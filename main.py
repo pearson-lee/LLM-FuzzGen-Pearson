@@ -41,6 +41,7 @@ class BlockerRuntimeState:
     total_blockers_succeeded: int = 0
     last_artifact_refresh_elapsed: int | None = None
     last_stall_elapsed: int | None = None
+    artifact_branch_covered_baseline: int | None = None
     attempted_blocker_keys: set[tuple[str, str, str]] = field(default_factory=set)
 
 
@@ -337,6 +338,8 @@ def run_blocker_session(
     blocker_keep_auto_context: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
+    blocker_refresh_branch_growth_threshold: float = 0.05,
+    blocker_refresh_branch_growth_floor: int = 50,
     deadline: float | None = None,
 ) -> dict:
     if deadline is not None and deadline - time.monotonic() <= 0:
@@ -350,6 +353,36 @@ def run_blocker_session(
         not state.artifacts_ready
         or (state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker")
     )
+    if (
+        blocker_session_refresh_mode == "reuse_session_artifacts"
+        and state.artifacts_ready
+        and state.artifact_branch_covered_baseline is not None
+    ):
+        refresh_probe_summary = oss_fuzz.coverage(project_name, deadline=deadline)
+        current_branch_covered = _get_coverage_count(refresh_probe_summary, "branches")
+        branch_growth = current_branch_covered - state.artifact_branch_covered_baseline
+        branch_growth_ratio = branch_growth / max(
+            state.artifact_branch_covered_baseline,
+            blocker_refresh_branch_growth_floor,
+        )
+        logger.info(
+            "Blocker artifact refresh check for %s: baseline=%d current=%d delta=%d ratio=%.4f threshold=%.4f.",
+            project_name,
+            state.artifact_branch_covered_baseline,
+            current_branch_covered,
+            branch_growth,
+            branch_growth_ratio,
+            blocker_refresh_branch_growth_threshold,
+        )
+        if branch_growth_ratio >= blocker_refresh_branch_growth_threshold:
+            force_refresh = True
+            state.artifacts_dirty = True
+            logger.info(
+                "Refreshing blocker artifacts for %s because covered branch growth ratio %.4f reached the threshold.",
+                project_name,
+                branch_growth_ratio,
+            )
+    refreshed_artifacts = (not state.artifacts_ready) or force_refresh
     if not ensure_blocker_artifacts(
         project_name=project_name,
         report_seconds=blocker_artifact_report_seconds,
@@ -358,6 +391,14 @@ def run_blocker_session(
         deadline=deadline,
     ):
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "artifact_refresh_failed"}
+    if refreshed_artifacts:
+        baseline_summary = oss_fuzz.coverage(project_name, deadline=deadline)
+        state.artifact_branch_covered_baseline = _get_coverage_count(baseline_summary, "branches")
+        logger.info(
+            "Updated blocker artifact branch baseline for %s to %d covered branches.",
+            project_name,
+            state.artifact_branch_covered_baseline,
+        )
 
     resolved_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
     if resolved_json_path is None:
@@ -740,6 +781,8 @@ def run_fuzzers_and_get_coverage(
     blocker_keep_auto_context: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
+    blocker_refresh_branch_growth_threshold: float = 0.05,
+    blocker_refresh_branch_growth_floor: int = 50,
     llm_backend: str = "vertexai",
     model_name: str | None = None,
 ):
@@ -801,6 +844,8 @@ def run_fuzzers_and_get_coverage(
             blocker_keep_auto_context=blocker_keep_auto_context,
             blocker_session_refresh_mode=blocker_session_refresh_mode,
             blocker_artifact_report_seconds=blocker_artifact_report_seconds,
+            blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
+            blocker_refresh_branch_growth_floor=blocker_refresh_branch_growth_floor,
             deadline=deadline,
         )
     start_wall_time = time.monotonic()
@@ -855,6 +900,8 @@ def run_fuzzers_and_get_coverage(
                     blocker_keep_auto_context=blocker_keep_auto_context,
                     blocker_session_refresh_mode=blocker_session_refresh_mode,
                     blocker_artifact_report_seconds=blocker_artifact_report_seconds,
+                    blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
+                    blocker_refresh_branch_growth_floor=blocker_refresh_branch_growth_floor,
                     deadline=deadline,
                 )
             if stop_on_coverage_stall:
@@ -895,6 +942,8 @@ def run_all_fuzzer(
     blocker_keep_auto_context: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
+    blocker_refresh_branch_growth_threshold: float = 0.05,
+    blocker_refresh_branch_growth_floor: int = 50,
     llm_backend: str = "vertexai",
     model_name: str | None = None,
 ):
@@ -947,6 +996,8 @@ def run_all_fuzzer(
                     blocker_keep_auto_context,
                     blocker_session_refresh_mode,
                     blocker_artifact_report_seconds,
+                    blocker_refresh_branch_growth_threshold,
+                    blocker_refresh_branch_growth_floor,
                     llm_backend,
                     model_name,
                 ): project_name
@@ -1277,6 +1328,24 @@ def _parse_args() -> argparse.Namespace:
         default=30,
         help="Seconds passed to introspector report generation when refreshing blocker artifacts. Default 30.",
     )
+    parser_run.add_argument(
+        "--blocker-refresh-branch-growth-threshold",
+        type=float,
+        default=0.05,
+        help=(
+            "Refresh blocker artifacts before the next blocker session when covered branch growth "
+            "since the last refresh reaches this ratio. Default 0.05."
+        ),
+    )
+    parser_run.add_argument(
+        "--blocker-refresh-branch-growth-floor",
+        type=int,
+        default=50,
+        help=(
+            "Minimum denominator used when computing covered branch growth ratio for blocker artifact refresh. "
+            "Default 50."
+        ),
+    )
     add_periodic_coverage_args(parser_run)
 
     parser_blocker = subparsers.add_parser("run_blocker_once", help="Run a single blocker pipeline directly.")
@@ -1510,6 +1579,14 @@ def _get_coverage_metric(summary: TotalCoverageSummary | None, metric_name: str)
         return 0.0
     metric = getattr(summary, metric_name, None)
     return metric.percent if metric else 0.0
+
+
+def _get_coverage_count(summary: TotalCoverageSummary | None, metric_name: str) -> int:
+    """Safely extracts a covered count, defaulting to 0."""
+    if not summary:
+        return 0
+    metric = getattr(summary, metric_name, None)
+    return int(metric.covered) if metric else 0
 
 
 def _log_experiment_event(event: str, **payload) -> None:
@@ -1795,6 +1872,8 @@ def main() -> None:
                 args.blocker_keep_auto_context,
                 args.blocker_session_refresh_mode,
                 args.blocker_artifact_report_seconds,
+                args.blocker_refresh_branch_growth_threshold,
+                args.blocker_refresh_branch_growth_floor,
                 args.llm,
                 args.model,
             )

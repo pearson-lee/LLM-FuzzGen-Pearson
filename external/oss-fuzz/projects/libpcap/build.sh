@@ -78,3 +78,21 @@ ls *.txt | while read i; do tail -1 $i > corpus/$i; done
 zip -r fuzz_filter_seed_corpus.zip corpus/
 cp fuzz_filter_seed_corpus.zip $OUT/
 
+# Export CLEAN Source Tree
+OUT_PROJECT_DIR="$OUT/source_code"
+
+if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then
+  rm -f "$OUT_PROJECT_DIR"
+fi
+mkdir -p "$OUT_PROJECT_DIR"
+
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete --no-perms \
+    --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+    --exclude='build' --exclude='CMakeFiles' \
+    --exclude='*.o' --exclude='*.a' --exclude='*.so' --exclude='*.dll' \
+    "$SRC/libpcap/" "$OUT_PROJECT_DIR/"
+else
+  find "$SRC/libpcap" -maxdepth 1 -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+    -exec cp {} "$OUT_PROJECT_DIR/" \;
+fi
