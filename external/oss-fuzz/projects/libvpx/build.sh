@@ -31,6 +31,8 @@ if [ "$SANITIZER" == "introspector" ]; then
 fi
 #######################
 # Build libvpx
+chmod 0644 "$SRC"/vpx_fuzzer_seed_corpus.zip 2>/dev/null || true
+chmod 0644 "$SRC"/llm_fuzzgen*_seed_corpus.zip 2>/dev/null || true
 build_dir=$WORK/build
 rm -rf ${build_dir}
 mkdir -p ${build_dir}
@@ -75,6 +77,7 @@ for decoder in "${fuzzer_decoders[@]}"; do
     -Wl,--end-group
 
   cp $SRC/vpx_fuzzer_seed_corpus.zip $OUT/${fuzzer_name}_seed_corpus.zip
+  chmod 0644 $OUT/${fuzzer_name}_seed_corpus.zip
   cp $SRC/vpx_dec_fuzzer.dict $OUT/${fuzzer_name}.dict
 done
 ##### LLM-FuzzGen #####
@@ -99,4 +102,24 @@ done
 cp $SRC/llm_fuzzgen.dict $OUT/ || true
 cp $SRC/llm_fuzzgen*.options $OUT/ || true
 cp $SRC/llm_fuzzgen*_seed_corpus.zip $OUT/ || true
+chmod 0644 $OUT/llm_fuzzgen*_seed_corpus.zip 2>/dev/null || true
 #######################
+
+# Export CLEAN Source Tree
+OUT_PROJECT_DIR="$OUT/source_code"
+
+if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then
+  rm -f "$OUT_PROJECT_DIR"
+fi
+mkdir -p "$OUT_PROJECT_DIR"
+
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --delete --no-perms \
+    --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+    --exclude='build' --exclude='CMakeFiles' \
+    --exclude='*.o' --exclude='*.a' --exclude='*.so' --exclude='*.dll' \
+    "$SRC/libvpx/" "$OUT_PROJECT_DIR/"
+else
+  find "$SRC/libvpx" -maxdepth 1 -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+    -exec cp {} "$OUT_PROJECT_DIR/" \;
+fi
