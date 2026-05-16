@@ -375,6 +375,52 @@ def _filter_and_refine_project_blockers(
     return filtered
 
 
+def _build_blocker_immediate_validation_record(
+    project_name: str,
+    blocker: dict,
+    pipeline_result: dict,
+) -> dict | None:
+    project_report = _read_existing_project_linecov_report(project_name)
+    if not project_report:
+        return None
+
+    function_name = blocker.get("function_name")
+    branch_line_number = int(str(blocker.get("branch_line_number", "0")) or 0)
+    blocked_side_line_number = int(
+        str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
+    )
+    branch_hit_before = int(blocker.get("project_branch_hit_count", 0) or 0)
+    blocked_side_hit_before = int(blocker.get("project_blocked_hit_count", 0) or 0)
+    branch_hit_after = _normalize_hitcount(
+        get_line_execution_count(project_report, branch_line_number, function_name=function_name)
+    )
+    blocked_side_hit_after = _normalize_hitcount(
+        get_line_execution_count(project_report, blocked_side_line_number, function_name=function_name)
+    )
+
+    return {
+        "event": "blocker_immediate_validation",
+        "project": project_name,
+        "target_name": blocker.get("best_target"),
+        "function_name": function_name,
+        "branch_line_number": branch_line_number,
+        "blocked_side_line_number": blocked_side_line_number,
+        "branch_hit_before": branch_hit_before,
+        "branch_hit_after": branch_hit_after,
+        "blocked_side_hit_before": blocked_side_hit_before,
+        "blocked_side_hit_after": blocked_side_hit_after,
+        "branch_newly_reached": branch_hit_before == 0 and branch_hit_after > 0,
+        "blocked_side_newly_reached": blocked_side_hit_before == 0 and blocked_side_hit_after > 0,
+        "blocker_solved_immediately": blocked_side_hit_before == 0 and blocked_side_hit_after > 0,
+        "dependency_result": pipeline_result.get("dependency_result"),
+        "pipeline_methods": pipeline_result.get("pipeline_methods", []),
+        "pipeline_success": pipeline_result.get("pipeline_success"),
+        "pipeline_success_stage": pipeline_result.get("pipeline_success_stage"),
+        "classify_elapsed_seconds": pipeline_result.get("classify_elapsed_seconds"),
+        "pipeline_elapsed_seconds": pipeline_result.get("pipeline_elapsed_seconds"),
+    }
+
+
 def _blocker_identity(blocker: dict) -> tuple[str, str, str]:
     return (
         str(blocker.get("source_file", "")),
@@ -488,6 +534,7 @@ def run_blocker_pipeline(
         target_name=blocker.get("best_target"),
     )
 
+    pipeline_started_at = time.perf_counter()
     args = argparse.Namespace(
         backend=llm_backend,
         model=model_name,
@@ -525,7 +572,10 @@ def run_blocker_pipeline(
         language=None,
     )
 
+    classify_started_at = time.perf_counter()
     result = classify_blocker(args, execute_pipeline=True)
+    classify_elapsed = time.perf_counter() - classify_started_at
+    pipeline_elapsed = time.perf_counter() - pipeline_started_at
     pipeline_returncode = result.get("pipeline_returncode", 0)
     success = pipeline_returncode == 0
     pipeline_methods = result.get("pipeline_methods", [])
@@ -554,23 +604,59 @@ def run_blocker_pipeline(
         pipeline_summary_path=pipeline_summary_path,
         pipeline_success_stage=pipeline_success_stage,
         pipeline_failure_stage=pipeline_failure_stage,
+        classify_elapsed_seconds=classify_elapsed,
+        pipeline_elapsed_seconds=pipeline_elapsed,
         reason=result.get("reason"),
         target_name=blocker.get("best_target"),
         function_name=blocker.get("function_name"),
         branch_line_number=blocker.get("branch_line_number"),
         blocked_side_line_number=blocked_side_line_number,
     )
+    _append_blocker_pipeline_record(
+        event="blocker_pipeline_finished",
+        success=success,
+        dependency_result=result.get("dependency_result"),
+        target_name=blocker.get("best_target"),
+        function_name=blocker.get("function_name"),
+        branch_line_number=blocker.get("branch_line_number"),
+        blocked_side_line_number=blocked_side_line_number,
+        pipeline_methods=pipeline_methods,
+        pipeline_returncode=pipeline_returncode,
+        pipeline_success=pipeline_success,
+        pipeline_success_stage=pipeline_success_stage,
+        pipeline_failure_stage=pipeline_failure_stage,
+        classify_elapsed_seconds=classify_elapsed,
+        pipeline_elapsed_seconds=pipeline_elapsed,
+        pipeline_output_dir=pipeline_output_dir,
+        pipeline_summary_path=pipeline_summary_path,
+        reason=result.get("reason"),
+    )
     if success:
-        logger.info("Blocker pipeline finished successfully for %s.", project_name)
+        logger.info(
+            "Blocker pipeline finished successfully for %s in %.2fs (classify=%.2fs).",
+            project_name,
+            pipeline_elapsed,
+            classify_elapsed,
+        )
     else:
-        logger.warning("Blocker pipeline returned non-zero status for %s: %s", project_name, pipeline_returncode)
+        logger.warning(
+            "Blocker pipeline returned non-zero status for %s in %.2fs (classify=%.2fs): %s",
+            project_name,
+            pipeline_elapsed,
+            classify_elapsed,
+            pipeline_returncode,
+        )
     return {
         "success": success,
         "reason": result.get("reason"),
         "dependency_result": result.get("dependency_result"),
         "pipeline_methods": pipeline_methods,
         "pipeline_success": pipeline_success,
+        "pipeline_success_stage": pipeline_success_stage,
+        "pipeline_failure_stage": pipeline_failure_stage,
         "pipeline_returncode": pipeline_returncode,
+        "classify_elapsed_seconds": classify_elapsed,
+        "pipeline_elapsed_seconds": pipeline_elapsed,
     }
 
 
@@ -849,6 +935,13 @@ def run_blocker_session(
             pipeline_methods=pipeline_result.get("pipeline_methods", []),
             pipeline_success=pipeline_result.get("pipeline_success"),
         )
+        immediate_validation = _build_blocker_immediate_validation_record(
+            project_name=project_name,
+            blocker=blocker,
+            pipeline_result=pipeline_result,
+        )
+        if immediate_validation is not None:
+            _append_blocker_pipeline_record(**immediate_validation)
 
         if attempted < blocker_session_size:
             if state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker":
@@ -1937,6 +2030,27 @@ def _log_experiment_event(event: str, **payload) -> None:
     if experiment_logger is None:
         return
     experiment_logger.log_event(event, **payload)
+
+
+def _append_blocker_pipeline_record(**payload) -> None:
+    if experiment_logger is None:
+        return
+
+    output_dir = Path(__file__).parent / "artifacts" / "blocker_pipeline"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{experiment_logger.run_id}_{experiment_logger.project_name}.jsonl"
+    record = {
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "run_id": experiment_logger.run_id,
+        "project": experiment_logger.project_name,
+    }
+    record.update(payload)
+
+    try:
+        with output_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    except OSError as exc:
+        logger.warning("Failed to write blocker pipeline record to %s: %s", output_path, exc)
 
 
 def process_project(
