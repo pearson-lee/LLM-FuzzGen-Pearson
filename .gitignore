@@ -24,3 +24,11 @@ blocker_process/dependent/generated_harnesses/
 blocker_process/dependent/generated_symbolic_runs/
 blocker_process/independent/generated_targets/
 artifacts/
+llvm-project/
+llvm-project-14/
+libcxx_symcc_build/
+libcxx_symcc_install/
+symcc/build/
+symcc/build_simple/
+testSymccSTL_sym
+testSymccSTL_normal

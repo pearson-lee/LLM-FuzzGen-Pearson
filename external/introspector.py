@@ -122,7 +122,7 @@ class Introspector:
         )
         try:
             subprocess.run(
-                ["python", str(db_script_path), "--local-oss-fuzz", str(self.oss_fuzz_dir)],
+                ["python3", str(db_script_path), "--local-oss-fuzz", str(self.oss_fuzz_dir)],
                 cwd=db_script_path.parent,
                 check=True,
             )
@@ -156,7 +156,7 @@ class Introspector:
                 env = {**os.environ, "FUZZ_INTROSPECTOR_LOCAL_OSS_FUZZ": str(self.oss_fuzz_dir)}
 
                 subprocess.Popen(
-                    ["python", "./main.py"],
+                    ["python3", "./main.py"],
                     cwd=str(self.webapp_path),
                     env=env,
                     stdout=subprocess.DEVNULL,

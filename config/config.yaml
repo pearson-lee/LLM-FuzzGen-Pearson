@@ -1,18 +1,16 @@
 # MODEL_NAME: "gemini-2.5-pro"
 MODEL_NAME: "gemini-2.5-flash"
-# MODEL_NAME: "gemini-3-flash-preview"
 OLLAMA_MODEL: "qwen3:32b"
 OPENROUTER_MODEL: "deepseek/deepseek-r1-0528:floor"
 MAX_TOKENS: 32768
 THINK_BUDGET_TOKEN: 8192 # Setting the thinkingBudget to -1 turns on dynamic thinking on Gemini
 # ITERATION_LOOP: 100
-#ITERATION_LOOP: 3
 FUZZ_TARGET_TEMPERATURE: 0.5
 BLOCKER_CLASSIFIER_TEMPERATURE: 0.1
 SEED_GENERATOR_INITIAL_TEMPERATURE: 0.4
 SEED_GENERATOR_LATER_TEMPERATURE: 0.5
 INTROSPECTOR_API_BASE_URL: "http://localhost:8080/api"
-#FUZZ_TARGET_COMPILER_MAX_ATTEMPTS: 10
+# FUZZ_TARGET_COMPILER_MAX_ATTEMPTS: 10
 MIN_COVERAGE_IMPROVEMENT: 1.00  # Minimum coverage improvement to consider progress
 #NO_GROWTH_STOP_THRESHOLD: 10  # Stop iteration if no coverage growth for this many consecutive iterations
 #simple baseline

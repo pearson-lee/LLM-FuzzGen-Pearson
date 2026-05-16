@@ -13,6 +13,7 @@ from dataclasses import field
 import config.config as config
 import prompts.prompt_generator as prompt_generator
 from blocker_process.blocker_classifier import classify_blocker
+from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.global_blocker_selector import aggregate_score_and_revalidate_blockers
 from crash_analyzer.crash_analyzer import CrashAnalyzer
 from experiment_logger import ExperimentLogger
@@ -42,7 +43,48 @@ class BlockerRuntimeState:
     last_artifact_refresh_elapsed: int | None = None
     last_stall_elapsed: int | None = None
     artifact_branch_covered_baseline: int | None = None
+    artifact_target_fingerprint: str | None = None
+    pending_target_fingerprint: str | None = None
+    new_targets_since_full_rebuild: int = 0
+    light_refreshes_since_full_rebuild: int = 0
     attempted_blocker_keys: set[tuple[str, str, str]] = field(default_factory=set)
+
+
+@dataclass
+class BlockerCoverageContext:
+    project_report: str
+    target_reports: dict[str, str]
+
+
+BLOCKER_FULL_REFRESH_TARGET_THRESHOLD = 3
+BLOCKER_FULL_REFRESH_SESSION_INTERVAL = 3
+
+
+def _get_project_target_fingerprint(project_name: str) -> str | None:
+    try:
+        return oss_fuzz._get_project_target_fingerprint(project_name)
+    except BaseException as exc:
+        logger.warning("Failed to compute target fingerprint for %s: %s", project_name, exc)
+        return None
+
+
+def _log_blocker_session_skipped(
+    project_name: str,
+    state: BlockerRuntimeState,
+    reason: str,
+    elapsed_seconds: int,
+    **extra: object,
+) -> None:
+    _log_experiment_event(
+        "blocker_session_skipped",
+        project_name=project_name,
+        elapsed_seconds=elapsed_seconds,
+        session_number=state.sessions_run,
+        reason=reason,
+        artifacts_ready=state.artifacts_ready,
+        artifacts_dirty=state.artifacts_dirty,
+        **extra,
+    )
 
 
 def _default_blocker_json_candidates(project_name: str) -> list[Path]:
@@ -63,11 +105,20 @@ def _resolve_blocker_json_path(project_name: str, explicit_path: Path | None) ->
     return None
 
 
+def ensure_blocker_webapp_ready(project_name: str) -> bool:
+    logger.info("Ensuring Introspector webapp is ready for blocker session on %s.", project_name)
+    if introspector.update_start_webapp():
+        return True
+    logger.error("Failed to start Introspector webapp for blocker session on %s.", project_name)
+    return False
+
+
 def ensure_blocker_artifacts(
     project_name: str,
     report_seconds: int,
     state: BlockerRuntimeState,
     force_refresh: bool = False,
+    prefer_full_refresh: bool = False,
     deadline: float | None = None,
 ) -> bool:
     if deadline is not None and deadline - time.monotonic() <= 0:
@@ -78,23 +129,22 @@ def ensure_blocker_artifacts(
     if blocker_json_path is not None and state.artifacts_ready and not force_refresh:
         return True
 
-    refresh_mode = "full_refresh"
-    use_light_refresh = state.artifacts_ready and force_refresh
+    use_light_refresh = state.artifacts_ready and force_refresh and not prefer_full_refresh
+    refresh_mode = "light_refresh" if use_light_refresh else "full_refresh"
 
     logger.info(
         "Refreshing blocker artifacts for %s (mode=%s, force_refresh=%s, report_seconds=%s).",
         project_name,
-        "light_refresh" if use_light_refresh else refresh_mode,
+        refresh_mode,
         force_refresh,
         report_seconds,
     )
     started_at = time.perf_counter()
     if use_light_refresh:
-        refresh_mode = "light_refresh"
         success = oss_fuzz.refresh_blocker_report_from_existing_introspector(project_name, deadline=deadline)
         if not success:
             logger.warning(
-                "Light blocker artifact refresh failed for %s; falling back to full refresh.",
+                "Light blocker artifact refresh failed for %s; retrying with full refresh.",
                 project_name,
             )
             refresh_mode = "full_refresh_fallback"
@@ -118,6 +168,15 @@ def ensure_blocker_artifacts(
     state.artifacts_ready = True
     state.artifacts_dirty = False
     state.last_artifact_refresh_elapsed = report_seconds
+    current_fingerprint = _get_project_target_fingerprint(project_name)
+    if refresh_mode.startswith("full_refresh"):
+        state.artifact_target_fingerprint = current_fingerprint
+        state.pending_target_fingerprint = current_fingerprint
+        state.new_targets_since_full_rebuild = 0
+        state.light_refreshes_since_full_rebuild = 0
+    else:
+        state.pending_target_fingerprint = current_fingerprint
+        state.light_refreshes_since_full_rebuild += 1
     return True
 
 
@@ -141,12 +200,216 @@ def _load_project_target_reports(project_name: str) -> dict[str, str]:
     return reports
 
 
+def _normalize_hitcount(raw: str) -> int:
+    text = str(raw or "").strip()
+    if not text or text == "0":
+        return 0
+
+    suffix = text[-1]
+    multiplier = {"k": 1_000, "M": 1_000_000, "G": 1_000_000_000}.get(suffix, 1)
+    numeric = text[:-1] if multiplier != 1 else text
+    try:
+        return int(float(numeric) * multiplier)
+    except ValueError:
+        return 0
+
+
+def _read_branch_blocker_targets(blocker_json_path: Path) -> list[str]:
+    try:
+        data = json.loads(blocker_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to read blocker json %s: %s", blocker_json_path, exc)
+        return []
+
+    if not isinstance(data, dict):
+        return []
+    return sorted(str(target_name) for target_name in data.keys())
+
+
+def _expected_blocker_coverage_files(project_name: str, blocker_targets: list[str]) -> list[Path]:
+    reports_dir = oss_fuzz.build_out_dir / project_name / "textcov_reports"
+    expected = [
+        reports_dir / "project.linecovreport",
+        reports_dir / "summary_exclude_target.json",
+    ]
+    expected.extend(reports_dir / f"{target_name}.linecovreport" for target_name in blocker_targets)
+    return expected
+
+
+def _load_blocker_coverage_context(
+    project_name: str,
+    blocker_json_path: Path,
+    deadline: float | None = None,
+    repair_missing: bool = True,
+) -> BlockerCoverageContext | None:
+    blocker_targets = _read_branch_blocker_targets(blocker_json_path)
+    expected_files = _expected_blocker_coverage_files(project_name, blocker_targets)
+    missing_files = [path for path in expected_files if not path.exists()]
+
+    if missing_files and repair_missing:
+        logger.warning(
+            "Blocker coverage artifacts missing for %s; attempting repair via coverage(): %s",
+            project_name,
+            ", ".join(str(path.name) for path in missing_files[:8]),
+        )
+        oss_fuzz.coverage(project_name, deadline=deadline)
+        missing_files = [path for path in expected_files if not path.exists()]
+
+    if missing_files:
+        logger.warning(
+            "Blocker coverage artifacts are still incomplete for %s: %s",
+            project_name,
+            ", ".join(str(path) for path in missing_files[:8]),
+        )
+        return None
+
+    project_report = _read_existing_project_linecov_report(project_name)
+    target_reports = _load_project_target_reports(project_name)
+    if not project_report:
+        logger.warning("Project line coverage report is empty for %s.", project_name)
+        return None
+
+    available_targets = {target_name for target_name in blocker_targets if target_name in target_reports}
+    if len(available_targets) != len(blocker_targets):
+        missing_targets = sorted(set(blocker_targets) - available_targets)
+        logger.warning(
+            "Blocker target line coverage reports could not be loaded for %s: %s",
+            project_name,
+            ", ".join(missing_targets[:8]),
+        )
+        return None
+
+    return BlockerCoverageContext(
+        project_report=project_report,
+        target_reports=target_reports,
+    )
+
+
+def _filter_and_refine_project_blockers(
+    blockers: list[dict],
+    coverage_context: BlockerCoverageContext,
+) -> list[dict]:
+    filtered: list[dict] = []
+    for blocker in blockers:
+        branch_line = int(str(blocker.get("branch_line_number", "0")) or 0)
+        blocked_side_line = int(
+            str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
+        )
+        function_name = blocker.get("function_name")
+        project_branch_hit_count = _normalize_hitcount(
+            get_line_execution_count(
+                coverage_context.project_report,
+                branch_line,
+                function_name=function_name,
+            )
+        )
+        project_blocked_hit_count = _normalize_hitcount(
+            get_line_execution_count(
+                coverage_context.project_report,
+                blocked_side_line,
+                function_name=function_name,
+            )
+        )
+
+        if project_branch_hit_count <= 0 or project_blocked_hit_count > 0:
+            continue
+
+        refined = dict(blocker)
+        refined["project_branch_hit_count"] = project_branch_hit_count
+        refined["project_blocked_hit_count"] = project_blocked_hit_count
+        refined["project_branch_reached"] = True
+        refined["project_blocked_side_reached"] = False
+        refined["project_blocker_state"] = "stalled_at_branch"
+        refined["project_relevant"] = True
+
+        contributing_targets = [
+            str(target_name)
+            for target_name in blocker.get("contributing_targets", [])
+            if str(target_name) in coverage_context.target_reports
+        ]
+        branch_reached_targets: list[str] = []
+        blocked_side_reached_targets: list[str] = []
+        target_hit_details: list[dict[str, int | str]] = []
+        refined_best_target = refined.get("best_target")
+        refined_best_score = (-1, -1)
+
+        for target_name in contributing_targets:
+            report = coverage_context.target_reports[target_name]
+            branch_hit_count = _normalize_hitcount(
+                get_line_execution_count(report, branch_line, function_name=function_name)
+            )
+            blocked_hit_count = _normalize_hitcount(
+                get_line_execution_count(report, blocked_side_line, function_name=function_name)
+            )
+            if branch_hit_count > 0:
+                branch_reached_targets.append(target_name)
+            if blocked_hit_count > 0:
+                blocked_side_reached_targets.append(target_name)
+            if branch_hit_count > 0 or blocked_hit_count > 0:
+                target_hit_details.append(
+                    {
+                        "target_name": target_name,
+                        "branch_hit_count": branch_hit_count,
+                        "blocked_hit_count": blocked_hit_count,
+                    }
+                )
+            if branch_hit_count > 0 and blocked_hit_count == 0:
+                score = (branch_hit_count, 1 if target_name == blocker.get("best_target") else 0)
+                if score > refined_best_score:
+                    refined_best_score = score
+                    refined_best_target = target_name
+
+        refined["project_branch_reached_targets"] = sorted(branch_reached_targets)
+        refined["project_blocked_side_reached_targets"] = sorted(blocked_side_reached_targets)
+        refined["project_branch_reached_target_count"] = len(branch_reached_targets)
+        refined["project_blocked_side_reached_target_count"] = len(blocked_side_reached_targets)
+        refined["project_target_hit_details"] = sorted(
+            target_hit_details,
+            key=lambda item: (int(item["branch_hit_count"]), -int(item["blocked_hit_count"])),
+            reverse=True,
+        )
+        if refined_best_target:
+            refined["best_target"] = refined_best_target
+        filtered.append(refined)
+
+    return filtered
+
+
 def _blocker_identity(blocker: dict) -> tuple[str, str, str]:
     return (
         str(blocker.get("source_file", "")),
         str(blocker.get("branch_line_number", "")),
         str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", ""))),
     )
+
+
+def _select_project_blockers(
+    project_name: str,
+    blocker_json_path: Path,
+    blocker_top_k: int,
+    coverage_context: BlockerCoverageContext,
+    *,
+    include_resolved: bool = False,
+) -> list[dict]:
+    selection_started_at = time.perf_counter()
+    blockers = aggregate_score_and_revalidate_blockers(
+        json_path=str(blocker_json_path),
+        project_target_reports=coverage_context.target_reports,
+        top_k=None,
+        include_resolved=include_resolved,
+    )
+    filtered = _filter_and_refine_project_blockers(blockers, coverage_context)
+    if blocker_top_k > 0:
+        filtered = filtered[:blocker_top_k]
+    selection_elapsed = time.perf_counter() - selection_started_at
+    logger.info(
+        "Blocker selector for %s completed in %.2fs and produced %d candidate(s) after project validation (top_k=%d).",
+        project_name,
+        selection_elapsed,
+        len(filtered),
+        blocker_top_k,
+    )
+    return filtered
 
 
 def run_blocker_pipeline(
@@ -177,32 +440,21 @@ def run_blocker_pipeline(
 
     blocker = blocker_record
     if blocker is None:
-        reports_started_at = time.perf_counter()
-        project_target_reports = _load_project_target_reports(project_name)
-        reports_elapsed = time.perf_counter() - reports_started_at
-        logger.info(
-            "Loaded %d per-target line coverage reports for %s in %.2fs.",
-            len(project_target_reports),
+        coverage_context = _load_blocker_coverage_context(
             project_name,
-            reports_elapsed,
+            resolved_json_path,
+            deadline=deadline,
+            repair_missing=True,
         )
-        if not project_target_reports:
-            logger.warning("No per-target line coverage reports available for blocker selection in %s.", project_name)
+        if coverage_context is None:
+            logger.warning("Blocker coverage context is incomplete for %s.", project_name)
             return {"success": False, "reason": "missing_project_target_linecov", "dependency_result": None}
-        ranking_started_at = time.perf_counter()
-        blockers = aggregate_score_and_revalidate_blockers(
-            json_path=str(resolved_json_path),
-            project_target_reports=project_target_reports,
-            top_k=blocker_top_k,
-            include_resolved=True,
-        )
-        ranking_elapsed = time.perf_counter() - ranking_started_at
-        logger.info(
-            "Blocker selector for %s completed in %.2fs and produced %d candidate(s) (top_k=%d).",
+        blockers = _select_project_blockers(
             project_name,
-            ranking_elapsed,
-            len(blockers),
+            resolved_json_path,
             blocker_top_k,
+            coverage_context,
+            include_resolved=True,
         )
         if not blockers:
             logger.warning("No blockers available in %s.", resolved_json_path)
@@ -348,6 +600,31 @@ def run_blocker_session(
 
     state.sessions_run += 1
     state.last_stall_elapsed = elapsed_seconds
+    current_target_fingerprint = _get_project_target_fingerprint(project_name)
+    target_fingerprint_changed = (
+        state.artifact_target_fingerprint is not None
+        and current_target_fingerprint is not None
+        and current_target_fingerprint != state.artifact_target_fingerprint
+    )
+    if target_fingerprint_changed and current_target_fingerprint != state.pending_target_fingerprint:
+        state.pending_target_fingerprint = current_target_fingerprint
+        state.new_targets_since_full_rebuild += 1
+        state.artifacts_dirty = True
+        logger.info(
+            "Detected target fingerprint change for %s; pending full rebuild count is now %d.",
+            project_name,
+            state.new_targets_since_full_rebuild,
+        )
+    prefer_full_refresh = (
+        not state.artifacts_ready
+        or state.artifact_target_fingerprint is None
+        or current_target_fingerprint is None
+        or state.new_targets_since_full_rebuild >= BLOCKER_FULL_REFRESH_TARGET_THRESHOLD
+        or (
+            state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
+            and state.artifacts_dirty
+        )
+    )
 
     force_refresh = (
         not state.artifacts_ready
@@ -382,14 +659,32 @@ def run_blocker_session(
                 project_name,
                 branch_growth_ratio,
             )
+    if target_fingerprint_changed:
+        force_refresh = True
+    if prefer_full_refresh and state.artifacts_ready and force_refresh:
+        logger.info(
+            "Escalating blocker artifact refresh for %s to full rebuild (new_targets_since_full_rebuild=%d, light_refreshes_since_full_rebuild=%d).",
+            project_name,
+            state.new_targets_since_full_rebuild,
+            state.light_refreshes_since_full_rebuild,
+        )
     refreshed_artifacts = (not state.artifacts_ready) or force_refresh
     if not ensure_blocker_artifacts(
         project_name=project_name,
         report_seconds=blocker_artifact_report_seconds,
         state=state,
         force_refresh=force_refresh,
+        prefer_full_refresh=prefer_full_refresh,
         deadline=deadline,
     ):
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "artifact_refresh_failed",
+            elapsed_seconds,
+            force_refresh=force_refresh,
+            prefer_full_refresh=prefer_full_refresh,
+        )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "artifact_refresh_failed"}
     if refreshed_artifacts:
         baseline_summary = oss_fuzz.coverage(project_name, deadline=deadline)
@@ -403,29 +698,57 @@ def run_blocker_session(
     resolved_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
     if resolved_json_path is None:
         logger.warning("Blocker session skipped for %s because branch-blockers.json is unavailable.", project_name)
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "missing_blocker_json",
+            elapsed_seconds,
+        )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_blocker_json"}
 
-    project_target_reports = _load_project_target_reports(project_name)
-    if not project_target_reports:
-        logger.warning("No per-target line coverage reports available for blocker selection in %s.", project_name)
+    coverage_context = _load_blocker_coverage_context(
+        project_name,
+        resolved_json_path,
+        deadline=deadline,
+        repair_missing=True,
+    )
+    if coverage_context is None:
+        logger.warning("No complete blocker coverage context is available for blocker selection in %s.", project_name)
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "missing_project_target_linecov",
+            elapsed_seconds,
+            blocker_json_path=str(resolved_json_path),
+        )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_project_target_linecov"}
 
-    selection_started_at = time.perf_counter()
-    blockers = aggregate_score_and_revalidate_blockers(
-        json_path=str(resolved_json_path),
-        project_target_reports=project_target_reports,
-        top_k=blocker_top_k,
-    )
-    selection_elapsed = time.perf_counter() - selection_started_at
-    logger.info(
-        "Blocker selector for %s completed in %.2fs and produced %d candidate(s) (top_k=%d).",
+    if not ensure_blocker_webapp_ready(project_name):
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "introspector_webapp_unavailable",
+            elapsed_seconds,
+            blocker_json_path=str(resolved_json_path),
+        )
+        return {"success": False, "attempted": 0, "succeeded": 0, "reason": "introspector_webapp_unavailable"}
+
+    blockers = _select_project_blockers(
         project_name,
-        selection_elapsed,
-        len(blockers),
+        resolved_json_path,
         blocker_top_k,
+        coverage_context,
     )
     if not blockers:
         logger.warning("Blocker session skipped for %s because no blockers were found.", project_name)
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "no_blockers",
+            elapsed_seconds,
+            blocker_json_path=str(resolved_json_path),
+            candidate_count=0,
+        )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_blockers"}
 
     attempted = 0
@@ -465,6 +788,14 @@ def run_blocker_session(
 
     if not selected_blockers:
         logger.info("No new project-relevant blockers remain for %s in this session.", project_name)
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "no_unattempted_relevant_blockers",
+            elapsed_seconds,
+            blocker_json_path=str(resolved_json_path),
+            candidate_count=len(blockers),
+        )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_unattempted_relevant_blockers"}
 
     for _ in range(blocker_session_size):
@@ -504,7 +835,6 @@ def run_blocker_session(
             logger.info("Skipping post-blocker coverage for %s because the fuzzing deadline was reached.", project_name)
             break
         post_summary = oss_fuzz.coverage(project_name, deadline=deadline)
-        project_target_reports = _load_project_target_reports(project_name)
         _log_experiment_event(
             "blocker_post_coverage",
             project_name=project_name,
@@ -520,30 +850,44 @@ def run_blocker_session(
             pipeline_success=pipeline_result.get("pipeline_success"),
         )
 
-        if attempted < blocker_session_size and project_target_reports:
+        if attempted < blocker_session_size:
             if state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker":
                 if not ensure_blocker_artifacts(
                     project_name=project_name,
                     report_seconds=blocker_artifact_report_seconds,
                     state=state,
                     force_refresh=True,
+                    prefer_full_refresh=(
+                        state.new_targets_since_full_rebuild >= BLOCKER_FULL_REFRESH_TARGET_THRESHOLD
+                        or state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
+                    ),
                     deadline=deadline,
                 ):
                     break
-                project_target_reports = _load_project_target_reports(project_name)
-            rerank_started_at = time.perf_counter()
-            reranked = aggregate_score_and_revalidate_blockers(
-                json_path=str(resolved_json_path),
-                project_target_reports=project_target_reports,
-                top_k=blocker_top_k,
-            )
-            rerank_elapsed = time.perf_counter() - rerank_started_at
-            logger.info(
-                "Blocker selector rerank for %s completed in %.2fs and produced %d candidate(s) (top_k=%d).",
+                resolved_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
+                if resolved_json_path is None:
+                    logger.warning(
+                        "Blocker session stopped for %s because branch-blockers.json disappeared after refresh.",
+                        project_name,
+                    )
+                    break
+            coverage_context = _load_blocker_coverage_context(
                 project_name,
-                rerank_elapsed,
-                len(reranked),
+                resolved_json_path,
+                deadline=deadline,
+                repair_missing=True,
+            )
+            if coverage_context is None:
+                logger.warning(
+                    "Stopping blocker session for %s because blocker coverage context is incomplete after rerank refresh.",
+                    project_name,
+                )
+                break
+            reranked = _select_project_blockers(
+                project_name,
+                resolved_json_path,
                 blocker_top_k,
+                coverage_context,
             )
             selected_blockers = [
                 candidate

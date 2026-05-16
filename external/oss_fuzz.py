@@ -55,6 +55,14 @@ class FuzzerTimeSliceResult:
     error: str = ""
 
 
+@dataclass
+class HelperCommandResult:
+    success: bool
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+
 class OSSFuzz:
     LANG_EXT: dict[str, str] = {"c": ".c", "c++": ".cc", "cpp": ".cc"}
     DEFAULT_FUZZ_QUANTUM_SECONDS = 30
@@ -79,8 +87,8 @@ class OSSFuzz:
         with open(proj_yaml_path) as f:
             return yaml.safe_load(f)
 
-    def _run_helper_command(self, args: list[str], timeout: float | None = None) -> tuple[bool, str, str]:
-        """Run helper.py command and return success status, stdout, and stderr."""
+    def _run_helper_command(self, args: list[str], timeout: float | None = None) -> HelperCommandResult:
+        """Run helper.py command and return success status, stdout, stderr, and timeout state."""
         try:
             process = subprocess.run(
                 ["python", str(self.helper_script)] + args,
@@ -91,15 +99,15 @@ class OSSFuzz:
                 errors="ignore",
                 timeout=timeout,
             )
-            return process.returncode == 0, process.stdout, process.stderr
+            return HelperCommandResult(process.returncode == 0, process.stdout, process.stderr)
         except subprocess.TimeoutExpired as e:
             logger.warning(f"Helper command '{args}' timed out after {timeout:.2f}s")
             stdout = e.stdout.decode(errors="ignore") if isinstance(e.stdout, bytes) else e.stdout
             stderr = e.stderr.decode(errors="ignore") if isinstance(e.stderr, bytes) else e.stderr
-            return False, stdout or "", stderr or "timed out"
+            return HelperCommandResult(False, stdout or "", stderr or "timed out", timed_out=True)
         except BaseException as e:
             logger.warning(f"Helper command '{args}' failed with exception: {e}")
-            return False, "", str(e)
+            return HelperCommandResult(False, "", str(e))
 
     def _remaining_timeout(self, deadline: float | None) -> float | None:
         if deadline is None:
@@ -345,12 +353,12 @@ class OSSFuzz:
         timeout = self._remaining_timeout(deadline)
         if timeout == 0:
             return CompilationResult(success=False, error="deadline reached")
-        success, stdout, stderr = self._run_helper_command(
+        helper_result = self._run_helper_command(
             ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
             timeout=timeout,
         )
 
-        if success:
+        if helper_result.success:
             fingerprint = self._get_project_target_fingerprint(proj_name)
             self._record_build_state(proj_name, sanitizer, fingerprint)
             self._store_build_artifacts_in_cache(proj_name, sanitizer, fingerprint)
@@ -362,7 +370,7 @@ class OSSFuzz:
             )
             return CompilationResult(success=True)
 
-        error_message = self._extract_build_error_message(stdout + stderr)
+        error_message = self._extract_build_error_message(helper_result.stdout + helper_result.stderr)
         logger.error(f"Compilation failed: {error_message}")
         return CompilationResult(success=False, error=error_message)
 
@@ -400,7 +408,7 @@ class OSSFuzz:
             seconds = min(seconds, max(1, int(remaining)))
             timeout = remaining
 
-        success, stdout, stderr = self._run_helper_command(
+        helper_result = self._run_helper_command(
             [
                 "run_fuzzer",
                 f"--corpus-dir={corpus_dir.absolute()}",
@@ -411,10 +419,17 @@ class OSSFuzz:
             timeout=timeout,
         )
 
-        if not success:
-            full_output = stdout + stderr
+        if not helper_result.success:
+            full_output = helper_result.stdout + helper_result.stderr
             error_pattern = r"==\d+==\s*ERROR:.*"
             match = re.search(error_pattern, full_output, re.DOTALL)
+            if helper_result.timed_out and match is None:
+                logger.info(
+                    "Fuzzer %s stopped at the wall-clock deadline after %.2fs.",
+                    fuzzer_name,
+                    timeout if timeout is not None else 0.0,
+                )
+                return CompilationResult(success=False, error="deadline reached")
             error_message = match.group(0) if match else full_output
             logger.error(f"Failed to run fuzzer {fuzzer_name}: \n{error_message}")
             return CompilationResult(success=False, error=error_message)
@@ -533,7 +548,7 @@ class OSSFuzz:
         served_seconds = self._sync_project_fuzzer_stats(project_name, fuzzers_to_run)
         chunk_deadline = time.monotonic() + max(1, seconds)
         effective_deadline = min(deadline, chunk_deadline) if deadline is not None else chunk_deadline
-        max_workers = max_workers or min(4, len(fuzzers_to_run)) or 1
+        max_workers = max_workers or min(6, len(fuzzers_to_run)) or 1
         quantum_seconds = max(1, min(self.DEFAULT_FUZZ_QUANTUM_SECONDS, seconds))
         logger.info(
             "Scheduling %d fuzzers for %s with wall-clock budget=%ds, workers=%d, quantum=%ds using least-served-first.",
@@ -657,10 +672,10 @@ class OSSFuzz:
         if timeout == 0:
             logger.info(f"Skipping coverage report for {proj_name}; deadline reached.")
             return None
-        success, stdout, stderr = self._run_helper_command(cmd, timeout=timeout)
+        helper_result = self._run_helper_command(cmd, timeout=timeout)
 
-        if not success:
-            logger.error(f"Coverage computation failed: \n {stdout}{stderr}")
+        if not helper_result.success:
+            logger.error(f"Coverage computation failed: \n {helper_result.stdout}{helper_result.stderr}")
             return None
 
         # Read coverage data
@@ -694,18 +709,22 @@ class OSSFuzz:
         if timeout == 0:
             logger.info(f"Skipping introspector report for {proj_name}; deadline reached.")
             return False
-        success, stdout, stderr = self._run_helper_command(cmd, timeout=timeout)
+        helper_result = self._run_helper_command(cmd, timeout=timeout)
         elapsed = time.perf_counter() - started_at
 
-        if not success:
+        if not helper_result.success:
             logger.error(
                 "Failed to generate report for %s after %.2fs: \n %s%s",
                 proj_name,
                 elapsed,
-                stdout,
-                stderr,
+                helper_result.stdout,
+                helper_result.stderr,
             )
             return False
+
+        # Clear the internal build state so that subsequent calls know the current out dir 
+        # is dominated by introspector artifacts and forced to rebuild or restore from cache.
+        self._project_build_state.pop(proj_name, None)
 
         logger.info(
             "Introspector reports created for %s in %.2fs (requested_seconds=%s, clean=%s)",
@@ -734,11 +753,23 @@ class OSSFuzz:
         if not textcov_dir.is_dir():
             logger.error("Textcov directory does not exist for %s: %s", proj_name, textcov_dir)
             return False
+        if not os.access(introspector_dir, os.W_OK):
+            logger.error("Introspector directory is not writable for %s: %s", proj_name, introspector_dir)
+            return False
 
         synced = 0
         for covreport in textcov_dir.glob("*.covreport"):
             destination = introspector_dir / covreport.name
-            shutil.copy2(covreport, destination)
+            try:
+                shutil.copy2(covreport, destination)
+            except PermissionError:
+                logger.error(
+                    "Permission denied while syncing %s into %s for %s.",
+                    covreport,
+                    destination,
+                    proj_name,
+                )
+                return False
             synced += 1
 
         if synced == 0:
@@ -762,6 +793,9 @@ class OSSFuzz:
         introspector_dir = self._introspector_output_dir(proj_name)
         if not introspector_dir.is_dir():
             logger.error("Cannot light-refresh blocker report for %s: missing %s", proj_name, introspector_dir)
+            return False
+        if not os.access(introspector_dir, os.W_OK):
+            logger.error("Cannot light-refresh blocker report for %s: %s is not writable", proj_name, introspector_dir)
             return False
         if not self.fuzz_introspector_cli.is_file():
             logger.error("Cannot locate fuzz-introspector CLI at %s", self.fuzz_introspector_cli)
@@ -1226,7 +1260,8 @@ class OSSFuzz:
         Reproduces a crash and returns the formatted stack trace from the fuzzer's output.
         """
         logger.info(f"Reproducing crash for {proj_name} with fuzzer {fuzzer_name} and input {crash_input_path.name}")
-        _, stdout, _ = self._run_helper_command(["reproduce", proj_name, fuzzer_name, str(crash_input_path.resolve())])
+        helper_result = self._run_helper_command(["reproduce", proj_name, fuzzer_name, str(crash_input_path.resolve())])
+        stdout = helper_result.stdout
 
         # Dynamically create a regex to find the start of the fuzzer's execution log.
         # e.g., /out/llm_fuzzgen0719004011 -rss_limit_mb=2560 ...

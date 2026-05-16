@@ -45,3 +45,25 @@ Replace `"YOUR_API_KEY"` with your actual Google API key.
 ```bash
 python ./main.py tinyxml2
 ```
+
+## SymCC Environment
+
+This project may use SymCC in the blocker-solving pipeline.
+
+There are two supported setup modes:
+
+1. Regular SymCC
+   - For normal C/C++ symbolic execution without STL-internal tracing.
+2. SymCC with instrumented libc++
+   - Required when symbolic tracing must continue through STL operations such as `std::string`, `std::vector`, `std::map`, and `std::unordered_map`.
+
+Documentation:
+
+- `docs/setup_symcc.md`
+- `docs/setup_symcc_stl.md`
+- `docs/integration_blocker_system.md`
+
+Quick notes:
+
+- The STL-instrumented flow is currently tracked against `llvmorg-14.0.6`.
+- Do not commit LLVM source trees, SymCC build directories, or instrumented libc++ install artifacts into Git.
