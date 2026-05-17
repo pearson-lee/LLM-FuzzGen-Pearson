@@ -179,21 +179,22 @@ def get_line_execution_count(
     Prefer the target function's section when llvm-cov emits multiple function blocks.
     Fall back to scanning the full report when the report is a single-file listing.
     """
-    legacy_result = _legacy_get_line_execution_count(
-        report,
-        line_no,
-        function_name=function_name,
-        raw_function_name=raw_function_name,
-    )
-    if not ENABLE_CACHED_LOOKUP_VALIDATION:
-        return legacy_result
-
     cached_result = _cached_get_line_execution_count(
         report,
         line_no,
         function_name=function_name,
         raw_function_name=raw_function_name,
     )
+    if not ENABLE_CACHED_LOOKUP_VALIDATION:
+        return cached_result
+
+    legacy_result = _legacy_get_line_execution_count(
+        report,
+        line_no,
+        function_name=function_name,
+        raw_function_name=raw_function_name,
+    )
+
     if legacy_result != cached_result:
         logger.warning(
             "Coverage lookup mismatch at line=%s function=%s raw_function=%s legacy=%r cached=%r",
@@ -203,4 +204,5 @@ def get_line_execution_count(
             legacy_result,
             cached_result,
         )
-    return legacy_result
+        return legacy_result
+    return cached_result
