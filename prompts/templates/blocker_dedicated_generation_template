@@ -6,8 +6,8 @@ This stage is more constraint-relaxed than the reference-guided stage: if the re
 
 # LibFuzzer Target Construction Guide
 
-1. **Boilerplate & Headers**: Always include `<fuzzer/FuzzedDataProvider.h>` AND **all necessary project headers** (e.g., the project's main public header or other required public headers) required by the APIs you use.
-2. **Data Consumption**: Use `FuzzedDataProvider` to derive values (e.g., strings, integers, enums) for API arguments to ensure structured and efficient fuzzing.
+1. **Boilerplate & Headers**: Include **all necessary project headers**... If the project is C++, also include `<fuzzer/FuzzedDataProvider.h>`.
+2. **Data Consumption (C++)**: If the target language is C++, use `FuzzedDataProvider` to derive values. For C projects, manage raw pointers and sizes manually without `FuzzedDataProvider`.
 3. **Statelessness**: Ensure the target is stateless and does not call `exit()` or `abort()`, which would terminate the LibFuzzer process.
 4. **Resource Management**: Clean up all allocated memory and handles within the entry function to prevent leaks during LibFuzzer's long-running process.
 
@@ -25,6 +25,14 @@ Reference target name: `{fuzz_target_name}`
 
 ```cpp
 {fuzz_target_code}
+```
+
+# Reference-Guided Handoff Summary
+
+Use this summary only to understand what was already tried. Do not anchor on the previous implementation.
+
+```text
+{ref_handoff_summary}
 ```
 
 # Relevant Context
@@ -88,6 +96,7 @@ You MUST NOT blindly stick to mimicking the failed trace. Instead, act as an AI 
 - Prefer public high-level API routes first, then public lower-level component APIs, and only use direct utility/helper calls as a fallback.
 - Build the shortest realistic LibFuzzer API sequence that crosses the blocker without unnecessarily collapsing the reachable downstream state space.
 - Maintain strict memory safety and use public APIs only.
+- Treat the reference-guided handoff summary as prior evidence, not as a base implementation. Structural redesign is allowed and encouraged when local refinement already failed.
 
 # Output Requirements
 

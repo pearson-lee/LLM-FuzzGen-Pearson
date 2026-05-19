@@ -429,6 +429,89 @@ Revise the target based on this feedback. Do not repeat a candidate that keeps t
     return base_prompt + appended
 
 
+def score_evaluation(evaluation: dict | None) -> tuple[int, int, int]:
+    evaluation = evaluation or {}
+    return (
+        int(bool(evaluation.get("blocked_side_line_reached"))),
+        int(evaluation.get("blocked_side_hit_count", 0)),
+        int(evaluation.get("branch_hit_count", 0)),
+    )
+
+
+def should_replace_best(candidate_score: tuple[int, int, int], best_attempt: dict | None) -> bool:
+    if best_attempt is None:
+        return True
+    return candidate_score > tuple(best_attempt.get("score", (0, 0, 0)))
+
+
+def delete_generated_target(oss_fuzz: OSSFuzz, project_name: str, target_path: str | None) -> None:
+    if not target_path:
+        return
+    stem = Path(target_path).stem
+    if stem:
+        oss_fuzz.remove_target(project_name, stem)
+
+
+def summarize_compile_failure(iteration_index: int, build_info: dict) -> str:
+    error = (build_info.get("error") or "Unknown compile error.").strip()
+    compile_attempts = build_info.get("compile_attempts", config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS)
+    return (
+        f"Iteration {iteration_index} failed to compile after {compile_attempts} compile-fix attempts. "
+        f"Last compile error: {error}"
+    )
+
+
+def summarize_coverage_feedback(iteration_index: int, evaluation: dict, became_best: bool) -> str:
+    branch_hit = evaluation.get("branch_hit_count_raw", "0")
+    blocked_hit = evaluation.get("blocked_side_hit_count_raw", "0")
+    status = "This candidate is the new best-so-far compiled version." if became_best else (
+        "This candidate compiled but did not improve over the current best-so-far version."
+    )
+    return (
+        f"Iteration {iteration_index} compiled successfully but did not reach the blocked-side line. "
+        f"Branch hit count: {branch_hit}. Blocked-side hit count: {blocked_hit}. {status}"
+    )
+
+
+def build_ref_handoff_summary(reference_guided_result: dict, baseline_evaluation: dict | None) -> str:
+    iterations = reference_guided_result.get("iterations", []) if isinstance(reference_guided_result, dict) else []
+    if not iterations:
+        return "Reference-guided stage produced no iterations."
+
+    best_attempt = reference_guided_result.get("best_attempt") if isinstance(reference_guided_result, dict) else None
+    best_evaluation = {}
+    if isinstance(best_attempt, dict):
+        best_evaluation = best_attempt.get("evaluation", {}) or {}
+    if not best_evaluation:
+        best_evaluation = dict(baseline_evaluation or {})
+
+    compile_failures = 0
+    coverage_failures = 0
+    last_failure = "N/A"
+    for item in iterations:
+        evaluation = item.get("evaluation")
+        if isinstance(evaluation, dict):
+            if not evaluation.get("blocked_side_line_reached"):
+                coverage_failures += 1
+        else:
+            compile_failures += 1
+        if item.get("last_failure_summary"):
+            last_failure = item["last_failure_summary"]
+        elif item.get("note"):
+            last_failure = item["note"]
+
+    return (
+        "Reference-guided stage failed to cross the blocked-side line.\n"
+        f"- Iterations tried: {len(iterations)}\n"
+        f"- Compile-failure iterations: {compile_failures}\n"
+        f"- Coverage-failure iterations: {coverage_failures}\n"
+        f"- Best branch hit count: {best_evaluation.get('branch_hit_count_raw', '0')}\n"
+        f"- Best blocked-side hit count: {best_evaluation.get('blocked_side_hit_count_raw', '0')}\n"
+        f"- Best blocked-side reached: {best_evaluation.get('blocked_side_line_reached', False)}\n"
+        f"- Last observed failure pattern: {last_failure}"
+    )
+
+
 def save_named_target(oss_fuzz: OSSFuzz, project_name: str, code: str, stem_prefix: str) -> Path:
     lang = oss_fuzz.proj_lang(project_name)
     extension = OSSFuzz.LANG_EXT.get(lang.lower(), ".c")
@@ -454,6 +537,7 @@ def generate_and_build_target(
     thread_id = int(time.time() * 1000)
     current_prompt = prompt
     previous_code = ""
+    last_build_error = ""
 
     for attempt in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
         logging.info("Compilation-oriented generation attempt %d/%d", attempt, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS)
@@ -477,6 +561,7 @@ def generate_and_build_target(
             }
 
         logging.warning("Candidate build failed on attempt %d: %s", attempt, build_result.error)
+        last_build_error = build_result.error or ""
         oss_fuzz.remove_target(project_name, target_path.stem)
         current_prompt = format_refinement_feedback(
             project_name=project_name,
@@ -489,7 +574,7 @@ def generate_and_build_target(
 
     return {
         "success": False,
-        "error": "Failed to generate a compiling fuzz target.",
+        "error": last_build_error or "Failed to generate a compiling fuzz target.",
         "last_code": previous_code,
         "compile_attempts": config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
     }
@@ -508,6 +593,7 @@ def run_strategy_iterations(
     max_iterations: int,
     baseline_evaluation: dict | None = None,
     no_growth_threshold: int = config.NO_GROWTH_STOP_THRESHOLD,
+    initial_iteration_note: str = "",
 ) -> dict:
     iterations: list[dict] = []
     previous_evaluation: dict | None = None
@@ -524,12 +610,30 @@ def run_strategy_iterations(
         ),
     )
     accepted_target_path = str(args.fuzz_file)
+    best_attempt: dict | None = None
+    last_failure_summary = ""
+    if strategy_name == "reference_guided":
+        best_attempt = {
+            "kind": "baseline",
+            "iteration": 0,
+            "code": previous_code,
+            "target_path": accepted_target_path,
+            "evaluation": dict(accepted_evaluation),
+            "score": score_evaluation(accepted_evaluation),
+        }
     no_growth_count = 0
     stalled_out = False
 
     for iteration_index in range(1, max_iterations + 1):
         iteration_dir = output_dir / strategy_name / f"iter_{iteration_index:02d}"
         iteration_dir.mkdir(parents=True, exist_ok=True)
+
+        if strategy_name == "reference_guided" and best_attempt is not None:
+            previous_code = best_attempt.get("code", previous_code)
+            previous_evaluation = dict(best_attempt.get("evaluation", {}))
+            previous_evaluation["note"] = last_failure_summary or previous_evaluation.get("note", "N/A")
+        elif iteration_index == 1 and initial_iteration_note:
+            previous_evaluation = {"note": initial_iteration_note}
 
         prompt = build_iteration_prompt(
             base_prompt=base_prompt,
@@ -560,8 +664,16 @@ def run_strategy_iterations(
 
         if not build_info.get("success"):
             record["note"] = build_info.get("error", "build failed")
+            if strategy_name == "reference_guided":
+                last_failure_summary = summarize_compile_failure(iteration_index, build_info)
+                record["note"] = last_failure_summary
+                record["last_failure_summary"] = last_failure_summary
+                previous_evaluation = dict((best_attempt or {}).get("evaluation", accepted_evaluation))
+                previous_evaluation["note"] = last_failure_summary
             iterations.append(record)
-            previous_evaluation = {"note": record["note"]}
+            if strategy_name != "reference_guided":
+                previous_evaluation = {"note": record["note"]}
+                previous_code = build_info.get("last_code", previous_code)
             continue
 
         target_path = Path(build_info["target_path"])
@@ -602,6 +714,7 @@ def run_strategy_iterations(
         record["rollback_target_path"] = accepted_target_path
 
         should_accept = bool(evaluation.get("blocked_side_line_reached"))
+        candidate_score_tuple = score_evaluation(evaluation)
         record["accepted"] = should_accept
 
         if not should_accept:
@@ -611,16 +724,52 @@ def run_strategy_iterations(
                 strategy_name,
                 iteration_index,
             )
-            oss_fuzz.remove_target(args.project_name, target_path.stem)
-            record["rolled_back"] = True
+            kept_as_best = False
+            if strategy_name == "reference_guided":
+                kept_as_best = should_replace_best(candidate_score_tuple, best_attempt)
+                if kept_as_best:
+                    old_best_path = (best_attempt or {}).get("target_path")
+                    if (best_attempt or {}).get("kind") == "generated" and old_best_path != str(target_path):
+                        delete_generated_target(oss_fuzz, args.project_name, old_best_path)
+                    best_attempt = {
+                        "kind": "generated",
+                        "iteration": iteration_index,
+                        "code": build_info.get("code", ""),
+                        "target_path": str(target_path),
+                        "evaluation": dict(evaluation),
+                        "score": candidate_score_tuple,
+                    }
+                else:
+                    delete_generated_target(oss_fuzz, args.project_name, str(target_path))
+                last_failure_summary = summarize_coverage_feedback(iteration_index, evaluation, kept_as_best)
+                record["last_failure_summary"] = last_failure_summary
+                record["accepted_as_best"] = kept_as_best
+                record["rolled_back"] = not kept_as_best
+            else:
+                oss_fuzz.remove_target(args.project_name, target_path.stem)
+                record["rolled_back"] = True
             no_growth_count += 1
             record["no_growth_count"] = no_growth_count
-            record["note"] = (
-                f"{record['note']} | rolled back to {accepted_target_path} "
-                f"(blocked={accepted_blocked_hit})"
-            )
+            if strategy_name == "reference_guided" and kept_as_best:
+                record["note"] = (
+                    f"{record['note']} | kept as best-so-far compiled candidate "
+                    f"(blocked={candidate_blocked_hit})"
+                )
+            else:
+                record["note"] = (
+                    f"{record['note']} | rolled back to {accepted_target_path} "
+                    f"(blocked={accepted_blocked_hit})"
+                )
             iterations.append(record)
-            previous_evaluation = accepted_evaluation
+            if strategy_name == "reference_guided":
+                if best_attempt is not None:
+                    previous_evaluation = dict(best_attempt.get("evaluation", {}))
+                    previous_evaluation["note"] = last_failure_summary
+                    previous_code = best_attempt.get("code", previous_code)
+            else:
+                previous_evaluation = dict(evaluation)
+                previous_evaluation["note"] = record["note"]
+                previous_code = build_info.get("code", previous_code)
             if no_growth_count >= no_growth_threshold:
                 stalled_out = True
                 logging.info(
@@ -632,6 +781,19 @@ def run_strategy_iterations(
             continue
 
         iterations.append(record)
+        if strategy_name == "reference_guided" and best_attempt is not None:
+            old_best_path = best_attempt.get("target_path")
+            if best_attempt.get("kind") == "generated" and old_best_path != str(target_path):
+                delete_generated_target(oss_fuzz, args.project_name, old_best_path)
+            success_evaluation = evaluation | {"note": record["note"]}
+            best_attempt = {
+                "kind": "generated",
+                "iteration": iteration_index,
+                "code": build_info.get("code", ""),
+                "target_path": str(target_path),
+                "evaluation": dict(success_evaluation),
+                "score": candidate_score_tuple,
+            }
         previous_evaluation = evaluation | {"note": record["note"]}
         accepted_evaluation = previous_evaluation
         accepted_target_path = str(target_path)
@@ -642,11 +804,18 @@ def run_strategy_iterations(
             logging.info("Strategy %s succeeded at iteration %d", strategy_name, iteration_index)
             break
 
+    if strategy_name == "reference_guided" and not any(item.get("success") for item in iterations):
+        if best_attempt is not None and best_attempt.get("kind") == "generated":
+            delete_generated_target(oss_fuzz, args.project_name, best_attempt.get("target_path"))
+        accepted_target_path = str(args.fuzz_file)
+        accepted_evaluation = dict(baseline_evaluation or {})
+
     return {
         "iterations": iterations,
         "stalled_out": stalled_out,
         "accepted_target_path": accepted_target_path,
         "accepted_evaluation": accepted_evaluation,
+        "best_attempt": best_attempt,
     }
 
 
@@ -704,8 +873,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
         }
 
     reference_guided_prompt = prompt_generator.blocker_reference_guided_prompt(**prompt_context)
-    dedicated_generation_prompt = prompt_generator.blocker_dedicated_generation_prompt(**prompt_context)
-    iteration_budget = config.ITERATION_LOOP
+    iteration_budget = max(1, int(getattr(args, "max_iterations", config.ITERATION_LOOP)))
 
     reference_guided_result = run_strategy_iterations(
         args=args,
@@ -735,6 +903,10 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
             "fallback_iterations": [],
         }
 
+    ref_handoff_summary = build_ref_handoff_summary(reference_guided_result, baseline_evaluation)
+    dedicated_generation_prompt = prompt_generator.blocker_dedicated_generation_prompt(
+        **(prompt_context | {"ref_handoff_summary": ref_handoff_summary})
+    )
     dedicated_generation_result = run_strategy_iterations(
         args=args,
         oss_fuzz=oss_fuzz,
@@ -747,6 +919,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
         max_iterations=iteration_budget,
         baseline_evaluation=reference_guided_result["accepted_evaluation"],
         no_growth_threshold=config.NO_GROWTH_STOP_THRESHOLD,
+        initial_iteration_note=ref_handoff_summary,
     )
     dedicated_generation_iterations = dedicated_generation_result["iterations"]
 

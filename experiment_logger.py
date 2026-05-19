@@ -20,7 +20,7 @@ class ExperimentLogger:
         self.system_name = system_name
         self.project_name = project_name
         self.run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.output_dir = output_dir or Path(__file__).parent / "artifacts" / "metrics"
+        self.output_dir = output_dir or Path(__file__).parent / "artifacts" / "run_events"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.output_dir / f"{self.run_id}.jsonl"
         self._lock = threading.Lock()

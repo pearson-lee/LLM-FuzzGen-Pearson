@@ -60,6 +60,47 @@ BLOCKER_FULL_REFRESH_TARGET_THRESHOLD = 3
 BLOCKER_FULL_REFRESH_SESSION_INTERVAL = 3
 
 
+def _coverage_metric_snapshot(summary: TotalCoverageSummary | None, metric_name: str) -> dict[str, float | int] | None:
+    if not summary:
+        return None
+    metric = getattr(summary, metric_name, None)
+    if not metric:
+        return None
+    return {
+        "count": metric.count,
+        "covered": metric.covered,
+        "percent": metric.percent,
+    }
+
+
+def _coverage_growth_metric(
+    before_summary: TotalCoverageSummary | None,
+    after_summary: TotalCoverageSummary | None,
+    metric_name: str,
+) -> dict[str, float | int] | None:
+    before = _coverage_metric_snapshot(before_summary, metric_name)
+    after = _coverage_metric_snapshot(after_summary, metric_name)
+    if before is None and after is None:
+        return None
+
+    before_count = int((before or {}).get("count", 0))
+    before_covered = int((before or {}).get("covered", 0))
+    before_percent = float((before or {}).get("percent", 0.0))
+    after_count = int((after or {}).get("count", 0))
+    after_covered = int((after or {}).get("covered", 0))
+    after_percent = float((after or {}).get("percent", 0.0))
+    return {
+        "before_count": before_count,
+        "before_covered": before_covered,
+        "before_percent": before_percent,
+        "after_count": after_count,
+        "after_covered": after_covered,
+        "after_percent": after_percent,
+        "covered_delta": after_covered - before_covered,
+        "percent_delta": after_percent - before_percent,
+    }
+
+
 def _get_project_target_fingerprint(project_name: str) -> str | None:
     try:
         return oss_fuzz._get_project_target_fingerprint(project_name)
@@ -105,6 +146,69 @@ def _resolve_blocker_json_path(project_name: str, explicit_path: Path | None) ->
     return None
 
 
+def _branch_blocker_snapshot_path(project_name: str) -> Path:
+    run_id = experiment_logger.run_id if experiment_logger is not None else datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Path(__file__).parent / "artifacts" / "branch_blocker_json" / f"{run_id}_{project_name}.json"
+
+
+def _write_project_blocker_snapshot(
+    project_name: str,
+    blocker_json_path: Path,
+    blockers: list[dict],
+    *,
+    selection_stage: str,
+    blocker_top_k: int,
+    aggregated_count: int,
+) -> Path | None:
+    output_path = _branch_blocker_snapshot_path(project_name)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "run_id": experiment_logger.run_id if experiment_logger is not None else None,
+        "project": project_name,
+        "selection_stage": selection_stage,
+        "source_blocker_json_path": str(blocker_json_path),
+        "aggregated_count": aggregated_count,
+        "filtered_count": len(blockers),
+        "blocker_top_k": blocker_top_k,
+        "blockers": blockers,
+    }
+    try:
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Failed to write blocker snapshot to %s: %s", output_path, exc)
+        return None
+    return output_path
+
+
+def _snapshot_existing_project_blockers(
+    project_name: str,
+    blocker_json_path: Path,
+    blocker_top_k: int,
+    coverage_context: BlockerCoverageContext,
+    *,
+    selection_stage: str,
+    include_resolved: bool = False,
+) -> tuple[list[dict], int, Path | None]:
+    blockers, aggregated_count = _select_project_blockers(
+        project_name,
+        blocker_json_path,
+        blocker_top_k,
+        coverage_context,
+        include_resolved=include_resolved,
+        return_aggregated_count=True,
+    )
+    snapshot_path = _write_project_blocker_snapshot(
+        project_name,
+        blocker_json_path,
+        blockers,
+        selection_stage=selection_stage,
+        blocker_top_k=blocker_top_k,
+        aggregated_count=aggregated_count,
+    )
+    return blockers, aggregated_count, snapshot_path
+
+
 def ensure_blocker_webapp_ready(project_name: str) -> bool:
     logger.info("Ensuring Introspector webapp is ready for blocker session on %s.", project_name)
     if introspector.update_start_webapp():
@@ -126,6 +230,7 @@ def ensure_blocker_artifacts(
         return False
 
     blocker_json_path = _resolve_blocker_json_path(project_name, None)
+    first_artifact_refresh = not state.artifacts_ready
     if blocker_json_path is not None and state.artifacts_ready and not force_refresh:
         return True
 
@@ -177,6 +282,31 @@ def ensure_blocker_artifacts(
     else:
         state.pending_target_fingerprint = current_fingerprint
         state.light_refreshes_since_full_rebuild += 1
+
+    if first_artifact_refresh:
+        resolved_json_path = _resolve_blocker_json_path(project_name, None)
+        if resolved_json_path is None:
+            logger.warning("Initial blocker artifact refresh for %s succeeded but branch-blockers.json is unavailable.", project_name)
+            return True
+        coverage_context = _load_blocker_coverage_context(
+            project_name,
+            resolved_json_path,
+            deadline=deadline,
+            repair_missing=True,
+        )
+        if coverage_context is None:
+            logger.warning(
+                "Initial blocker artifact refresh for %s completed, but project blocker coverage context is incomplete.",
+                project_name,
+            )
+            return True
+        _snapshot_existing_project_blockers(
+            project_name,
+            resolved_json_path,
+            blocker_top_k=0,
+            coverage_context=coverage_context,
+            selection_stage="initial_introspector_refresh",
+        )
     return True
 
 
@@ -399,7 +529,7 @@ def _build_blocker_immediate_validation_record(
     )
 
     return {
-        "event": "blocker_immediate_validation",
+        "event": "blocker_breakthrough_validation",
         "project": project_name,
         "target_name": blocker.get("best_target"),
         "function_name": function_name,
@@ -436,7 +566,8 @@ def _select_project_blockers(
     coverage_context: BlockerCoverageContext,
     *,
     include_resolved: bool = False,
-) -> list[dict]:
+    return_aggregated_count: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
     selection_started_at = time.perf_counter()
     blockers = aggregate_score_and_revalidate_blockers(
         json_path=str(blocker_json_path),
@@ -444,17 +575,31 @@ def _select_project_blockers(
         top_k=None,
         include_resolved=include_resolved,
     )
+    aggregated_count = len(blockers)
     filtered = _filter_and_refine_project_blockers(blockers, coverage_context)
     if blocker_top_k > 0:
         filtered = filtered[:blocker_top_k]
     selection_elapsed = time.perf_counter() - selection_started_at
     logger.info(
-        "Blocker selector for %s completed in %.2fs and produced %d candidate(s) after project validation (top_k=%d).",
+        "Blocker selector for %s completed in %.2fs and produced %d candidate(s) after project validation from %d aggregated blocker(s) (top_k=%d).",
         project_name,
         selection_elapsed,
         len(filtered),
+        aggregated_count,
         blocker_top_k,
     )
+    _log_experiment_event(
+        "blocker_selection_completed",
+        project_name=project_name,
+        blocker_json_path=str(blocker_json_path),
+        include_resolved=include_resolved,
+        blocker_top_k=blocker_top_k,
+        aggregated_count=aggregated_count,
+        filtered_count=len(filtered),
+        selection_elapsed_seconds=selection_elapsed,
+    )
+    if return_aggregated_count:
+        return filtered, aggregated_count
     return filtered
 
 
@@ -470,6 +615,9 @@ def run_blocker_pipeline(
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
+    blocker_pipeline_mode: str | None = None,
+    skip_input_dependent_pipeline: bool = False,
+    skip_input_independent_pipeline: bool = False,
     deadline: float | None = None,
 ) -> dict:
     if deadline is not None:
@@ -568,6 +716,9 @@ def run_blocker_pipeline(
         fuzz_seconds=blocker_fuzz_seconds,
         reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
         keep_auto_context=blocker_keep_auto_context,
+        blocker_pipeline_mode=blocker_pipeline_mode,
+        skip_input_dependent_pipeline=skip_input_dependent_pipeline,
+        skip_input_independent_pipeline=skip_input_independent_pipeline,
         classify_only=False,
         language=None,
     )
@@ -594,7 +745,7 @@ def run_blocker_pipeline(
         pipeline_failure_stage = pipeline_parsed_output.get("failure_stage")
 
     _log_experiment_event(
-        "blocker_pipeline_finished",
+        "blocker_pipeline_result",
         success=success,
         pipeline_returncode=pipeline_returncode,
         dependency_result=result.get("dependency_result"),
@@ -612,8 +763,8 @@ def run_blocker_pipeline(
         branch_line_number=blocker.get("branch_line_number"),
         blocked_side_line_number=blocked_side_line_number,
     )
-    _append_blocker_pipeline_record(
-        event="blocker_pipeline_finished",
+    _append_blocker_attempt_record(
+        event="blocker_pipeline_result",
         success=success,
         dependency_result=result.get("dependency_result"),
         target_name=blocker.get("best_target"),
@@ -674,10 +825,14 @@ def run_blocker_session(
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
+    blocker_pipeline_mode: str | None = None,
+    skip_input_dependent_pipeline: bool = False,
+    skip_input_independent_pipeline: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
     blocker_refresh_branch_growth_floor: int = 50,
+    pre_blocker_coverage_summary: TotalCoverageSummary | None = None,
     deadline: float | None = None,
 ) -> dict:
     if deadline is not None and deadline - time.monotonic() <= 0:
@@ -884,6 +1039,7 @@ def run_blocker_session(
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_unattempted_relevant_blockers"}
 
+    current_pre_blocker_coverage = pre_blocker_coverage_summary
     for _ in range(blocker_session_size):
         if deadline is not None and deadline - time.monotonic() <= 0:
             logger.info("Stopping blocker session for %s because the fuzzing deadline was reached.", project_name)
@@ -904,6 +1060,9 @@ def run_blocker_session(
             blocker_fuzz_seconds=blocker_fuzz_seconds,
             blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
             blocker_keep_auto_context=blocker_keep_auto_context,
+            blocker_pipeline_mode=blocker_pipeline_mode,
+            skip_input_dependent_pipeline=skip_input_dependent_pipeline,
+            skip_input_independent_pipeline=skip_input_independent_pipeline,
             deadline=deadline,
         )
         attempted += 1
@@ -922,7 +1081,7 @@ def run_blocker_session(
             break
         post_summary = oss_fuzz.coverage(project_name, deadline=deadline)
         _log_experiment_event(
-            "blocker_post_coverage",
+            "coverage_after_blocker_attempt",
             project_name=project_name,
             elapsed_seconds=elapsed_seconds,
             function_name=blocker.get("function_name"),
@@ -935,13 +1094,26 @@ def run_blocker_session(
             pipeline_methods=pipeline_result.get("pipeline_methods", []),
             pipeline_success=pipeline_result.get("pipeline_success"),
         )
+        _log_experiment_event(
+            "coverage_growth_after_blocker_attempt",
+            project_name=project_name,
+            elapsed_seconds=elapsed_seconds,
+            function_name=blocker.get("function_name"),
+            branch_line_number=blocker.get("branch_line_number"),
+            blocked_side_line_number=blocker.get("blocked_side_line_number"),
+            dependency_result=blocker_kind,
+            pipeline_methods=pipeline_result.get("pipeline_methods", []),
+            pipeline_success=pipeline_result.get("pipeline_success"),
+            **_build_coverage_growth_payload(current_pre_blocker_coverage, post_summary),
+        )
         immediate_validation = _build_blocker_immediate_validation_record(
             project_name=project_name,
             blocker=blocker,
             pipeline_result=pipeline_result,
         )
         if immediate_validation is not None:
-            _append_blocker_pipeline_record(**immediate_validation)
+            _append_blocker_attempt_record(**immediate_validation)
+        current_pre_blocker_coverage = post_summary
 
         if attempted < blocker_session_size:
             if state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker":
@@ -1012,6 +1184,9 @@ def run_blocker_once(
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
+    blocker_pipeline_mode: str | None = None,
+    skip_input_dependent_pipeline: bool = False,
+    skip_input_independent_pipeline: bool = False,
     blocker_artifact_report_seconds: int = 30,
     prepare_artifacts: bool = False,
     force_refresh_artifacts: bool = False,
@@ -1043,6 +1218,9 @@ def run_blocker_once(
         blocker_fuzz_seconds=blocker_fuzz_seconds,
         blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
         blocker_keep_auto_context=blocker_keep_auto_context,
+        blocker_pipeline_mode=blocker_pipeline_mode,
+        skip_input_dependent_pipeline=skip_input_dependent_pipeline,
+        skip_input_independent_pipeline=skip_input_independent_pipeline,
         deadline=deadline,
     )
     if not result.get("success"):
@@ -1070,9 +1248,10 @@ def _log_final_run_coverage(
     summary: TotalCoverageSummary | None,
     *,
     includes_blocker: bool,
+    initial_summary: TotalCoverageSummary | None = None,
 ) -> None:
     _log_experiment_event(
-        "final_run_coverage",
+        "coverage_growth_summary",
         project_name=project_name,
         coverage_scope="final_post_fuzzing_and_blocker" if includes_blocker else "final_post_fuzzing",
         fuzzing_time_budget_seconds=run_seconds,
@@ -1083,6 +1262,7 @@ def _log_final_run_coverage(
         line_coverage_summary=_coverage_metric_to_dict(summary, "lines"),
         branch_coverage_summary=_coverage_metric_to_dict(summary, "branches"),
         functions_coverage_summary=_coverage_metric_to_dict(summary, "functions"),
+        **_build_coverage_growth_payload(initial_summary, summary),
     )
 
 
@@ -1216,6 +1396,9 @@ def run_fuzzers_and_get_coverage(
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
+    blocker_pipeline_mode: str | None = None,
+    skip_input_dependent_pipeline: bool = False,
+    skip_input_independent_pipeline: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
@@ -1224,6 +1407,7 @@ def run_fuzzers_and_get_coverage(
     model_name: str | None = None,
 ):
     """Helper function to run all fuzzers and then optionally get coverage."""
+    initial_growth_summary: TotalCoverageSummary | None = None
     if start_webapp:
         generate_report_and_start_webapp(proj_name, 10, clean=True)
     if minimize_corpus:
@@ -1238,6 +1422,7 @@ def run_fuzzers_and_get_coverage(
                 run_seconds,
                 oss_fuzz.coverage(proj_name),
                 includes_blocker=False,
+                initial_summary=initial_growth_summary,
             )
         return
 
@@ -1254,6 +1439,7 @@ def run_fuzzers_and_get_coverage(
                 run_seconds,
                 oss_fuzz.coverage(proj_name),
                 includes_blocker=True,
+                initial_summary=initial_growth_summary,
             )
         return
 
@@ -1279,10 +1465,14 @@ def run_fuzzers_and_get_coverage(
             blocker_fuzz_seconds=blocker_fuzz_seconds,
             blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
             blocker_keep_auto_context=blocker_keep_auto_context,
+            blocker_pipeline_mode=blocker_pipeline_mode,
+            skip_input_dependent_pipeline=skip_input_dependent_pipeline,
+            skip_input_independent_pipeline=skip_input_independent_pipeline,
             blocker_session_refresh_mode=blocker_session_refresh_mode,
             blocker_artifact_report_seconds=blocker_artifact_report_seconds,
             blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
             blocker_refresh_branch_growth_floor=blocker_refresh_branch_growth_floor,
+            pre_blocker_coverage_summary=initial_growth_summary,
             deadline=deadline,
         )
     start_wall_time = time.monotonic()
@@ -1317,6 +1507,8 @@ def run_fuzzers_and_get_coverage(
             break
 
         summary = oss_fuzz.coverage(proj_name, deadline=deadline)
+        if initial_growth_summary is None:
+            initial_growth_summary = summary
         recorder.record(fuzzing_elapsed_seconds, summary) 
 
         if recorder.is_stagnated():
@@ -1335,10 +1527,14 @@ def run_fuzzers_and_get_coverage(
                     blocker_fuzz_seconds=blocker_fuzz_seconds,
                     blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
                     blocker_keep_auto_context=blocker_keep_auto_context,
+                    blocker_pipeline_mode=blocker_pipeline_mode,
+                    skip_input_dependent_pipeline=skip_input_dependent_pipeline,
+                    skip_input_independent_pipeline=skip_input_independent_pipeline,
                     blocker_session_refresh_mode=blocker_session_refresh_mode,
                     blocker_artifact_report_seconds=blocker_artifact_report_seconds,
                     blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
                     blocker_refresh_branch_growth_floor=blocker_refresh_branch_growth_floor,
+                    pre_blocker_coverage_summary=summary,
                     deadline=deadline,
                 )
             if stop_on_coverage_stall:
@@ -1352,6 +1548,7 @@ def run_fuzzers_and_get_coverage(
         run_seconds,
         final_summary,
         includes_blocker=use_blocker,
+        initial_summary=initial_growth_summary,
     )
 
 def run_all_fuzzer(
@@ -1377,6 +1574,9 @@ def run_all_fuzzer(
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
+    blocker_pipeline_mode: str | None = None,
+    skip_input_dependent_pipeline: bool = False,
+    skip_input_independent_pipeline: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
@@ -1431,6 +1631,9 @@ def run_all_fuzzer(
                     blocker_fuzz_seconds,
                     blocker_reset_corpus_per_iteration,
                     blocker_keep_auto_context,
+                    blocker_pipeline_mode,
+                    skip_input_dependent_pipeline,
+                    skip_input_independent_pipeline,
                     blocker_session_refresh_mode,
                     blocker_artifact_report_seconds,
                     blocker_refresh_branch_growth_threshold,
@@ -1751,6 +1954,24 @@ def _parse_args() -> argparse.Namespace:
         help="Keep auto-resolved blocker context files under logs/auto_context.",
     )
     parser_run.add_argument(
+        "--blocker-pipeline-mode",
+        choices=["dependent", "independent"],
+        default=None,
+        help="When set, only run the selected blocker pipeline after classification.",
+    )
+    parser_run.add_argument(
+        "--skip-input-dependent-pipeline",
+        action="store_true",
+        default=False,
+        help="Classify input-dependent blockers but skip the input-dependent solver pipeline.",
+    )
+    parser_run.add_argument(
+        "--skip-input-independent-pipeline",
+        action="store_true",
+        default=False,
+        help="Classify input-independent blockers but skip the input-independent solver pipeline.",
+    )
+    parser_run.add_argument(
         "--blocker-session-refresh-mode",
         choices=["reuse_session_artifacts", "refresh_before_next_blocker"],
         default="reuse_session_artifacts",
@@ -1820,6 +2041,24 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Keep auto-resolved blocker context files under logs/auto_context.",
+    )
+    parser_blocker.add_argument(
+        "--blocker-pipeline-mode",
+        choices=["dependent", "independent"],
+        default=None,
+        help="When set, only run the selected blocker pipeline after classification.",
+    )
+    parser_blocker.add_argument(
+        "--skip-input-dependent-pipeline",
+        action="store_true",
+        default=False,
+        help="Classify input-dependent blockers but skip the input-dependent solver pipeline.",
+    )
+    parser_blocker.add_argument(
+        "--skip-input-independent-pipeline",
+        action="store_true",
+        default=False,
+        help="Classify input-independent blockers but skip the input-independent solver pipeline.",
     )
     parser_blocker.add_argument(
         "--blocker-artifact-report-seconds",
@@ -2026,17 +2265,28 @@ def _get_coverage_count(summary: TotalCoverageSummary | None, metric_name: str) 
     return int(metric.covered) if metric else 0
 
 
+def _build_coverage_growth_payload(
+    before_summary: TotalCoverageSummary | None,
+    after_summary: TotalCoverageSummary | None,
+) -> dict[str, object]:
+    return {
+        "line_coverage_growth": _coverage_growth_metric(before_summary, after_summary, "lines"),
+        "branch_coverage_growth": _coverage_growth_metric(before_summary, after_summary, "branches"),
+        "functions_coverage_growth": _coverage_growth_metric(before_summary, after_summary, "functions"),
+    }
+
+
 def _log_experiment_event(event: str, **payload) -> None:
     if experiment_logger is None:
         return
     experiment_logger.log_event(event, **payload)
 
 
-def _append_blocker_pipeline_record(**payload) -> None:
+def _append_blocker_attempt_record(**payload) -> None:
     if experiment_logger is None:
         return
 
-    output_dir = Path(__file__).parent / "artifacts" / "blocker_pipeline"
+    output_dir = Path(__file__).parent / "artifacts" / "blocker_attempts"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{experiment_logger.run_id}_{experiment_logger.project_name}.jsonl"
     record = {
@@ -2050,7 +2300,7 @@ def _append_blocker_pipeline_record(**payload) -> None:
         with output_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
     except OSError as exc:
-        logger.warning("Failed to write blocker pipeline record to %s: %s", output_path, exc)
+        logger.warning("Failed to write blocker attempt record to %s: %s", output_path, exc)
 
 
 def process_project(
@@ -2328,6 +2578,9 @@ def main() -> None:
                 args.blocker_fuzz_seconds,
                 args.blocker_reset_corpus_per_iteration,
                 args.blocker_keep_auto_context,
+                args.blocker_pipeline_mode,
+                args.skip_input_dependent_pipeline,
+                args.skip_input_independent_pipeline,
                 args.blocker_session_refresh_mode,
                 args.blocker_artifact_report_seconds,
                 args.blocker_refresh_branch_growth_threshold,
@@ -2351,6 +2604,9 @@ def main() -> None:
                 blocker_fuzz_seconds=args.blocker_fuzz_seconds,
                 blocker_reset_corpus_per_iteration=args.blocker_reset_corpus_per_iteration,
                 blocker_keep_auto_context=args.blocker_keep_auto_context,
+                blocker_pipeline_mode=args.blocker_pipeline_mode,
+                skip_input_dependent_pipeline=args.skip_input_dependent_pipeline,
+                skip_input_independent_pipeline=args.skip_input_independent_pipeline,
                 blocker_artifact_report_seconds=args.blocker_artifact_report_seconds,
                 prepare_artifacts=args.prepare_artifacts,
                 force_refresh_artifacts=args.force_refresh_artifacts,

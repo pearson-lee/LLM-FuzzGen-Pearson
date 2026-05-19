@@ -839,7 +839,24 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
         if not execute_pipeline:
             return output
 
+        pipeline_mode = getattr(args, "blocker_pipeline_mode", None)
+        skip_dependent_pipeline = bool(getattr(args, "skip_input_dependent_pipeline", False))
+        skip_independent_pipeline = bool(getattr(args, "skip_input_independent_pipeline", False))
+        if pipeline_mode == "dependent":
+            skip_dependent_pipeline = False
+            skip_independent_pipeline = True
+        elif pipeline_mode == "independent":
+            skip_dependent_pipeline = True
+            skip_independent_pipeline = False
+
         if dependency_result == "Input Dependent":
+            if skip_dependent_pipeline:
+                logging.info("--> Input Dependent pipeline skipped by configuration.")
+                output["pipeline_skipped"] = True
+                output["pipeline_skip_reason"] = "input_dependent_pipeline_disabled"
+                output["pipeline_returncode"] = 0
+                output["pipeline_methods"] = []
+                return output
             logging.info("--> Routing to Input Dependent Solver (Seed Gen -> Symbolic Execution)")
             pipeline_output = run_program(
                 MODULE_ROOT / "dependent" / "input_dependent_solver.py",
@@ -851,6 +868,13 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
             return output
 
         if dependency_result == "Input Independent":
+            if skip_independent_pipeline:
+                logging.info("--> Input Independent pipeline skipped by configuration.")
+                output["pipeline_skipped"] = True
+                output["pipeline_skip_reason"] = "input_independent_pipeline_disabled"
+                output["pipeline_returncode"] = 0
+                output["pipeline_methods"] = []
+                return output
             logging.info("--> Routing to Input Independent Solver (Fuzz Target Refine -> New Target -> Drop)")
             pipeline_output = run_program(
                 MODULE_ROOT / "independent" / "input_independent_solver.py",
@@ -883,6 +907,24 @@ def main():
     parser.add_argument("--header-file", default=None, help="Path to related header file to embed")
     parser.add_argument("--target-name", default=None, help="Optional fuzz target executable name used for auto-resolving fuzz target source")
     parser.add_argument("--yaml-file", default=None, help="Optional introspector exe_to_fuzz_introspector_logs.yaml path for auto call-path collection")
+    parser.add_argument(
+        "--skip-input-dependent-pipeline",
+        action="store_true",
+        default=False,
+        help="Classify input-dependent blockers but do not run the input-dependent solver pipeline.",
+    )
+    parser.add_argument(
+        "--skip-input-independent-pipeline",
+        action="store_true",
+        default=False,
+        help="Classify input-independent blockers but do not run the input-independent solver pipeline.",
+    )
+    parser.add_argument(
+        "--blocker-pipeline-mode",
+        choices=["dependent", "independent"],
+        default=None,
+        help="When set, only run the selected blocker pipeline after classification.",
+    )
     parser.add_argument(
         "--max-gdb-inputs",
         type=int,

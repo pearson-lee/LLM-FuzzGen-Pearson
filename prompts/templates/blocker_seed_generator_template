@@ -6,7 +6,12 @@ Do not just emit a few ad-hoc seeds. Emit code that can keep generating and evol
 
 # Goal
 
-Create a Python 3 generator that produces native-format seeds which are likely to drive the target fuzz entry deeper into this blocker and cross the blocked side.
+Create a Python 3 generator that produces native-format seeds which are likely to:
+
+1. Reach the blocker branch line.
+2. Then cross the blocked side.
+
+This is a blocker-branch-oriented feedback loop, not general seed generation for broad coverage.
 
 # Target Blocker
 
@@ -76,6 +81,9 @@ The generator code must be a complete standalone Python 3 script with this behav
 {blocked_window}
 ```
 
+## Branch predicate description
+{branch_predicate_description}
+
 ## Runtime blocker segment
 This is dynamic evidence from a real execution path that reached the blocker.
 ```text
@@ -132,6 +140,7 @@ From the code and blocker location, infer:
 2. Which input features are most likely to control the blocked branch.
 3. Which boundary values, malformed forms, or encoding variants should be systematically generated.
 4. How to organize those hypotheses into maintainable Python code instead of one-off samples.
+5. Which seed families should exist so later iterations can keep, discard, or refine them without renaming everything.
 
 # Quality Bar
 
@@ -142,6 +151,9 @@ The generator should:
 - Include a small family of boundary cases near the blocker condition.
 - Produce both likely-valid and strategically malformed inputs when useful.
 - Encode the blocker reasoning explicitly in comments and helper functions.
+- Generated filenames must carry a stable family tag so later iterations can measure family-level usefulness.
+- Use names like `F01_structured_base_01.ext`, `F02_boundary_flags_01.ext`.
+- Keep family tags stable across future revisions. Do not generate anonymous names like `seed_01.bin`.
 
 # Output Format
 
@@ -150,6 +162,9 @@ Return **only** a single JSON object. No markdown fences. No extra commentary.
 The JSON object must have exactly these keys:
 
 - `analysis_summary`: array of short strings
+- `failure_analysis`: array of short strings
+- `family_decisions`: array of short strings
+- `revision_plan`: array of short strings
 - `generator_design_rationale`: string
 - `generator_filename`: string
 - `generator_code`: string
@@ -163,6 +178,8 @@ The JSON object must have exactly these keys:
 - If the inferred target format is text-based, emit text seeds in that native format. If binary is needed, generate bytes in Python code.
 - The generated filenames inside `build_seeds()` should use the preferred extension when practical.
 - Prefer explicit boundary values over probabilistic logic.
+- Inside `build_seeds()`, return tuples `(filename, payload)` where `filename` preserves the stable family tag.
+- Design families so some target structure reachability and some target blocker-boundary refinement, but every family must still be blocker-oriented.
 
 # Final Reminder
 

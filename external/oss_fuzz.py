@@ -65,7 +65,7 @@ class HelperCommandResult:
 
 class OSSFuzz:
     LANG_EXT: dict[str, str] = {"c": ".c", "c++": ".cc", "cpp": ".cc"}
-    DEFAULT_FUZZ_QUANTUM_SECONDS = 30
+    DEFAULT_FUZZ_QUANTUM_SECONDS = 300 #per target fuzzing time slice for scheduled execution
 
     def __init__(self, oss_fuzz_dir: Path | None = None):
         self.oss_fuzz_dir: Path = oss_fuzz_dir or Path(__file__).parent / "oss-fuzz"

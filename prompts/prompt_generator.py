@@ -286,6 +286,7 @@ def blocker_dedicated_generation_prompt(
     cfg_source_codes: str,
     triggering_input_path: str,
     triggering_input_preview: str,
+    ref_handoff_summary: str = "N/A",
 ) -> str:
     output_example = FUZZ_TARGET_EXAMPLES.get(language.lower(), DEFAULT_FUZZ_TARGET_EXAMPLE)
     return _load_and_format_template(
@@ -311,6 +312,7 @@ def blocker_dedicated_generation_prompt(
             "cfg_source_codes",
             "triggering_input_path",
             "triggering_input_preview",
+            "ref_handoff_summary",
             "output_example",
         ],
         project_name=project_name,
@@ -333,6 +335,7 @@ def blocker_dedicated_generation_prompt(
         cfg_source_codes=cfg_source_codes,
         triggering_input_path=triggering_input_path,
         triggering_input_preview=triggering_input_preview,
+        ref_handoff_summary=ref_handoff_summary or "N/A",
         output_example=output_example,
     )
 

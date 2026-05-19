@@ -120,6 +120,7 @@ Use your findings to add minimal, direct API calls to your target that bypass th
 7. Only use internal or helper-style functions directly if the provided evidence suggests no viable public API route can satisfy the blocked predicate.
 8. If you need extra control values, derive them from already-consumed data or from parsed objects rather than changing the original consume order.
 9. Keep the fuzz target deterministic, stateless, and memory-safe.
+10. **Language Constraints**: If the target language is C, you MUST manage raw pointers and sizes manually and MUST NOT use `<fuzzer/FuzzedDataProvider.h>`. Only use `FuzzedDataProvider` if the project is C++.
 
 # Output Requirements
 
