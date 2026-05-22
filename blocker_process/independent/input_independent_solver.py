@@ -25,6 +25,7 @@ from prompts import prompt_generator
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 OUTPUT_ROOT = MODULE_ROOT / "generated_targets"
+_SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
 
 
 def load_text(path: Path) -> str:
@@ -76,9 +77,16 @@ def setup_file_logging(func_name: str) -> None:
     log_dir.mkdir(exist_ok=True)
     log_filepath = log_dir / log_filename
 
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        if getattr(handler, _SESSION_FILE_HANDLER_FLAG, False):
+            root_logger.removeHandler(handler)
+            handler.close()
+
     file_handler = logging.FileHandler(log_filepath, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    logging.getLogger().addHandler(file_handler)
+    setattr(file_handler, _SESSION_FILE_HANDLER_FLAG, True)
+    root_logger.addHandler(file_handler)
     logging.info("Log file create: %s", log_filepath)
 
 

@@ -19,6 +19,7 @@ Produce a complete standalone C or C++ source file that can be used as a fuzz ta
 - Original fuzz target source path: `{fuzz_file}`
 - Target function name: `{function_name}`
 - Source file: `{source_file}`
+- Source API path: `{source_api_file}`
 - Branch line: `{branch_line_number}`
 - Blocked side line: `{blocked_side_line_number}`
 
@@ -33,9 +34,15 @@ This harness is the **clean SymCC retry** after:
 So your harness should:
 
 - keep the input model close to the original library format,
-- shorten the API path where reasonable,
+- only shorten the API path if doing so does not change blocker-relevant state construction,
 - reduce symbolic noise from STL / FDP / unpacking logic,
 - remain realistic enough to count as a valid project-level fuzz target.
+
+# Harness Fidelity Requirements
+
+The blocker path already exists in the original fuzz target. Your job is to make it cleaner for SymCC without changing the blocker-relevant semantics.
+
+{fidelity_requirements}
 
 # Existing Original Fuzz Target
 
@@ -112,11 +119,12 @@ You may follow this shape when useful, but adapt it to the actual project and AP
 1. Output a single complete `.c` or `.cpp` file.
 2. Avoid `std::string`, STL containers, and `FuzzedDataProvider`.
 3. If the API expects a NUL-terminated string, create a buffer with `malloc`/`new` and append `\\0`.
-4. Prefer the shortest reasonable API path that still reflects real project usage.
+4. Preserve blocker-relevant object construction, nullability, format constants, flags, and follow-up execution steps from the original fuzz target unless they are proven irrelevant.
 5. Do not fabricate impossible state.
-6. Do not add symbolic logic or KLEE headers here; this is for SymCC replay.
-7. Keep the harness compact and buildable.
-8. Only use public includes or normal project headers implied by the context.
+6. Do not silently clamp or normalize blocker-relevant input values unless the original fuzz target already does so.
+7. Do not add symbolic logic or KLEE headers here; this is for SymCC replay.
+8. Keep the harness compact and buildable.
+9. Only use public includes or normal project headers implied by the context.
 
 # Output Format
 
@@ -128,4 +136,3 @@ The JSON object must have exactly these keys:
 - `harness_design_rationale`: string
 - `harness_filename`: string
 - `harness_code`: string
-

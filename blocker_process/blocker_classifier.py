@@ -30,6 +30,7 @@ TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "blocker_classify_template
 AUTO_CONTEXT_DIR = REPO_ROOT / "logs" / "auto_context"
 _SHARED_INTROSPECTOR: Introspector | None = None
 _INTROSPECTOR_AVAILABLE: bool | None = None
+_SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
 
 
 def get_introspector() -> Introspector:
@@ -726,9 +727,16 @@ def setup_file_logging(func_name: str) -> None:
     log_dir.mkdir(exist_ok=True)
     log_filepath = log_dir / log_filename
 
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        if getattr(handler, _SESSION_FILE_HANDLER_FLAG, False):
+            root_logger.removeHandler(handler)
+            handler.close()
+
     file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
     file_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    logging.getLogger().addHandler(file_handler)
+    setattr(file_handler, _SESSION_FILE_HANDLER_FLAG, True)
+    root_logger.addHandler(file_handler)
     logging.info(f"Log file create: {log_filepath}")
 
 
