@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import contextlib
 import datetime
 import json
 import logging
@@ -8,6 +9,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
@@ -518,16 +520,54 @@ def auto_resolve_context_files(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 def extract_json(text: str) -> dict:
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, count=1)
+        cleaned = re.sub(r"\s*```$", "", cleaned, count=1)
+    if cleaned and not cleaned.lstrip().startswith("{"):
+        first_brace = cleaned.find("{")
+        if first_brace >= 0:
+            cleaned = cleaned[first_brace:]
+        elif re.match(r'^\s*"', cleaned):
+            cleaned = "{\n" + cleaned
+    if cleaned.count("{") > cleaned.count("}"):
+        cleaned = cleaned + ("\n" + ("}" * (cleaned.count("{") - cleaned.count("}"))))
+
     if repair_json is not None:
-        parsed = repair_json(text, return_objects=True)
+        parsed = repair_json(cleaned, return_objects=True)
         if not isinstance(parsed, dict):
             raise ValueError("Failed to parse JSON into dictionary.")
-        return parsed
+        return normalize_classification_result(parsed)
 
-    parsed = json.loads(text)
+    parsed = json.loads(cleaned)
     if not isinstance(parsed, dict):
         raise ValueError("Failed to parse JSON into dictionary.")
-    return parsed
+    return normalize_classification_result(parsed)
+
+
+def normalize_classification_result(parsed: dict) -> dict:
+    if "classification" in parsed and isinstance(parsed["classification"], dict):
+        return parsed
+    if "dependency" in parsed:
+        return {
+            "analysis_trace": parsed.get("analysis_trace", []),
+            "classification": {"dependency": parsed.get("dependency", "")},
+            "reason": parsed.get("reason", ""),
+        }
+    raise ValueError("Parsed JSON does not contain the expected classification fields.")
+
+
+def build_json_retry_prompt(original_prompt: str, response_text: str, error_message: str) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "Your previous response was not parseable as a single JSON object.\n"
+        "Return only one valid JSON object.\n"
+        "Do not use markdown fences.\n"
+        "Do not add explanation before or after the JSON.\n"
+        f"Parser error: {error_message}\n"
+        "Previous invalid response:\n"
+        f"{response_text}"
+    )
 
 def _parse_program_json_output(stdout: str) -> dict | None:
     text = (stdout or "").strip()
@@ -608,6 +648,24 @@ def _infer_pipeline_methods(dependency_result: str, pipeline_output: dict | None
         return methods or ["input_independent_target_generation"]
 
     return []
+
+
+def infer_attempt_result(
+    dependency_result: str,
+    pipeline_returncode: int | None,
+    pipeline_output: dict | None,
+) -> str:
+    parsed_output = pipeline_output.get("parsed_output") if isinstance(pipeline_output, dict) else None
+    if isinstance(parsed_output, dict):
+        explicit = str(parsed_output.get("attempt_result", "")).strip()
+        if explicit in {"success", "failed", "llm_error"}:
+            return explicit
+        if parsed_output.get("success") is True:
+            return "success"
+
+    if dependency_result in {"Input Dependent", "Input Independent"}:
+        return "success" if pipeline_returncode == 0 else "failed"
+    return "failed"
 
 
 def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
@@ -718,7 +776,8 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     
     return report
 
-def setup_file_logging(func_name: str) -> None:
+@contextlib.contextmanager
+def scoped_file_logging(func_name: str):
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_filename = f"{timestamp}_{safe_func_name}.log"
@@ -728,16 +787,16 @@ def setup_file_logging(func_name: str) -> None:
     log_filepath = log_dir / log_filename
 
     root_logger = logging.getLogger()
-    for handler in list(root_logger.handlers):
-        if getattr(handler, _SESSION_FILE_HANDLER_FLAG, False):
-            root_logger.removeHandler(handler)
-            handler.close()
-
     file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
     file_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     setattr(file_handler, _SESSION_FILE_HANDLER_FLAG, True)
     root_logger.addHandler(file_handler)
-    logging.info(f"Log file create: {log_filepath}")
+    try:
+        logging.info(f"Log file create: {log_filepath}")
+        yield log_filepath
+    finally:
+        root_logger.removeHandler(file_handler)
+        file_handler.close()
 
 
 def log_collection_status(args: argparse.Namespace) -> None:
@@ -790,110 +849,148 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
     try:
         args = apply_blocker_payload(args)
-        setup_file_logging(args.function_name)
-        args = auto_resolve_context_files(args)
-        args = auto_collect_callpath_context(args)
-        log_collection_status(args)
-        args = enrich_classification_args(args)
+        with scoped_file_logging(args.function_name):
+            args = auto_resolve_context_files(args)
+            args = auto_collect_callpath_context(args)
+            log_collection_status(args)
+            args = enrich_classification_args(args)
 
-        if not TEMPLATE_PATH.exists():
-            raise FileNotFoundError(f"Template missing: {TEMPLATE_PATH}")
+            if not TEMPLATE_PATH.exists():
+                raise FileNotFoundError(f"Template missing: {TEMPLATE_PATH}")
 
-        template = load_text(TEMPLATE_PATH)
-        prompt = format_prompt(template, args)
-        logging.info("================ Generated Prompt ================\n%s\n", prompt)
+            template = load_text(TEMPLATE_PATH)
+            prompt = format_prompt(template, args)
+            logging.info("================ Generated Prompt ================\n%s\n", prompt)
 
-        llm = LLMClient(
-            backend=args.backend,
-            model_name=args.model,
-            temperature=config.BLOCKER_CLASSIFIER_TEMPERATURE,
-        )
-        response_text = llm.generate(prompt)
-        if not response_text:
-            raise RuntimeError("Empty LLM response.")
-
-        try:
-            result = extract_json(response_text)
-        except Exception as exc:
-            logging.error("JSON parsing failed: %s", exc)
-            print(response_text)
-            raise
-
-        analysis_trace = result.get("analysis_trace", [])
-        classification = result.get("classification", {})
-        dependency_result = classification.get("dependency", "")
-        reason = result.get("reason", "")
-
-        if isinstance(analysis_trace, list):
-            formatted_trace = "\n\n".join(analysis_trace)
-        else:
-            formatted_trace = str(analysis_trace)
-
-        logging.info(
-            "Analysis trace:\n\n%s\n\n------------------------\nDependency: %s\nReason: %s\n",
-            formatted_trace,
-            dependency_result,
-            reason,
-        )
-
-        output = {
-            "prompt": prompt,
-            "response_text": response_text,
-            "parsed_result": result,
-            "dependency_result": dependency_result,
-            "reason": reason,
-        }
-
-        if not execute_pipeline:
-            return output
-
-        pipeline_mode = getattr(args, "blocker_pipeline_mode", None)
-        skip_dependent_pipeline = bool(getattr(args, "skip_input_dependent_pipeline", False))
-        skip_independent_pipeline = bool(getattr(args, "skip_input_independent_pipeline", False))
-        if pipeline_mode == "dependent":
-            skip_dependent_pipeline = False
-            skip_independent_pipeline = True
-        elif pipeline_mode == "independent":
-            skip_dependent_pipeline = True
-            skip_independent_pipeline = False
-
-        if dependency_result == "Input Dependent":
-            if skip_dependent_pipeline:
-                logging.info("--> Input Dependent pipeline skipped by configuration.")
-                output["pipeline_skipped"] = True
-                output["pipeline_skip_reason"] = "input_dependent_pipeline_disabled"
-                output["pipeline_returncode"] = 0
-                output["pipeline_methods"] = []
-                return output
-            logging.info("--> Routing to Input Dependent Solver (Seed Gen -> Symbolic Execution)")
-            pipeline_output = run_program(
-                MODULE_ROOT / "dependent" / "input_dependent_solver.py",
-                build_seed_generation_args(args),
+            llm = LLMClient(
+                backend=args.backend,
+                model_name=args.model,
+                temperature=config.BLOCKER_CLASSIFIER_TEMPERATURE,
             )
-            output["pipeline_returncode"] = pipeline_output["returncode"]
-            output["pipeline_output"] = pipeline_output
-            output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
-            return output
+            parse_retry_attempts = max(1, int(getattr(config, "BLOCKER_CLASSIFIER_PARSE_RETRY_ATTEMPTS", 3)))
+            parse_retry_delay_sec = float(getattr(config, "BLOCKER_CLASSIFIER_PARSE_RETRY_DELAY_SEC", 2.0))
+            response_text = ""
+            result = None
+            current_prompt = prompt
+            last_exc: Exception | None = None
 
-        if dependency_result == "Input Independent":
-            if skip_independent_pipeline:
-                logging.info("--> Input Independent pipeline skipped by configuration.")
-                output["pipeline_skipped"] = True
-                output["pipeline_skip_reason"] = "input_independent_pipeline_disabled"
-                output["pipeline_returncode"] = 0
-                output["pipeline_methods"] = []
-                return output
-            logging.info("--> Routing to Input Independent Solver (Fuzz Target Refine -> New Target -> Drop)")
-            pipeline_output = run_program(
-                MODULE_ROOT / "independent" / "input_independent_solver.py",
-                build_input_independent_solver_args(args),
+            for attempt in range(1, parse_retry_attempts + 1):
+                response_text = llm.generate(current_prompt) or ""
+                if not response_text:
+                    last_exc = RuntimeError("Empty LLM response.")
+                else:
+                    try:
+                        result = extract_json(response_text)
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        logging.error(
+                            "JSON parsing failed on blocker classification attempt %d/%d: %s",
+                            attempt,
+                            parse_retry_attempts,
+                            exc,
+                        )
+                        print(response_text)
+                        current_prompt = build_json_retry_prompt(prompt, response_text, str(exc))
+
+                if attempt < parse_retry_attempts:
+                    logging.info(
+                        "Retrying blocker classification due to unparsable LLM output (attempt %d/%d).",
+                        attempt + 1,
+                        parse_retry_attempts,
+                    )
+                    time.sleep(parse_retry_delay_sec)
+
+            if result is None:
+                raise last_exc or ValueError("Failed to parse blocker classification JSON.")
+
+            analysis_trace = result.get("analysis_trace", [])
+            classification = result.get("classification", {})
+            dependency_result = classification.get("dependency", "")
+            reason = result.get("reason", "")
+
+            if isinstance(analysis_trace, list):
+                formatted_trace = "\n\n".join(analysis_trace)
+            else:
+                formatted_trace = str(analysis_trace)
+
+            logging.info(
+                "Analysis trace:\n\n%s\n\n------------------------\nDependency: %s\nReason: %s\n",
+                formatted_trace,
+                dependency_result,
+                reason,
             )
-            output["pipeline_returncode"] = pipeline_output["returncode"]
-            output["pipeline_output"] = pipeline_output
-            output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
-            return output
 
-        raise RuntimeError(f"Unknown dependency classification: {dependency_result}")
+            output = {
+                "prompt": prompt,
+                "response_text": response_text,
+                "parsed_result": result,
+                "dependency_result": dependency_result,
+                "reason": reason,
+            }
+
+            if not execute_pipeline:
+                return output
+
+            pipeline_mode = getattr(args, "blocker_pipeline_mode", None)
+            skip_dependent_pipeline = bool(getattr(args, "skip_input_dependent_pipeline", False))
+            skip_independent_pipeline = bool(getattr(args, "skip_input_independent_pipeline", False))
+            if pipeline_mode == "dependent":
+                skip_dependent_pipeline = False
+                skip_independent_pipeline = True
+            elif pipeline_mode == "independent":
+                skip_dependent_pipeline = True
+                skip_independent_pipeline = False
+
+            if dependency_result == "Input Dependent":
+                if skip_dependent_pipeline:
+                    logging.info("--> Input Dependent pipeline skipped by configuration.")
+                    output["pipeline_skipped"] = True
+                    output["pipeline_skip_reason"] = "input_dependent_pipeline_disabled"
+                    output["pipeline_returncode"] = 0
+                    output["pipeline_methods"] = []
+                    output["attempt_result"] = "failed"
+                    return output
+                logging.info("--> Routing to Input Dependent Solver (Seed Gen -> Symbolic Execution)")
+                pipeline_output = run_program(
+                    MODULE_ROOT / "dependent" / "input_dependent_solver.py",
+                    build_seed_generation_args(args),
+                )
+                output["pipeline_returncode"] = pipeline_output["returncode"]
+                output["pipeline_output"] = pipeline_output
+                output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
+                output["attempt_result"] = infer_attempt_result(
+                    dependency_result,
+                    output["pipeline_returncode"],
+                    pipeline_output,
+                )
+                return output
+
+            if dependency_result == "Input Independent":
+                if skip_independent_pipeline:
+                    logging.info("--> Input Independent pipeline skipped by configuration.")
+                    output["pipeline_skipped"] = True
+                    output["pipeline_skip_reason"] = "input_independent_pipeline_disabled"
+                    output["pipeline_returncode"] = 0
+                    output["pipeline_methods"] = []
+                    output["attempt_result"] = "failed"
+                    return output
+                logging.info("--> Routing to Input Independent Solver (Fuzz Target Refine -> New Target -> Drop)")
+                pipeline_output = run_program(
+                    MODULE_ROOT / "independent" / "input_independent_solver.py",
+                    build_input_independent_solver_args(args),
+                )
+                output["pipeline_returncode"] = pipeline_output["returncode"]
+                output["pipeline_output"] = pipeline_output
+                output["pipeline_methods"] = _infer_pipeline_methods(dependency_result, pipeline_output)
+                output["attempt_result"] = infer_attempt_result(
+                    dependency_result,
+                    output["pipeline_returncode"],
+                    pipeline_output,
+                )
+                return output
+
+            raise RuntimeError(f"Unknown dependency classification: {dependency_result}")
     finally:
         cleanup_auto_context_paths(args)
 

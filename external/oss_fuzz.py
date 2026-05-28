@@ -10,6 +10,7 @@ import time
 import uuid
 import zipfile
 import os
+import sys
 from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from datetime import datetime
@@ -43,6 +44,7 @@ class TotalCoverageSummary:
 @dataclass
 class BuildState:
     sanitizer: str
+    variant: str
     target_fingerprint: str
 
 
@@ -87,11 +89,22 @@ class OSSFuzz:
         with open(proj_yaml_path) as f:
             return yaml.safe_load(f)
 
-    def _run_helper_command(self, args: list[str], timeout: float | None = None) -> HelperCommandResult:
+    def _run_helper_command(
+        self,
+        args: list[str],
+        timeout: float | None = None,
+        extra_env: dict[str, str] | None = None,
+    ) -> HelperCommandResult:
         """Run helper.py command and return success status, stdout, stderr, and timeout state."""
         try:
+            helper_args = list(args)
+            if extra_env:
+                helper_env_args: list[str] = []
+                for key, value in extra_env.items():
+                    helper_env_args.extend(["-e", f"{key}={value}"])
+                helper_args = [*helper_args, *helper_env_args]
             process = subprocess.run(
-                ["python", str(self.helper_script)] + args,
+                [sys.executable, str(self.helper_script)] + helper_args,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 check=False,
@@ -146,6 +159,10 @@ class OSSFuzz:
         artifacts: list[Path] = []
         for pattern in patterns:
             artifacts.extend(project_dir.glob(pattern))
+        for fixed_name in ("build.sh", "project.yaml", "Dockerfile"):
+            fixed_path = project_dir / fixed_name
+            if fixed_path.is_file():
+                artifacts.append(fixed_path)
         return sorted({path for path in artifacts})
 
     def _get_project_target_fingerprint(self, proj_name: str) -> str:
@@ -167,8 +184,9 @@ class OSSFuzz:
             return False
         return any(path.is_file() and path.name.startswith("llm_fuzzgen") and not path.suffix for path in build_dir.iterdir())
 
-    def _artifact_cache_path(self, proj_name: str, sanitizer: str, fingerprint: str) -> Path:
-        return self.build_cache_dir / proj_name / sanitizer / fingerprint
+    def _artifact_cache_path(self, proj_name: str, sanitizer: str, fingerprint: str, variant: str = "default") -> Path:
+        variant_name = variant or "default"
+        return self.build_cache_dir / proj_name / sanitizer / variant_name / fingerprint
 
     def _clear_build_out_dir(self, proj_name: str) -> bool:
         build_dir = self.build_out_dir / proj_name
@@ -218,12 +236,19 @@ class OSSFuzz:
             else:
                 shutil.copy2(source_path, destination_path)
 
-    def _restore_build_artifacts_from_cache(self, proj_name: str, sanitizer: str, fingerprint: str) -> bool:
-        cache_dir = self._artifact_cache_path(proj_name, sanitizer, fingerprint)
+    def _restore_build_artifacts_from_cache(
+        self,
+        proj_name: str,
+        sanitizer: str,
+        fingerprint: str,
+        variant: str = "default",
+    ) -> bool:
+        cache_dir = self._artifact_cache_path(proj_name, sanitizer, fingerprint, variant)
         if not cache_dir.exists():
             logger.info(
-                "No cached %s build artifacts for %s with fingerprint %s.",
+                "No cached %s/%s build artifacts for %s with fingerprint %s.",
                 sanitizer,
+                variant,
                 proj_name,
                 fingerprint[:12],
             )
@@ -234,27 +259,35 @@ class OSSFuzz:
         if not self._clear_build_out_dir(proj_name):
             return False
         self._copy_directory_contents(cache_dir, build_dir)
-        self._record_build_state(proj_name, sanitizer, fingerprint)
+        self._record_build_state(proj_name, sanitizer, variant, fingerprint)
         logger.info(
-            "Restored %s build artifacts for %s from cache fingerprint %s.",
+            "Restored %s/%s build artifacts for %s from cache fingerprint %s.",
             sanitizer,
+            variant,
             proj_name,
             fingerprint[:12],
         )
         return self._has_built_llm_targets(proj_name)
 
-    def _store_build_artifacts_in_cache(self, proj_name: str, sanitizer: str, fingerprint: str) -> None:
+    def _store_build_artifacts_in_cache(
+        self,
+        proj_name: str,
+        sanitizer: str,
+        fingerprint: str,
+        variant: str = "default",
+    ) -> None:
         build_dir = self.build_out_dir / proj_name
         if not build_dir.exists():
             logger.warning(
-                "Skipping cache store for %s/%s because build output directory does not exist: %s",
+                "Skipping cache store for %s/%s/%s because build output directory does not exist: %s",
                 proj_name,
                 sanitizer,
+                variant,
                 build_dir,
             )
             return
 
-        sanitizer_cache_root = self.build_cache_dir / proj_name / sanitizer
+        sanitizer_cache_root = self.build_cache_dir / proj_name / sanitizer / (variant or "default")
         sanitizer_cache_root.mkdir(parents=True, exist_ok=True)
         for existing in sanitizer_cache_root.iterdir():
             if existing.name != fingerprint:
@@ -266,23 +299,25 @@ class OSSFuzz:
         cache_dir.mkdir(parents=True, exist_ok=True)
         self._copy_directory_contents(build_dir, cache_dir)
         logger.info(
-            "Stored %s build artifacts for %s into cache fingerprint %s at %s",
+            "Stored %s/%s build artifacts for %s into cache fingerprint %s at %s",
             sanitizer,
+            variant,
             proj_name,
             fingerprint[:12],
             cache_dir,
         )
 
-    def _should_rebuild(self, proj_name: str, sanitizer: str) -> bool:
+    def _should_rebuild(self, proj_name: str, sanitizer: str, variant: str = "default") -> bool:
         fingerprint = self._get_project_target_fingerprint(proj_name)
         build_state = self._project_build_state.get(proj_name)
         logger.info(
-            "Build decision for %s/%s: fingerprint=%s, cached_state=%s, build_out_has_targets=%s",
+            "Build decision for %s/%s/%s: fingerprint=%s, cached_state=%s, build_out_has_targets=%s",
             proj_name,
             sanitizer,
+            variant,
             fingerprint[:12],
             (
-                f"{build_state.sanitizer}:{build_state.target_fingerprint[:12]}"
+                f"{build_state.sanitizer}:{build_state.variant}:{build_state.target_fingerprint[:12]}"
                 if build_state is not None
                 else "none"
             ),
@@ -291,30 +326,40 @@ class OSSFuzz:
         if (
             build_state is not None
             and build_state.sanitizer == sanitizer
+            and build_state.variant == variant
             and build_state.target_fingerprint == fingerprint
             and self._has_built_llm_targets(proj_name)
         ):
             logger.info(
-                "Skipping %s rebuild for %s; target fingerprint unchanged and build artifacts are present.",
+                "Skipping %s/%s rebuild for %s; target fingerprint unchanged and build artifacts are present.",
                 sanitizer,
+                variant,
                 proj_name,
             )
             return False
 
-        if self._restore_build_artifacts_from_cache(proj_name, sanitizer, fingerprint):
+        if self._restore_build_artifacts_from_cache(proj_name, sanitizer, fingerprint, variant):
             return False
 
         logger.info(
-            "Rebuild required for %s/%s: no reusable in-memory build state or artifact cache matched fingerprint %s.",
+            "Rebuild required for %s/%s/%s: no reusable in-memory build state or artifact cache matched fingerprint %s.",
             proj_name,
             sanitizer,
+            variant,
             fingerprint[:12],
         )
         return True
 
-    def _record_build_state(self, proj_name: str, sanitizer: str, fingerprint: str | None = None) -> None:
+    def _record_build_state(
+        self,
+        proj_name: str,
+        sanitizer: str,
+        variant: str = "default",
+        fingerprint: str | None = None,
+    ) -> None:
         self._project_build_state[proj_name] = BuildState(
             sanitizer=sanitizer,
+            variant=variant,
             target_fingerprint=fingerprint or self._get_project_target_fingerprint(proj_name),
         )
 
@@ -344,27 +389,31 @@ class OSSFuzz:
         proj_name: str,
         sanitizer: str = "address",
         deadline: float | None = None,
+        extra_env: dict[str, str] | None = None,
+        variant: str = "default",
     ) -> CompilationResult:
         """Builds fuzzers for the given project."""
-        if not self._should_rebuild(proj_name, sanitizer):
+        if not self._should_rebuild(proj_name, sanitizer, variant):
             return CompilationResult(success=True)
 
-        logger.info("Starting %s rebuild for %s.", sanitizer, proj_name)
+        logger.info("Starting %s/%s rebuild for %s.", sanitizer, variant, proj_name)
         timeout = self._remaining_timeout(deadline)
         if timeout == 0:
             return CompilationResult(success=False, error="deadline reached")
         helper_result = self._run_helper_command(
             ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
             timeout=timeout,
+            extra_env=extra_env,
         )
 
         if helper_result.success:
             fingerprint = self._get_project_target_fingerprint(proj_name)
-            self._record_build_state(proj_name, sanitizer, fingerprint)
-            self._store_build_artifacts_in_cache(proj_name, sanitizer, fingerprint)
+            self._record_build_state(proj_name, sanitizer, variant, fingerprint)
+            self._store_build_artifacts_in_cache(proj_name, sanitizer, fingerprint, variant)
             logger.info(
-                "Completed %s rebuild for %s with fingerprint %s.",
+                "Completed %s/%s rebuild for %s with fingerprint %s.",
                 sanitizer,
+                variant,
                 proj_name,
                 fingerprint[:12],
             )
@@ -881,6 +930,55 @@ class OSSFuzz:
         target_file.write_text(code)
         logger.info(f"Saved fuzz target to {target_file}")
         return target_file
+
+    def save_named_target(self, proj_name: str, code: str, stem_prefix: str) -> Path:
+        """Saves code as a named target under the OSS-Fuzz project directory."""
+        lang = self.proj_lang(proj_name)
+        target_dir = self.oss_fuzz_dir / "projects" / proj_name
+        timestamp = datetime.now().strftime("%m%d%H%M%S")
+        extension = self.LANG_EXT.get(lang.lower(), ".c")
+        safe_prefix = re.sub(r"[^a-zA-Z0-9._-]+", "_", stem_prefix).strip("._-") or "llm_fuzzgen_named"
+        if not safe_prefix.startswith("llm_fuzzgen"):
+            safe_prefix = f"llm_fuzzgen_{safe_prefix}"
+        target_file = target_dir / f"{safe_prefix}_{timestamp}{extension}"
+        target_file.write_text(code)
+        logger.info("Saved named fuzz target to %s", target_file)
+        return target_file
+
+    def built_target_binary(self, proj_name: str, target_name: str, subdir: str | None = None) -> Path | None:
+        binary_root = self.build_out_dir / proj_name
+        if subdir:
+            binary_root = binary_root / subdir
+        binary_path = binary_root / target_name
+        return binary_path if binary_path.is_file() else None
+
+    def ensure_target_binary(
+        self,
+        proj_name: str,
+        target_name: str,
+        sanitizer: str = "address",
+        deadline: float | None = None,
+        extra_env: dict[str, str] | None = None,
+        variant: str = "default",
+        binary_subdir: str | None = None,
+    ) -> CompilationResult:
+        """Build project with the given sanitizer and ensure target binary exists in build/out."""
+        build_result = self.build_fuzzers(
+            proj_name,
+            sanitizer=sanitizer,
+            deadline=deadline,
+            extra_env=extra_env,
+            variant=variant,
+        )
+        if not build_result.success:
+            return build_result
+        binary_path = self.built_target_binary(proj_name, target_name, subdir=binary_subdir)
+        if binary_path is None:
+            return CompilationResult(
+                success=False,
+                error=f"Build succeeded but target binary was not found: {target_name}",
+            )
+        return CompilationResult(success=True, error="")
 
     def remove_target(self, proj_name: str, target_name: str) -> None:
         """Removes the fuzzer target for the given project"""

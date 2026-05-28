@@ -246,6 +246,7 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "reference_target_name": Path(args.fuzz_file).stem,
         "reference_target_path": args.fuzz_file,
         "success": bool(result.get("success")),
+        "attempt_result": result.get("attempt_result", "success" if result.get("success") else "failed"),
         "pipeline_methods": result.get("pipeline_methods", []),
         "iteration_budget": result.get("iteration_budget"),
         "output_dir": result.get("output_dir"),
@@ -546,6 +547,7 @@ def generate_and_build_target(
     current_prompt = prompt
     previous_code = ""
     last_build_error = ""
+    saw_nonempty_code = False
 
     for attempt in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
         logging.info("Compilation-oriented generation attempt %d/%d", attempt, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS)
@@ -555,6 +557,7 @@ def generate_and_build_target(
             current_prompt = "Return a full fuzz target in a single <fuzz_target> block."
             continue
 
+        saw_nonempty_code = True
         previous_code = code
         target_path = save_named_target(oss_fuzz, project_name, code, stem_prefix)
         write_text(iteration_dir / f"candidate_attempt_{attempt:02d}{target_path.suffix}", code)
@@ -585,7 +588,37 @@ def generate_and_build_target(
         "error": last_build_error or "Failed to generate a compiling fuzz target.",
         "last_code": previous_code,
         "compile_attempts": config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
+        "failure_kind": "compile_failed" if saw_nonempty_code else "llm_error",
     }
+
+
+def infer_attempt_result(result: dict) -> str:
+    if result.get("success"):
+        return "success"
+
+    iterations = result.get("iterations") if isinstance(result.get("iterations"), list) else []
+    fallback_iterations = result.get("fallback_iterations") if isinstance(result.get("fallback_iterations"), list) else []
+    all_iterations = [*iterations, *fallback_iterations]
+    if not all_iterations:
+        return "failed"
+
+    saw_llm_error = False
+    saw_non_llm_failure = False
+    for item in all_iterations:
+        if not isinstance(item, dict):
+            continue
+        build = item.get("build")
+        if not isinstance(build, dict) or build.get("success"):
+            saw_non_llm_failure = True
+            continue
+        if build.get("failure_kind") == "llm_error":
+            saw_llm_error = True
+        else:
+            saw_non_llm_failure = True
+
+    if saw_llm_error and not saw_non_llm_failure:
+        return "llm_error"
+    return "failed"
 
 
 def run_strategy_iterations(
@@ -871,6 +904,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
     if baseline_evaluation.get("blocked_side_line_reached"):
         return {
             "success": True,
+            "attempt_result": "success",
             "success_stage": "baseline_evaluation",
             "failure_stage": None,
             "pipeline_methods": [],
@@ -900,6 +934,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
     if any(item.get("success") for item in reference_guided_iterations):
         return {
             "success": True,
+            "attempt_result": "success",
             "success_stage": "reference_guided_generation",
             "failure_stage": None,
             "pipeline_methods": ["reference_guided_generation"],
@@ -933,8 +968,16 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
 
     all_iterations = reference_guided_iterations + dedicated_generation_iterations
     final_success = any(item.get("success") for item in all_iterations)
+    attempt_result = "success" if final_success else infer_attempt_result(
+        {
+            "success": final_success,
+            "iterations": reference_guided_iterations,
+            "fallback_iterations": dedicated_generation_iterations,
+        }
+    )
     return {
         "success": final_success,
+        "attempt_result": attempt_result,
         "success_stage": "dedicated_generation" if final_success else None,
         "failure_stage": None if final_success else "dedicated_generation",
         "pipeline_methods": [

@@ -16,8 +16,11 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 SEED_GENERATOR = MODULE_ROOT / "input_dependent_seed_generator.py"
 HARNESS_GENERATOR = MODULE_ROOT / "input_dependent_harness_generator.py"
-SYMCC_THEN_KLEE = MODULE_ROOT / "symcc_then_klee.py"
+RUN_SYMCC_BLOCKER = MODULE_ROOT / "run_symcc_blocker.py"
 OUTPUT_ROOT = MODULE_ROOT / "generated_symbolic_runs"
+DEFAULT_LLVM18_ROOT = Path.home() / "tools" / "llvm-18.1.8" / "bin"
+DEFAULT_LLVM_PROFDATA = str(DEFAULT_LLVM18_ROOT / "llvm-profdata")
+DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
 
 
 def sanitize_name(value: str) -> str:
@@ -53,16 +56,22 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "reference_target_name": args.target_name or Path(args.fuzz_file).stem,
         "reference_target_path": args.fuzz_file,
         "success": bool(result.get("success")),
+        "attempt_result": result.get("attempt_result", "success" if result.get("success") else "failed"),
         "success_stage": result.get("success_stage"),
         "failure_stage": result.get("failure_stage"),
         "pipeline_methods": result.get("pipeline_methods", []),
-        "klee_enabled": result.get("klee_enabled"),
         "used_llm_seed_generator": result.get("used_llm_seed_generator"),
         "used_symcc": result.get("used_symcc"),
-        "used_klee": result.get("used_klee"),
         "seed_inputs": result.get("seed_inputs", []),
+        "symcc_seed_inputs": result.get("symcc_seed_inputs", []),
         "output_dir": result.get("output_dir"),
         "llm_seed_final_status": result.get("llm_seed_final_status"),
+        "llm_seed_generator_terminal_reason": result.get("llm_seed_generator_terminal_reason"),
+        "llm_seed_best_symcc_family": result.get("llm_seed_best_symcc_family"),
+        "llm_seed_best_symcc_top_families": result.get("llm_seed_best_symcc_top_families"),
+        "llm_seed_best_symcc_seed_paths": result.get("llm_seed_best_symcc_seed_paths"),
+        "llm_seed_recommended_symcc_generator_seed_paths": result.get("llm_seed_recommended_symcc_generator_seed_paths"),
+        "llm_seed_handoff_selection_reason": result.get("llm_seed_handoff_selection_reason"),
         "llm_seed_progress_iteration_count": result.get("llm_seed_progress_iteration_count"),
         "message": result.get("message"),
         "stage_statuses": stage_statuses,
@@ -113,6 +122,38 @@ def existing_seed_inputs(args: argparse.Namespace) -> list[str]:
         if trigger_path.exists() and trigger_path.is_file():
             return [str(trigger_path.resolve())]
     return []
+
+
+def choose_symcc_seed_inputs(
+    fallback_seeds: list[str],
+    parsed_llm_seed: dict | None,
+) -> tuple[list[str], dict]:
+    fallback = [str(Path(seed).resolve()) for seed in fallback_seeds if Path(seed).exists()]
+    if not isinstance(parsed_llm_seed, dict):
+        return fallback, {
+            "generator_terminal_reason": "",
+            "recommended_generator_seed_paths": [],
+            "selection_reason": "LLM seed generator did not return structured handoff metadata.",
+        }
+
+    generator_terminal_reason = str(parsed_llm_seed.get("generator_terminal_reason") or "")
+    recommended_paths = [
+        str(Path(path).resolve())
+        for path in (parsed_llm_seed.get("recommended_symcc_generator_seed_paths") or [])
+        if path and Path(path).exists()
+    ]
+    combined: list[str] = []
+    seen: set[str] = set()
+    for seed in recommended_paths + fallback:
+        if seed and seed not in seen:
+            combined.append(seed)
+            seen.add(seed)
+
+    return combined or fallback, {
+        "generator_terminal_reason": generator_terminal_reason,
+        "recommended_generator_seed_paths": recommended_paths,
+        "selection_reason": str(parsed_llm_seed.get("recommended_symcc_selection_reason") or ""),
+    }
 
 
 def build_context_args(args: argparse.Namespace) -> list[str]:
@@ -184,17 +225,18 @@ def build_symcc_cmd(
     work_dir: Path,
     seeds: list[str],
     fuzz_target: str | None,
+    target_name: str | None,
     json_output_path: Path,
 ) -> list[str]:
     cmd = [
         sys.executable,
-        str(SYMCC_THEN_KLEE),
+        str(RUN_SYMCC_BLOCKER),
         "--blocker-json-file",
         str(blocker_json_path),
         "--project-name",
         args.project_name,
         "--branch-source",
-        args.source_file,
+        getattr(args, "source_api_file", None) or args.source_file,
         "--branch-line",
         str(args.branch_line_number),
         "--blocked-side-line",
@@ -212,56 +254,33 @@ def build_symcc_cmd(
     ]
     if fuzz_target:
         cmd.extend(["--fuzz-target", fuzz_target])
+    if target_name:
+        cmd.extend(["--target-name", target_name])
     for seed in seeds:
         cmd.extend(["--seed", seed])
     if args.keep_coverage_reports:
         cmd.append("--keep-coverage-reports")
-    return cmd
-
-
-def build_klee_cmd(
-    args: argparse.Namespace,
-    blocker_json_path: Path,
-    work_dir: Path,
-    harness_path: str,
-    extract_object: str,
-    json_output_path: Path,
-) -> list[str]:
-    output_seed = work_dir / "klee_fallback_seed.bin"
-    cmd = [
-        sys.executable,
-        str(SYMCC_THEN_KLEE),
-        "--skip-symcc",
-        "--blocker-json-file",
-        str(blocker_json_path),
-        "--project-name",
-        args.project_name,
-        "--branch-source",
-        args.source_file,
-        "--branch-line",
-        str(args.branch_line_number),
-        "--blocked-side-line",
-        str(args.blocked_side_line_number),
-        "--work-dir",
-        str(work_dir),
-        "--klee-harness",
-        harness_path,
-        "--klee-max-time",
-        str(args.klee_max_time),
-        "--klee-max-tests",
-        str(args.klee_max_tests),
-        "--klee-output-seed",
-        str(output_seed),
-        "--klee-extract-object",
-        extract_object,
-        "--json-output-file",
-        str(json_output_path),
-    ]
+    if getattr(args, "llvm_profdata", None):
+        cmd.extend(["--llvm-profdata", args.llvm_profdata])
+    if getattr(args, "llvm_cov", None):
+        cmd.extend(["--llvm-cov", args.llvm_cov])
     return cmd
 
 
 def successful(parsed_output: dict | None) -> bool:
     return bool(parsed_output and parsed_output.get("success"))
+
+
+def infer_attempt_result(result: dict) -> str:
+    if result.get("success"):
+        return "success"
+
+    failure_stage = str(result.get("failure_stage") or "")
+    stages = result.get("stages") if isinstance(result.get("stages"), dict) else {}
+    stage_payload = stages.get(failure_stage) if failure_stage else None
+    if isinstance(stage_payload, dict) and stage_payload.get("attempt_result") == "llm_error":
+        return "llm_error"
+    return "failed"
 
 
 def run_input_dependent_solver(args: argparse.Namespace) -> dict:
@@ -288,10 +307,9 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         "pipeline_methods": [],
         "used_llm_seed_generator": False,
         "used_symcc": False,
-        "used_klee": False,
-        "klee_enabled": bool(args.enable_klee_fallback),
         "output_dir": str(output_dir),
         "seed_inputs": seeds,
+        "symcc_seed_inputs": list(seeds),
         "stages": {},
     }
 
@@ -317,19 +335,32 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     parsed_llm_seed = llm_seed_result.get("parsed_output") if isinstance(llm_seed_result.get("parsed_output"), dict) else {}
     if isinstance(parsed_llm_seed, dict):
         result["llm_seed_final_status"] = parsed_llm_seed.get("final_status")
+        result["llm_seed_generator_terminal_reason"] = parsed_llm_seed.get("generator_terminal_reason")
         result["llm_seed_progress_iteration_count"] = parsed_llm_seed.get("progress_iteration_count", 0)
+        result["llm_seed_best_symcc_family"] = parsed_llm_seed.get("best_symcc_family", "")
+        result["llm_seed_best_symcc_top_families"] = parsed_llm_seed.get("best_symcc_top_families", [])
+        result["llm_seed_best_symcc_seed_paths"] = parsed_llm_seed.get("best_symcc_seed_paths", [])
+        result["llm_seed_recommended_symcc_generator_seed_paths"] = parsed_llm_seed.get(
+            "recommended_symcc_generator_seed_paths", []
+        )
     if successful(llm_seed_result.get("parsed_output")):
         result["success"] = True
         result["success_stage"] = "llm_seed_generator"
+        result["attempt_result"] = "success"
         return result
+
+    symcc_seeds, handoff_metadata = choose_symcc_seed_inputs(seeds, parsed_llm_seed)
+    result["symcc_seed_inputs"] = symcc_seeds
+    result["llm_seed_handoff_selection_reason"] = handoff_metadata.get("selection_reason")
 
     symcc_probe_json = output_dir / "symcc_probe_summary.json"
     symcc_probe_cmd = build_symcc_cmd(
         args=args,
         blocker_json_path=payload_path,
         work_dir=output_dir / "symcc_probe",
-        seeds=seeds,
+        seeds=symcc_seeds,
         fuzz_target=args.fuzz_file,
+        target_name=args.target_name or Path(args.fuzz_file).stem,
         json_output_path=symcc_probe_json,
     )
     symcc_probe_result = run_program(symcc_probe_cmd, json_output_file=symcc_probe_json)
@@ -343,6 +374,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     if successful(symcc_probe_result.get("parsed_output")):
         result["success"] = True
         result["success_stage"] = "symcc_probe_original_target"
+        result["attempt_result"] = "success"
         return result
 
     symcc_harness_cmd = [
@@ -361,6 +393,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     parsed_symcc_harness = symcc_harness_gen.get("parsed_output")
     if not successful(parsed_symcc_harness):
         result["failure_stage"] = "symcc_harness_generation"
+        result["attempt_result"] = infer_attempt_result(result)
         return result
 
     symcc_harness_json = output_dir / "symcc_harness_summary.json"
@@ -368,8 +401,9 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         args=args,
         blocker_json_path=payload_path,
         work_dir=output_dir / "symcc_harness_run",
-        seeds=seeds,
+        seeds=symcc_seeds,
         fuzz_target=parsed_symcc_harness["harness_path"],
+        target_name=parsed_symcc_harness.get("native_build_target_name"),
         json_output_path=symcc_harness_json,
     )
     symcc_harness_run = run_program(symcc_harness_run_cmd, json_output_file=symcc_harness_json)
@@ -382,63 +416,18 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     if successful(symcc_harness_run.get("parsed_output")):
         result["success"] = True
         result["success_stage"] = "symcc_generated_harness"
+        result["attempt_result"] = "success"
         return result
 
-    if not args.enable_klee_fallback:
-        result["failure_stage"] = "symcc_generated_harness"
-        result["message"] = (
-            "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback. "
-            "KLEE fallback is disabled by default to keep the framework stable."
-        )
-        return result
-
-    klee_harness_cmd = [
-        sys.executable,
-        str(HARNESS_GENERATOR),
-        "--mode",
-        "klee",
-        *build_context_args(args),
-    ]
-    klee_harness_gen = run_program(klee_harness_cmd)
-    result["stages"]["klee_harness_generation"] = klee_harness_gen.get("parsed_output") or {
-        "returncode": klee_harness_gen["returncode"],
-        "stdout": klee_harness_gen["stdout"],
-        "stderr": klee_harness_gen["stderr"],
-    }
-    parsed_klee_harness = klee_harness_gen.get("parsed_output")
-    if not successful(parsed_klee_harness):
-        result["failure_stage"] = "klee_harness_generation"
-        return result
-
-    klee_json = output_dir / "klee_summary.json"
-    klee_run_cmd = build_klee_cmd(
-        args=args,
-        blocker_json_path=payload_path,
-        work_dir=output_dir / "klee_run",
-        harness_path=parsed_klee_harness["harness_path"],
-        extract_object=parsed_klee_harness.get("klee_extract_object", "input"),
-        json_output_path=klee_json,
-    )
-    klee_run = run_program(klee_run_cmd, json_output_file=klee_json)
-    result["used_klee"] = True
-    result["pipeline_methods"].append("klee_generated_harness")
-    result["stages"]["klee_generated_harness"] = klee_run.get("parsed_output") or {
-        "returncode": klee_run["returncode"],
-        "stdout": klee_run["stdout"],
-        "stderr": klee_run["stderr"],
-    }
-    if successful(klee_run.get("parsed_output")):
-        result["success"] = True
-        result["success_stage"] = "klee_generated_harness"
-        return result
-
-    result["failure_stage"] = "klee_generated_harness"
+    result["failure_stage"] = "symcc_generated_harness"
+    result["message"] = "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback."
+    result["attempt_result"] = infer_attempt_result(result)
     return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run the input-dependent blocker solver: generator -> SymCC probe -> SymCC harness, with optional KLEE fallback."
+        description="Run the input-dependent blocker solver: generator -> SymCC probe -> SymCC harness."
     )
     parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
     parser.add_argument("--model", default="gemini-2.5-flash")
@@ -466,15 +455,10 @@ def main() -> None:
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument("--symcc-max-generations", type=int, default=1)
-    parser.add_argument("--symcc-max-total-seeds", type=int, default=20)
+    parser.add_argument("--symcc-max-total-seeds", type=int, default=30)
     parser.add_argument("--symcc-timeout-sec", type=int, default=10)
-    parser.add_argument(
-        "--enable-klee-fallback",
-        action="store_true",
-        help="Enable the experimental KLEE fallback after the main LLM/SymCC pipeline fails.",
-    )
-    parser.add_argument("--klee-max-time", type=int, default=60)
-    parser.add_argument("--klee-max-tests", type=int, default=10)
+    parser.add_argument("--llvm-profdata", default=DEFAULT_LLVM_PROFDATA)
+    parser.add_argument("--llvm-cov", default=DEFAULT_LLVM_COV)
     parser.add_argument("--keep-coverage-reports", action="store_true")
     args = parser.parse_args()
 

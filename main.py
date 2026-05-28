@@ -14,6 +14,7 @@ import config.config as config
 import prompts.prompt_generator as prompt_generator
 from blocker_process.blocker_classifier import classify_blocker
 from blocker_process.coverage_utils import get_line_execution_count
+from blocker_process.dependent.input_dependent_seed_generator import evaluate_iteration_with_coverage
 from blocker_process.global_blocker_selector import aggregate_score_and_revalidate_blockers
 from crash_analyzer.crash_analyzer import CrashAnalyzer
 from experiment_logger import ExperimentLogger
@@ -58,6 +59,49 @@ class BlockerCoverageContext:
 
 BLOCKER_FULL_REFRESH_TARGET_THRESHOLD = 3
 BLOCKER_FULL_REFRESH_SESSION_INTERVAL = 3
+
+
+def _live_revalidate_blocker_before_classify(
+    project_name: str,
+    blocker: dict,
+    fuzz_seconds: int,
+) -> dict:
+    target_name = str(blocker.get("best_target") or "").strip()
+    function_name = str(blocker.get("function_name") or "").strip()
+    source_file = str(blocker.get("source_file") or "").strip()
+    branch_line = int(str(blocker.get("branch_line_number", "0")) or 0)
+    blocked_side_line = int(
+        str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
+    )
+
+    if not target_name or not function_name or not source_file or branch_line <= 0 or blocked_side_line <= 0:
+        return {
+            "success": False,
+            "reason": "live_revalidation_unavailable",
+            "error": "Missing target, function, source file, or blocker line metadata.",
+        }
+
+    output_dir = Path("artifacts") / "blocker_revalidation" / project_name / (
+        f"{target_name}_{function_name}_{branch_line}_{blocked_side_line}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    evaluation = evaluate_iteration_with_coverage(
+        oss_fuzz=oss_fuzz,
+        project_name=project_name,
+        fuzzer_name=target_name,
+        function_name=function_name,
+        source_file=source_file,
+        source_api_file=source_file,
+        branch_line=branch_line,
+        blocked_side_line=blocked_side_line,
+        fuzz_seconds=max(1, int(fuzz_seconds)),
+        output_dir=output_dir,
+        report_basename="pre_classify_live",
+        corpus_subdir_name=target_name,
+    )
+    evaluation["reason"] = "live_revalidation_completed" if evaluation.get("success") else "live_revalidation_failed"
+    evaluation["output_dir"] = str(output_dir)
+    return evaluation
 
 
 def _coverage_metric_snapshot(summary: TotalCoverageSummary | None, metric_name: str) -> dict[str, float | int] | None:
@@ -543,6 +587,7 @@ def _build_blocker_immediate_validation_record(
         "blocked_side_newly_reached": blocked_side_hit_before == 0 and blocked_side_hit_after > 0,
         "blocker_solved_immediately": blocked_side_hit_before == 0 and blocked_side_hit_after > 0,
         "dependency_result": pipeline_result.get("dependency_result"),
+        "attempt_result": pipeline_result.get("attempt_result"),
         "pipeline_methods": pipeline_result.get("pipeline_methods", []),
         "pipeline_success": pipeline_result.get("pipeline_success"),
         "pipeline_success_stage": pipeline_result.get("pipeline_success_stage"),
@@ -682,6 +727,113 @@ def run_blocker_pipeline(
         target_name=blocker.get("best_target"),
     )
 
+    live_revalidation = _live_revalidate_blocker_before_classify(
+        project_name=project_name,
+        blocker=blocker,
+        fuzz_seconds=blocker_fuzz_seconds,
+    )
+    _log_experiment_event(
+        "blocker_live_revalidation",
+        project_name=project_name,
+        blocker_json_path=str(resolved_json_path),
+        blocker_index=blocker_index,
+        target_name=blocker.get("best_target"),
+        function_name=blocker.get("function_name"),
+        branch_line_number=blocker.get("branch_line_number"),
+        blocked_side_line_number=blocked_side_line_number,
+        success=live_revalidation.get("success"),
+        reason=live_revalidation.get("reason"),
+        error=live_revalidation.get("error"),
+        branch_hit_count=live_revalidation.get("branch_hit_count"),
+        blocked_side_hit_count=live_revalidation.get("blocked_side_hit_count"),
+        branch_line_reached=live_revalidation.get("branch_line_reached"),
+        blocked_side_line_reached=live_revalidation.get("blocked_side_line_reached"),
+        output_dir=live_revalidation.get("output_dir"),
+    )
+    _append_blocker_attempt_record(
+        event="blocker_live_revalidation",
+        success=live_revalidation.get("success"),
+        reason=live_revalidation.get("reason"),
+        error=live_revalidation.get("error"),
+        target_name=blocker.get("best_target"),
+        function_name=blocker.get("function_name"),
+        branch_line_number=blocker.get("branch_line_number"),
+        blocked_side_line_number=blocked_side_line_number,
+        branch_hit_count=live_revalidation.get("branch_hit_count"),
+        blocked_side_hit_count=live_revalidation.get("blocked_side_hit_count"),
+        branch_line_reached=live_revalidation.get("branch_line_reached"),
+        blocked_side_line_reached=live_revalidation.get("blocked_side_line_reached"),
+        output_dir=live_revalidation.get("output_dir"),
+    )
+    if not live_revalidation.get("success"):
+        logger.warning(
+            "Skipping blocker pipeline for %s because live revalidation failed for %s:%s target=%s: %s",
+            project_name,
+            blocker.get("function_name", "unknown"),
+            blocker.get("branch_line_number", "unknown"),
+            blocker.get("best_target", "unknown"),
+            live_revalidation.get("error", "unknown error"),
+        )
+        return {
+            "success": False,
+            "reason": "live_revalidation_failed",
+            "dependency_result": None,
+            "pipeline_methods": [],
+            "pipeline_success": None,
+            "pipeline_success_stage": None,
+            "pipeline_failure_stage": "live_revalidation",
+            "pipeline_returncode": 1,
+            "classify_elapsed_seconds": 0.0,
+            "pipeline_elapsed_seconds": 0.0,
+            "live_revalidation": live_revalidation,
+        }
+    if live_revalidation.get("blocked_side_line_reached"):
+        logger.info(
+            "Skipping blocker pipeline for %s because blocker is already covered at solve time: %s:%s target=%s "
+            "(branch=%s blocked_side=%s).",
+            project_name,
+            blocker.get("function_name", "unknown"),
+            blocker.get("branch_line_number", "unknown"),
+            blocker.get("best_target", "unknown"),
+            live_revalidation.get("branch_hit_count", 0),
+            live_revalidation.get("blocked_side_hit_count", 0),
+        )
+        return {
+            "success": False,
+            "reason": "already_covered_at_solve_time",
+            "dependency_result": None,
+            "pipeline_methods": [],
+            "pipeline_success": None,
+            "pipeline_success_stage": None,
+            "pipeline_failure_stage": "live_revalidation",
+            "pipeline_returncode": 0,
+            "classify_elapsed_seconds": 0.0,
+            "pipeline_elapsed_seconds": 0.0,
+            "live_revalidation": live_revalidation,
+        }
+    if not live_revalidation.get("branch_line_reached"):
+        logger.info(
+            "Skipping blocker pipeline for %s because live revalidation no longer reaches the blocker branch: %s:%s "
+            "target=%s.",
+            project_name,
+            blocker.get("function_name", "unknown"),
+            blocker.get("branch_line_number", "unknown"),
+            blocker.get("best_target", "unknown"),
+        )
+        return {
+            "success": False,
+            "reason": "branch_not_reached_at_solve_time",
+            "dependency_result": None,
+            "pipeline_methods": [],
+            "pipeline_success": None,
+            "pipeline_success_stage": None,
+            "pipeline_failure_stage": "live_revalidation",
+            "pipeline_returncode": 0,
+            "classify_elapsed_seconds": 0.0,
+            "pipeline_elapsed_seconds": 0.0,
+            "live_revalidation": live_revalidation,
+        }
+
     pipeline_started_at = time.perf_counter()
     args = argparse.Namespace(
         backend=llm_backend,
@@ -724,11 +876,81 @@ def run_blocker_pipeline(
     )
 
     classify_started_at = time.perf_counter()
-    result = classify_blocker(args, execute_pipeline=True)
+    try:
+        result = classify_blocker(args, execute_pipeline=True)
+    except Exception as exc:
+        classify_elapsed = time.perf_counter() - classify_started_at
+        pipeline_elapsed = time.perf_counter() - pipeline_started_at
+        logger.exception(
+            "Blocker pipeline classification failed for %s at %s:%s; continuing fuzzing loop.",
+            project_name,
+            blocker.get("function_name"),
+            blocker.get("branch_line_number"),
+        )
+        failure_result = {
+            "success": False,
+            "attempt_result": "llm_error",
+            "pipeline_returncode": -1,
+            "pipeline_methods": [],
+            "pipeline_output": {
+                "parsed_output": {
+                    "success": False,
+                    "attempt_result": "llm_error",
+                    "failure_stage": "classification",
+                }
+            },
+            "dependency_result": "Classification Failed",
+            "reason": str(exc),
+            "parsed_result": None,
+            "response_text": "",
+            "prompt": "",
+        }
+        _log_experiment_event(
+            "blocker_pipeline_result",
+            success=False,
+            attempt_result="llm_error",
+            pipeline_returncode=-1,
+            dependency_result="Classification Failed",
+            pipeline_methods=[],
+            pipeline_success=False,
+            pipeline_output_dir=None,
+            pipeline_summary_path=None,
+            pipeline_success_stage=None,
+            pipeline_failure_stage="classification",
+            classify_elapsed_seconds=classify_elapsed,
+            pipeline_elapsed_seconds=pipeline_elapsed,
+            reason=str(exc),
+            target_name=blocker.get("best_target"),
+            function_name=blocker.get("function_name"),
+            branch_line_number=blocker.get("branch_line_number"),
+            blocked_side_line_number=blocked_side_line_number,
+        )
+        _append_blocker_attempt_record(
+            event="blocker_pipeline_result",
+            success=False,
+            attempt_result="llm_error",
+            dependency_result="Classification Failed",
+            target_name=blocker.get("best_target"),
+            function_name=blocker.get("function_name"),
+            branch_line_number=blocker.get("branch_line_number"),
+            blocked_side_line_number=blocked_side_line_number,
+            pipeline_methods=[],
+            pipeline_returncode=-1,
+            pipeline_success=False,
+            pipeline_success_stage=None,
+            pipeline_failure_stage="classification",
+            classify_elapsed_seconds=classify_elapsed,
+            pipeline_elapsed_seconds=pipeline_elapsed,
+            pipeline_output_dir=None,
+            pipeline_summary_path=None,
+            reason=str(exc),
+        )
+        return failure_result
     classify_elapsed = time.perf_counter() - classify_started_at
     pipeline_elapsed = time.perf_counter() - pipeline_started_at
     pipeline_returncode = result.get("pipeline_returncode", 0)
     success = pipeline_returncode == 0
+    attempt_result = result.get("attempt_result", "success" if success else "failed")
     pipeline_methods = result.get("pipeline_methods", [])
     pipeline_output = result.get("pipeline_output") or {}
     pipeline_parsed_output = pipeline_output.get("parsed_output") if isinstance(pipeline_output, dict) else None
@@ -747,6 +969,7 @@ def run_blocker_pipeline(
     _log_experiment_event(
         "blocker_pipeline_result",
         success=success,
+        attempt_result=attempt_result,
         pipeline_returncode=pipeline_returncode,
         dependency_result=result.get("dependency_result"),
         pipeline_methods=pipeline_methods,
@@ -766,6 +989,7 @@ def run_blocker_pipeline(
     _append_blocker_attempt_record(
         event="blocker_pipeline_result",
         success=success,
+        attempt_result=attempt_result,
         dependency_result=result.get("dependency_result"),
         target_name=blocker.get("best_target"),
         function_name=blocker.get("function_name"),
@@ -799,6 +1023,7 @@ def run_blocker_pipeline(
         )
     return {
         "success": success,
+        "attempt_result": attempt_result,
         "reason": result.get("reason"),
         "dependency_result": result.get("dependency_result"),
         "pipeline_methods": pipeline_methods,
@@ -808,6 +1033,7 @@ def run_blocker_pipeline(
         "pipeline_returncode": pipeline_returncode,
         "classify_elapsed_seconds": classify_elapsed,
         "pipeline_elapsed_seconds": pipeline_elapsed,
+        "live_revalidation": live_revalidation,
     }
 
 
@@ -1073,6 +1299,7 @@ def run_blocker_session(
             state.total_blockers_succeeded += 1
 
         blocker_kind = pipeline_result.get("dependency_result")
+        attempt_result = pipeline_result.get("attempt_result")
         if blocker_kind == "Input Independent":
             state.artifacts_dirty = True
 
@@ -1091,6 +1318,7 @@ def run_blocker_session(
             branch_coverage=_get_coverage_metric(post_summary, "branches"),
             functions_coverage=_get_coverage_metric(post_summary, "functions"),
             dependency_result=blocker_kind,
+            attempt_result=attempt_result,
             pipeline_methods=pipeline_result.get("pipeline_methods", []),
             pipeline_success=pipeline_result.get("pipeline_success"),
         )
@@ -1102,6 +1330,7 @@ def run_blocker_session(
             branch_line_number=blocker.get("branch_line_number"),
             blocked_side_line_number=blocker.get("blocked_side_line_number"),
             dependency_result=blocker_kind,
+            attempt_result=attempt_result,
             pipeline_methods=pipeline_result.get("pipeline_methods", []),
             pipeline_success=pipeline_result.get("pipeline_success"),
             **_build_coverage_growth_payload(current_pre_blocker_coverage, post_summary),

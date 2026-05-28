@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -12,6 +13,9 @@ MODULE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = MODULE_ROOT.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from blocker_process.dependent.build_context import reconstruct_build_context
+from external.oss_fuzz import OSSFuzz
 
 try:
     from json_repair import repair_json
@@ -23,7 +27,6 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 OUTPUT_ROOT = MODULE_ROOT / "generated_harnesses"
 TEMPLATE_BY_MODE = {
     "symcc": REPO_ROOT / "prompts" / "templates" / "symcc_harness_generator_template",
-    "klee": REPO_ROOT / "prompts" / "templates" / "klee_harness_generator_template",
 }
 
 
@@ -145,6 +148,57 @@ def strip_markdown_code_fence(text: str) -> str:
     if match:
         return match.group("body").strip() + "\n"
     return text
+
+
+def build_harness_repair_prompt(
+    base_prompt: str,
+    failure_kind: str,
+    failure_details: str,
+    previous_harness_code: str,
+) -> str:
+    details = clip_text(failure_details or "N/A", max_chars=8000)
+    previous_code = clip_text(previous_harness_code or "N/A", max_chars=16000)
+    return (
+        f"{base_prompt}\n\n"
+        "## Repair Task\n"
+        "The previous harness attempt failed validation.\n"
+        f"- Failure kind: {failure_kind}\n"
+        f"- Failure details:\n{details}\n\n"
+        "Revise the harness so it preserves the blocker path requirements and passes the reported failure.\n"
+        "Keep the same JSON output schema as before.\n\n"
+        "## Previous Harness Code\n"
+        "```cpp\n"
+        f"{previous_code}\n"
+        "```"
+    )
+
+
+def sanitize_generated_harness_code(code: str) -> str:
+    lines: list[str] = []
+    include_re = re.compile(r'^\s*#\s*include\s+"(?P<path>/(?:src|repo)/[^"]+)"')
+    for line in code.splitlines():
+        match = include_re.match(line)
+        if not match:
+            lines.append(line)
+            continue
+
+        raw_path = match.group("path")
+        normalized = raw_path.replace("\\", "/")
+        rewritten = None
+        if normalized.startswith("/src/"):
+            rewritten = normalized[len("/src/") :]
+        elif normalized.startswith("/repo/"):
+            repo_relative = normalized[len("/repo/") :]
+            src_marker = "/src/"
+            if src_marker in repo_relative:
+                rewritten = repo_relative.split(src_marker, 1)[1]
+            else:
+                rewritten = repo_relative.split("/")[-1]
+        else:
+            rewritten = normalized.split("/")[-1]
+
+        lines.append(f'#include "{rewritten}"')
+    return "\n".join(lines) + ("\n" if code.endswith("\n") else "")
 
 
 def extract_prefixed_calls(code: str, prefixes: tuple[str, ...]) -> list[str]:
@@ -296,11 +350,6 @@ def validate_harness_semantics(
             + ", ".join(missing_types)
         )
 
-    original_uses_transform = "cmsDoTransform(" in original_code
-    generated_uses_transform = "cmsDoTransform(" in generated_code
-    if original_uses_transform and not generated_uses_transform:
-        errors.append("Generated harness dropped cmsDoTransform even though the original fuzz target executes it.")
-
     original_has_raw_byte_flow = "FuzzedDataProvider" not in original_code and "std::" not in original_code
     generated_clamps_inputs = bool(
         re.search(r"if\s*\([^)]*(<=|>=|<|>)\s*0[^)]*\)\s*[A-Za-z_][A-Za-z0-9_]*\s*=", generated_code)
@@ -320,6 +369,184 @@ def validate_harness_semantics(
         )
 
     return errors
+
+
+def _infer_harness_extension(language: str | None) -> str:
+    lowered = str(language or "").strip().lower()
+    if lowered in {"c", "c89", "c99", "c11", "c17"}:
+        return ".c"
+    return ".cpp"
+
+
+def _select_compiler(language: str | None, harness_path: Path) -> str:
+    suffix = harness_path.suffix.lower()
+    lowered = str(language or "").strip().lower()
+    if suffix in {".cc", ".cpp", ".cxx", ".c++"} or lowered in {"c++", "cpp"}:
+        return "clang++"
+    return "clang"
+
+
+def _link_probe_source(language: str) -> str:
+    if language == "c++":
+        return (
+            '#include <cstddef>\n'
+            '#include <cstdint>\n'
+            'extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size);\n'
+            "int main() {\n"
+            "  static const uint8_t data[1] = {0};\n"
+            "  return LLVMFuzzerTestOneInput(data, sizeof(data));\n"
+            "}\n"
+        )
+    return (
+        "#include <stddef.h>\n"
+        "#include <stdint.h>\n"
+        "int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size);\n"
+        "int main(void) {\n"
+        "  static const uint8_t data[1] = {0};\n"
+        "  return LLVMFuzzerTestOneInput(data, sizeof(data));\n"
+        "}\n"
+    )
+
+
+def run_harness_native_build_gate(
+    harness_code: str,
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[str | None, str, dict]:
+    oss_fuzz = OSSFuzz()
+    native_target = oss_fuzz.save_named_target(
+        args.project_name,
+        harness_code,
+        stem_prefix=f"llm_fuzzgen_symcc_{sanitize_name(args.function_name)}",
+    )
+    build_result = oss_fuzz.ensure_target_binary(args.project_name, native_target.stem, sanitizer="address")
+    native_log = output_dir / "native_build_check.txt"
+    native_log.write_text(
+        "\n".join(
+            [
+                f"target_path={native_target}",
+                f"target_name={native_target.stem}",
+                f"success={build_result.success}",
+                f"error={build_result.error}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    if not build_result.success:
+        oss_fuzz.remove_target(args.project_name, native_target.stem)
+        return "native_build_invalid", build_result.error or "OSS-Fuzz native build failed.", {}
+
+    binary_path = oss_fuzz.built_target_binary(args.project_name, native_target.stem)
+    return None, "", {
+        "native_target_name": native_target.stem,
+        "native_target_path": str(native_target),
+        "native_address_binary": str(binary_path) if binary_path is not None else None,
+    }
+
+
+def run_harness_frontend_gate(
+    harness_path: Path,
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[str | None, str, dict]:
+    build_context = reconstruct_build_context(
+        project_name=args.project_name,
+        mode="generated_harness",
+        target_source=args.fuzz_file,
+        branch_source=args.source_file,
+        harness_source=str(harness_path),
+        header_file=args.header_file,
+    )
+    build_context.write_json(output_dir / "build_context.json")
+
+    compiler = _select_compiler(build_context.language or args.language, harness_path)
+    include_dirs = [Path(path) for path in build_context.include_dirs]
+    common_flags = ["-std=c++17"] if compiler == "clang++" else ["-std=c11"]
+    include_flags = [flag for path in include_dirs for flag in ("-I", str(path))]
+
+    syntax_cmd = [compiler, *common_flags, *include_flags, "-fsyntax-only", str(harness_path)]
+    syntax_result = subprocess.run(
+        syntax_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    syntax_log = output_dir / "syntax_check.txt"
+    syntax_log.write_text(
+        "COMMAND:\n" + " ".join(syntax_cmd) + "\n\nSTDOUT:\n" + syntax_result.stdout + "\nSTDERR:\n" + syntax_result.stderr,
+        encoding="utf-8",
+    )
+    if syntax_result.returncode != 0:
+        return "syntax_invalid", syntax_result.stderr.strip() or syntax_result.stdout.strip() or "Syntax check failed.", {}
+
+    object_path = output_dir / f"{harness_path.stem}.o"
+    compile_cmd = [compiler, *common_flags, *include_flags, "-c", str(harness_path), "-o", str(object_path)]
+    compile_result = subprocess.run(
+        compile_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    compile_log = output_dir / "compile_check.txt"
+    compile_log.write_text(
+        "COMMAND:\n" + " ".join(compile_cmd) + "\n\nSTDOUT:\n" + compile_result.stdout + "\nSTDERR:\n" + compile_result.stderr,
+        encoding="utf-8",
+    )
+    if compile_result.returncode != 0:
+        return "compile_invalid", compile_result.stderr.strip() or compile_result.stdout.strip() or "Compile check failed.", {}
+
+    link_probe = output_dir / ("link_probe.cpp" if compiler == "clang++" else "link_probe.c")
+    link_probe.write_text(_link_probe_source("c++" if compiler == "clang++" else "c"), encoding="utf-8")
+    compile_units: list[Path] = []
+    for raw in build_context.required_sources:
+        candidate = Path(raw)
+        if candidate.resolve() == harness_path.resolve():
+            compile_units.append(harness_path)
+        else:
+            compile_units.append(candidate)
+    for raw in build_context.optional_sources:
+        compile_units.append(Path(raw))
+    link_cmd = [compiler, *common_flags, *include_flags, str(link_probe)]
+    seen_units: set[Path] = set()
+    for unit in compile_units:
+        resolved = unit.resolve()
+        if resolved in seen_units:
+            continue
+        seen_units.add(resolved)
+        link_cmd.append(str(unit))
+    link_cmd.extend(["-o", str(output_dir / "link_probe_bin")])
+    link_result = subprocess.run(
+        link_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    link_log = output_dir / "link_check.txt"
+    link_log.write_text(
+        "COMMAND:\n" + " ".join(link_cmd) + "\n\nSTDOUT:\n" + link_result.stdout + "\nSTDERR:\n" + link_result.stderr,
+        encoding="utf-8",
+    )
+    if link_result.returncode != 0:
+        return "link_invalid", link_result.stderr.strip() or link_result.stdout.strip() or "Link check failed.", {}
+
+    native_failure, native_details, native_metadata = run_harness_native_build_gate(
+        harness_code=harness_path.read_text(encoding="utf-8"),
+        args=args,
+        output_dir=output_dir,
+    )
+    if native_failure is not None:
+        return native_failure, native_details, {}
+
+    return None, "", native_metadata
 
 
 def build_prompt(args: argparse.Namespace) -> str:
@@ -381,6 +608,14 @@ def write_harness(output_dir: Path, harness_code: str, suggested_name: str) -> P
     return target
 
 
+def build_output_dir(args: argparse.Namespace) -> Path:
+    safe_project = sanitize_name(args.project_name)
+    safe_function = sanitize_name(args.function_name)
+    prefix = f"{safe_project}_{safe_function}_{args.mode}_"
+    candidates = sorted(path for path in OUTPUT_ROOT.glob(prefix + "*") if path.is_dir())
+    return candidates[-1] if candidates else (OUTPUT_ROOT / f"{prefix}unknown")
+
+
 def run_generation(args: argparse.Namespace) -> dict:
     from llm_interface.llm_client import LLMClient
 
@@ -393,47 +628,113 @@ def run_generation(args: argparse.Namespace) -> dict:
     (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
     llm = LLMClient(backend=args.backend, model_name=args.model, temperature=args.temperature)
-    response_text = llm.generate(prompt)
-    if not response_text:
-        raise RuntimeError("Empty LLM response.")
+    original_code = read_optional_file(args.fuzz_file)
+    runtime_segment = resolve_text(args.runtime_blocker_segment_file, args.runtime_blocker_segment)
+    default_filename = f"{args.mode}_harness{_infer_harness_extension(args.language)}"
 
-    parsed = extract_json(response_text)
-    harness_code = strip_markdown_code_fence(parsed.get("harness_code", ""))
-    harness_filename = parsed.get("harness_filename", f"{args.mode}_harness.cpp")
-    if not harness_code:
-        raise RuntimeError("LLM response did not include harness_code.")
+    current_prompt = prompt
+    response_text = ""
+    parsed: dict = {}
+    harness_code = ""
+    harness_filename = default_filename
+    validation_kind = ""
+    validation_details = ""
+    final_response_name = "response.txt"
+    final_parsed_name = "parsed.json"
+    native_build_metadata: dict[str, str] = {}
 
-    semantic_errors = validate_harness_semantics(
-        original_code=read_optional_file(args.fuzz_file),
-        generated_code=harness_code,
-        runtime_blocker_segment=resolve_text(args.runtime_blocker_segment_file, args.runtime_blocker_segment),
-    )
-    if semantic_errors:
-        raise RuntimeError("Generated harness failed semantic validation: " + " | ".join(semantic_errors))
+    for attempt_index in range(2):
+        response_text = llm.generate(current_prompt)
+        if not response_text:
+            raise RuntimeError("Empty LLM response.")
+
+        parsed = extract_json(response_text)
+        harness_code = strip_markdown_code_fence(parsed.get("harness_code", ""))
+        harness_code = sanitize_generated_harness_code(harness_code)
+        harness_filename = parsed.get("harness_filename", default_filename)
+        if "." not in harness_filename:
+            harness_filename += _infer_harness_extension(args.language)
+        if not harness_code:
+            raise RuntimeError("LLM response did not include harness_code.")
+
+        response_name = "response.txt" if attempt_index == 0 else f"repair_response_{attempt_index:02d}.txt"
+        parsed_name = "parsed.json" if attempt_index == 0 else f"repair_parsed_{attempt_index:02d}.json"
+        (output_dir / response_name).write_text(response_text, encoding="utf-8")
+        (output_dir / parsed_name).write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
+        final_response_name = response_name
+        final_parsed_name = parsed_name
+
+        harness_path = write_harness(
+            output_dir,
+            harness_code,
+            harness_filename if attempt_index == 0 else f"repair_{attempt_index:02d}_{harness_filename}",
+        )
+
+        validation_kind, validation_details, native_build_metadata = run_harness_frontend_gate(
+            harness_path,
+            args,
+            output_dir,
+        )
+        if validation_kind is None:
+            semantic_errors = validate_harness_semantics(
+                original_code=original_code,
+                generated_code=harness_code,
+                runtime_blocker_segment=runtime_segment,
+            )
+            if semantic_errors:
+                validation_kind = "semantic_invalid"
+                validation_details = " | ".join(semantic_errors)
+
+        if validation_kind is None:
+            break
+
+        if attempt_index >= 1:
+            raise RuntimeError(f"Generated harness failed {validation_kind}: {validation_details}")
+
+        repair_prompt = build_harness_repair_prompt(
+            base_prompt=prompt,
+            failure_kind=validation_kind,
+            failure_details=validation_details,
+            previous_harness_code=harness_code,
+        )
+        (output_dir / "repair_prompt_01.txt").write_text(repair_prompt, encoding="utf-8")
+        current_prompt = repair_prompt
 
     harness_path = write_harness(output_dir, harness_code, harness_filename)
-    (output_dir / "response.txt").write_text(response_text, encoding="utf-8")
-    (output_dir / "parsed.json").write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
 
     result = {
         "success": True,
         "mode": args.mode,
         "output_dir": str(output_dir),
         "prompt_path": str(output_dir / "prompt.txt"),
-        "response_path": str(output_dir / "response.txt"),
-        "parsed_path": str(output_dir / "parsed.json"),
+        "response_path": str(output_dir / final_response_name),
+        "parsed_path": str(output_dir / final_parsed_name),
         "harness_path": str(harness_path),
         "harness_filename": harness_path.name,
         "analysis_summary": parsed.get("analysis_summary", []),
         "harness_design_rationale": parsed.get("harness_design_rationale", ""),
-        "klee_extract_object": parsed.get("klee_extract_object", "input"),
+        "validation_status": "passed",
+        "native_build_target_name": native_build_metadata.get("native_target_name"),
+        "native_build_target_path": native_build_metadata.get("native_target_path"),
+        "native_build_address_binary": native_build_metadata.get("native_address_binary"),
     }
     return result
 
 
+def build_failure_result(args: argparse.Namespace, attempt_result: str, error: str, validation_status: str) -> dict:
+    return {
+        "success": False,
+        "attempt_result": attempt_result,
+        "mode": args.mode,
+        "output_dir": str(build_output_dir(args)),
+        "validation_status": validation_status,
+        "error": error,
+    }
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate a SymCC/KLEE-friendly harness for an input-dependent blocker.")
-    parser.add_argument("--mode", required=True, choices=["symcc", "klee"])
+    parser = argparse.ArgumentParser(description="Generate a SymCC-friendly harness for an input-dependent blocker.")
+    parser.add_argument("--mode", required=True, choices=["symcc"])
     parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
     parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--temperature", type=float, default=0.2)
@@ -461,12 +762,36 @@ def main() -> None:
         result = run_generation(args)
     except FileNotFoundError as exc:
         logging.error("%s", exc)
+        print(
+            json.dumps(
+                build_failure_result(args, "failed", str(exc), "file_not_found"),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         sys.exit(1)
     except RuntimeError as exc:
         logging.error("%s", exc)
+        error_text = str(exc)
+        attempt_result = "failed" if error_text.startswith("Generated harness failed ") else "llm_error"
+        validation_status = "validation_failed" if attempt_result == "failed" else "llm_error"
+        print(
+            json.dumps(
+                build_failure_result(args, attempt_result, error_text, validation_status),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         sys.exit(2)
     except Exception as exc:
         logging.error("Harness generation failed: %s", exc, exc_info=True)
+        print(
+            json.dumps(
+                build_failure_result(args, "failed", f"Harness generation failed: {exc}", "unexpected_error"),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         sys.exit(3)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))

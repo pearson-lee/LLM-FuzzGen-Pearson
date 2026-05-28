@@ -29,6 +29,14 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SYMCC = REPO_ROOT / "symcc" / "build" / "symcc"
 DEFAULT_SYMPP = REPO_ROOT / "symcc" / "build" / "sym++"
+DEFAULT_LLVM18_ROOT = Path.home() / "tools" / "llvm-18.1.8" / "bin"
+DEFAULT_LLVM_PROFDATA = str(DEFAULT_LLVM18_ROOT / "llvm-profdata")
+DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from blocker_process.dependent.build_context import BuildContext
 
 C_EXTENSIONS = {".c"}
 CXX_EXTENSIONS = {
@@ -62,6 +70,11 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--fuzz-target", required=True, help="Path to the fuzz target source containing LLVMFuzzerTestOneInput.")
+    parser.add_argument(
+        "--build-context-file",
+        default=None,
+        help="Optional shared build-context manifest. When present, SymCC build inputs are loaded from this file.",
+    )
     parser.add_argument(
         "--source",
         action="append",
@@ -109,11 +122,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-dir", default=None, help="Directory to store build outputs and generated seeds.")
     parser.add_argument("--max-generations", type=int, default=5, help="Maximum SymCC exploration generations.")
     parser.add_argument("--max-total-seeds", type=int, default=200, help="Maximum total corpus size including generated seeds.")
-    parser.add_argument("--timeout-sec", type=int, default=20, help="Timeout for each target execution.")
+    parser.add_argument("--timeout-sec", type=int, default=30, help="Timeout for each target execution.")
     parser.add_argument("--symcc", default=str(DEFAULT_SYMCC), help=f"Path to symcc. Default: {DEFAULT_SYMCC}")
     parser.add_argument("--sympp", default=str(DEFAULT_SYMPP), help=f"Path to sym++. Default: {DEFAULT_SYMPP}")
     parser.add_argument("--clang", default="clang", help="Path to clang for the coverage build.")
     parser.add_argument("--clangxx", default="clang++", help="Path to clang++ for the coverage build.")
+    parser.add_argument(
+        "--llvm-profdata",
+        default=os.environ.get("LLVM_PROFDATA", DEFAULT_LLVM_PROFDATA),
+        help="Path to llvm-profdata used to merge coverage profiles.",
+    )
+    parser.add_argument(
+        "--llvm-cov",
+        default=os.environ.get("LLVM_COV", DEFAULT_LLVM_COV),
+        help="Path to llvm-cov used to inspect line coverage.",
+    )
+    parser.add_argument(
+        "--coverage-binary",
+        default=None,
+        help="Optional prebuilt coverage-instrumented target binary to reuse for seed validation.",
+    )
+    parser.add_argument(
+        "--prebuilt-archive",
+        action="append",
+        default=[],
+        help="Optional prebuilt static archive to link against instead of reconstructing project source closure.",
+    )
+    parser.add_argument(
+        "--native-include-dir",
+        action="append",
+        default=[],
+        help="Additional include directory for native-archive build mode.",
+    )
     parser.add_argument("--cflags", default="", help="Extra C compiler flags, passed to both builds.")
     parser.add_argument("--cxxflags", default="", help="Extra C++ compiler flags, passed to both builds.")
     parser.add_argument("--ldflags", default="", help="Extra linker flags, passed to both builds.")
@@ -347,10 +387,40 @@ def write_replay_driver(work_dir: Path, driver_language: str) -> Path:
     return driver_path
 
 
+def normalize_source_includes(source_text: str) -> str:
+    include_re = re.compile(r'^(?P<prefix>\s*#\s*include\s+")(?P<path>/(?:src|repo)/[^"]+)(?P<suffix>")', re.MULTILINE)
+
+    def repl(match: re.Match[str]) -> str:
+        raw_path = match.group("path").replace("\\", "/")
+        rewritten = raw_path.split("/")[-1]
+        if raw_path.startswith("/src/"):
+            rewritten = raw_path[len("/src/") :]
+        elif raw_path.startswith("/repo/"):
+            repo_relative = raw_path[len("/repo/") :]
+            src_marker = "/src/"
+            if src_marker in repo_relative:
+                rewritten = repo_relative.split(src_marker, 1)[1]
+            else:
+                rewritten = repo_relative.split("/")[-1]
+        return f'{match.group("prefix")}{rewritten}{match.group("suffix")}'
+
+    return include_re.sub(repl, source_text)
+
+
+def materialize_normalized_source(source: Path, normalized_source_dir: Path) -> Path:
+    normalized_source_dir.mkdir(parents=True, exist_ok=True)
+    path_digest = hashlib.sha1(str(source.resolve()).encode("utf-8")).hexdigest()[:10]
+    target = normalized_source_dir / f"{path_digest}_{source.name}"
+    source_text = source.read_text(encoding="utf-8", errors="replace")
+    target.write_text(normalize_source_includes(source_text), encoding="utf-8")
+    return target
+
+
 def compile_objects(
     *,
     sources: list[Path],
     object_dir: Path,
+    required_sources: set[Path],
     include_dirs: list[Path],
     defines: list[str],
     common_flags: list[str],
@@ -383,6 +453,13 @@ def compile_objects(
         ]
         result = run_cmd(cmd, env=compiler_env)
         if result.returncode != 0:
+            if source.resolve() not in required_sources:
+                log(
+                    "[warn] skipping optional source due to compilation failure:\n"
+                    f"  source: {source}\n"
+                    f"  stderr: {result.stderr.strip() or result.stdout.strip()}"
+                )
+                continue
             raise RuntimeError(
                 f"Compilation failed for {source}\n"
                 f"command: {' '.join(shlex.quote(part) for part in cmd)}\n"
@@ -414,10 +491,41 @@ def link_binary(
 
 
 def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path]:
+    build_context = BuildContext.from_json_file(Path(args.build_context_file).resolve()) if args.build_context_file else None
+
     fuzz_target = Path(args.fuzz_target).resolve()
-    additional_sources = [Path(path).resolve() for path in args.source]
     branch_source = Path(args.branch_source).resolve()
-    source_list = [fuzz_target, *additional_sources]
+    prebuilt_archives = [Path(path).resolve() for path in args.prebuilt_archive]
+    native_include_dirs = [Path(path).resolve() for path in args.native_include_dir]
+    if build_context is not None:
+        source_list = build_context.compilation_sources
+        include_dirs = [Path(path).resolve() for path in build_context.include_dirs]
+        defines = list(build_context.defines)
+        extra_cflags = shlex.split(build_context.cflags)
+        extra_cxxflags = shlex.split(build_context.cxxflags)
+        extra_ldflags = shlex.split(build_context.ldflags)
+        log(
+            "[info] loaded shared build context: "
+            f"required={len(build_context.required_sources)} optional={len(build_context.optional_sources)} "
+            f"include_dirs={len(build_context.include_dirs)}"
+        )
+    else:
+        additional_sources = [Path(path).resolve() for path in args.source]
+        source_list = [fuzz_target, *additional_sources]
+        include_dirs = [Path(path).resolve() for path in args.include_dir]
+        defines = list(args.define)
+        extra_cflags = shlex.split(args.cflags)
+        extra_cxxflags = shlex.split(args.cxxflags)
+        extra_ldflags = shlex.split(args.ldflags)
+
+    if prebuilt_archives:
+        source_list = [fuzz_target]
+        include_dirs = [*include_dirs, *native_include_dirs]
+        log(
+            "[info] using prebuilt native archives: "
+            + ", ".join(str(path) for path in prebuilt_archives)
+        )
+
     seen_sources: set[Path] = set()
     deduped_sources: list[Path] = []
     for source in source_list:
@@ -428,38 +536,52 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
         seen_sources.add(source)
         deduped_sources.append(source)
 
-    use_cxx = any(path_language(source) == "c++" for source in deduped_sources)
+    normalized_source_dir = work_dir / "normalized_sources"
+    normalized_sources = [materialize_normalized_source(source, normalized_source_dir) for source in deduped_sources]
+
+    use_cxx = any(path_language(source) == "c++" for source in normalized_sources)
     driver_language = "c++" if use_cxx else "c"
     driver_path = write_replay_driver(work_dir, driver_language)
-    build_sources = [driver_path, *deduped_sources]
+    build_sources = [driver_path, *normalized_sources]
+    if build_context is not None:
+        required_sources = {
+            driver_path.resolve(),
+            *{
+                materialize_normalized_source(Path(path).resolve(), normalized_source_dir).resolve()
+                for path in build_context.required_sources
+            },
+        }
+    else:
+        required_sources = {driver_path.resolve(), normalized_sources[0].resolve()}
+    if prebuilt_archives:
+        required_sources = {driver_path.resolve(), normalized_sources[0].resolve()}
 
-    include_dirs = [Path(path).resolve() for path in args.include_dir]
     common_cflags = ["-g", "-O0", "-fno-omit-frame-pointer"]
-    extra_cflags = shlex.split(args.cflags)
-    extra_cxxflags = shlex.split(args.cxxflags)
-    extra_ldflags = shlex.split(args.ldflags)
 
     symcc = ensure_tool(args.symcc)
     sympp = ensure_tool(args.sympp)
     clang = ensure_tool(args.clang)
     clangxx = ensure_tool(args.clangxx)
-    ensure_tool("llvm-profdata")
-    ensure_tool("llvm-cov")
+    llvm_profdata = ensure_tool(args.llvm_profdata)
+    llvm_cov = ensure_tool(args.llvm_cov)
+    log(f"[info] coverage toolchain: llvm-profdata={llvm_profdata} llvm-cov={llvm_cov}")
 
     symcc_env = os.environ.copy()
     if use_cxx:
         symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
 
     symcc_obj_dir = work_dir / "build" / "symcc" / "obj"
-    coverage_obj_dir = work_dir / "build" / "coverage" / "obj"
     symcc_bin = work_dir / "build" / "symcc" / "replay_symcc"
-    coverage_bin = work_dir / "build" / "coverage" / "replay_cov"
+    provided_coverage_bin = Path(args.coverage_binary).resolve() if args.coverage_binary else None
+    if provided_coverage_bin is not None and not provided_coverage_bin.is_file():
+        raise FileNotFoundError(f"Provided coverage binary not found: {provided_coverage_bin}")
 
     symcc_objects = compile_objects(
         sources=build_sources,
         object_dir=symcc_obj_dir,
+        required_sources=required_sources,
         include_dirs=include_dirs,
-        defines=args.define,
+        defines=defines,
         common_flags=common_cflags,
         cflags=extra_cflags,
         cxxflags=extra_cxxflags,
@@ -470,31 +592,38 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
     link_binary(
         output_path=symcc_bin,
         objects=symcc_objects,
-        link_flags=extra_ldflags,
+        link_flags=[*map(str, prebuilt_archives), *extra_ldflags],
         linker=sympp if use_cxx else symcc,
         env=symcc_env,
     )
 
-    coverage_common_flags = [*common_cflags, "-fprofile-instr-generate", "-fcoverage-mapping"]
-    coverage_objects = compile_objects(
-        sources=build_sources,
-        object_dir=coverage_obj_dir,
-        include_dirs=include_dirs,
-        defines=args.define,
-        common_flags=coverage_common_flags,
-        cflags=extra_cflags,
-        cxxflags=extra_cxxflags,
-        compiler_c=clang,
-        compiler_cxx=clangxx,
-        compiler_env=None,
-    )
-    link_binary(
-        output_path=coverage_bin,
-        objects=coverage_objects,
-        link_flags=["-fprofile-instr-generate", *extra_ldflags],
-        linker=clangxx if use_cxx else clang,
-        env=None,
-    )
+    if provided_coverage_bin is not None:
+        coverage_bin = provided_coverage_bin
+        log(f"[info] reusing prebuilt coverage binary: {coverage_bin}")
+    else:
+        coverage_obj_dir = work_dir / "build" / "coverage" / "obj"
+        coverage_bin = work_dir / "build" / "coverage" / "replay_cov"
+        coverage_common_flags = [*common_cflags, "-fprofile-instr-generate", "-fcoverage-mapping"]
+        coverage_objects = compile_objects(
+            sources=build_sources,
+            object_dir=coverage_obj_dir,
+            required_sources=required_sources,
+            include_dirs=include_dirs,
+            defines=defines,
+            common_flags=coverage_common_flags,
+            cflags=extra_cflags,
+            cxxflags=extra_cxxflags,
+            compiler_c=clang,
+            compiler_cxx=clangxx,
+            compiler_env=None,
+        )
+        link_binary(
+            output_path=coverage_bin,
+            objects=coverage_objects,
+            link_flags=["-fprofile-instr-generate", *extra_ldflags],
+            linker=clangxx if use_cxx else clang,
+            env=None,
+        )
 
     if not branch_source.is_file():
         raise FileNotFoundError(f"Branch source file not found: {branch_source}")
@@ -603,6 +732,8 @@ def evaluate_seed_with_coverage(
     timeout_sec: int,
     coverage_dir: Path,
     keep_report: bool,
+    llvm_profdata: str,
+    llvm_cov: str,
 ) -> CoverageResult:
     raw_profile = coverage_dir / f"{seed_path.name}.profraw"
     profdata = coverage_dir / f"{seed_path.name}.profdata"
@@ -626,7 +757,7 @@ def evaluate_seed_with_coverage(
     if run_result.returncode not in (0, 1):
         log(f"[info] coverage run for {seed_path.name} exited with code {run_result.returncode}")
 
-    merge_cmd = ["llvm-profdata", "merge", "-sparse", str(raw_profile), "-o", str(profdata)]
+    merge_cmd = [llvm_profdata, "merge", "-sparse", str(raw_profile), "-o", str(profdata)]
     merge_result = run_cmd(merge_cmd)
     if merge_result.returncode != 0:
         raise RuntimeError(
@@ -634,7 +765,7 @@ def evaluate_seed_with_coverage(
         )
 
     cov_cmd = [
-        "llvm-cov",
+        llvm_cov,
         "show",
         str(coverage_bin),
         f"-instr-profile={profdata}",
@@ -678,6 +809,8 @@ def evaluate_corpus(
     timeout_sec: int,
     coverage_dir: Path,
     keep_report: bool,
+    llvm_profdata: str,
+    llvm_cov: str,
 ) -> list[CoverageResult]:
     coverage_dir.mkdir(parents=True, exist_ok=True)
     results: list[CoverageResult] = []
@@ -694,6 +827,8 @@ def evaluate_corpus(
                 timeout_sec=timeout_sec,
                 coverage_dir=coverage_dir,
                 keep_report=keep_report,
+                llvm_profdata=llvm_profdata,
+                llvm_cov=llvm_cov,
             )
         )
     return results
@@ -701,6 +836,11 @@ def evaluate_corpus(
 
 def main() -> int:
     args = parse_args()
+    if args.build_context_file:
+        loaded_context = BuildContext.from_json_file(Path(args.build_context_file).resolve())
+        args.branch_source = loaded_context.branch_source
+        if loaded_context.target_source:
+            args.fuzz_target = loaded_context.target_source
     initial_seeds = collect_seed_paths(args.seed, args.seed_dir)
     if not initial_seeds:
         raise SystemExit("At least one seed is required via --seed or --seed-dir.")
@@ -732,6 +872,8 @@ def main() -> int:
     log(f"[info] work dir: {work_dir}")
     log("[info] building replay binaries")
     symcc_bin, coverage_bin = build_binaries(args, work_dir)
+    llvm_profdata = ensure_tool(args.llvm_profdata)
+    llvm_cov = ensure_tool(args.llvm_cov)
 
     log("[info] evaluating baseline seeds")
     baseline_results = evaluate_corpus(
@@ -745,6 +887,8 @@ def main() -> int:
         timeout_sec=args.timeout_sec,
         coverage_dir=baseline_cov_dir,
         keep_report=args.keep_coverage_reports,
+        llvm_profdata=llvm_profdata,
+        llvm_cov=llvm_cov,
     )
 
     baseline_reached = any(result.blocked_side_line_reached for result in baseline_results)
@@ -766,6 +910,8 @@ def main() -> int:
         timeout_sec=args.timeout_sec,
         coverage_dir=final_cov_dir,
         keep_report=args.keep_coverage_reports,
+        llvm_profdata=llvm_profdata,
+        llvm_cov=llvm_cov,
     )
 
     reached_results = [result for result in final_results if result.blocked_side_line_reached]

@@ -38,6 +38,7 @@ MAX_GENERATOR_FIX_ATTEMPTS = 2
 DEFAULT_REPRESENTATIVE_SEEDS_PER_NEW_FAMILY = 2
 DEFAULT_REPRESENTATIVE_SEEDS_PER_EXISTING_FAMILY = 1
 DEFAULT_MAX_REPRESENTATIVE_EVALS = 12
+DEFAULT_CORPUS_REPLAY_BATCH_SIZE = 300
 _SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
 
 
@@ -203,6 +204,59 @@ def extract_json(text: str) -> dict:
     raise ValueError("Failed to parse response JSON.")
 
 
+def salvage_string_field(raw_text: str, key: str) -> str:
+    pattern = re.compile(
+        rf'"{re.escape(key)}"\s*:\s*"""\s*(.*?)\s*"""|"'
+        rf'{re.escape(key)}"\s*:\s*"((?:\\.|[^"\\])*)"',
+        re.DOTALL,
+    )
+    match = pattern.search(raw_text)
+    if not match:
+        return ""
+    triple_quoted = match.group(1)
+    if triple_quoted is not None:
+        return triple_quoted
+    quoted = match.group(2) or ""
+    try:
+        return json.loads(f'"{quoted}"')
+    except Exception:
+        return quoted
+
+
+def salvage_list_field(raw_text: str, key: str) -> list:
+    pattern = re.compile(rf'"{re.escape(key)}"\s*:\s*(\[[\s\S]*?\])', re.DOTALL)
+    match = pattern.search(raw_text)
+    if not match:
+        return []
+    candidate = match.group(1)
+    try:
+        parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def enrich_parsed_response(raw_text: str, parsed: dict) -> dict:
+    enriched = dict(parsed)
+    if not enriched.get("generator_code"):
+        salvaged_code = salvage_string_field(raw_text, "generator_code")
+        if salvaged_code:
+            enriched["generator_code"] = salvaged_code
+    if not enriched.get("generator_filename"):
+        salvaged_name = salvage_string_field(raw_text, "generator_filename")
+        if salvaged_name:
+            enriched["generator_filename"] = salvaged_name
+    if not enriched.get("generator_design_rationale"):
+        salvaged_rationale = salvage_string_field(raw_text, "generator_design_rationale")
+        if salvaged_rationale:
+            enriched["generator_design_rationale"] = salvaged_rationale
+    if not isinstance(enriched.get("sample_seeds"), list):
+        salvaged_samples = salvage_list_field(raw_text, "sample_seeds")
+        if salvaged_samples:
+            enriched["sample_seeds"] = salvaged_samples
+    return enriched
+
+
 def format_prompt(template: str, mapping: dict[str, str]) -> str:
     def repl(match: re.Match) -> str:
         key = match.group(1)
@@ -211,11 +265,54 @@ def format_prompt(template: str, mapping: dict[str, str]) -> str:
     return re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", repl, template)
 
 
-def seed_to_bytes(seed: str) -> bytes:
+def _sample_seed_text_preview(seed: object) -> str:
+    if isinstance(seed, str):
+        return seed
+    if isinstance(seed, (bytes, bytearray)):
+        return bytes(seed).decode("utf-8", errors="ignore")
+    if isinstance(seed, list):
+        if all(isinstance(item, int) for item in seed):
+            return bytes(int(item) & 0xFF for item in seed).decode("utf-8", errors="ignore")
+        return "".join(str(item) for item in seed)
+    if isinstance(seed, int):
+        return chr(seed & 0xFF) if 0 <= seed <= 255 else str(seed)
+    if seed is None:
+        return ""
+    if isinstance(seed, (dict, tuple)):
+        return json.dumps(seed, ensure_ascii=False)
+    return str(seed)
+
+
+def seed_to_bytes(seed: object) -> bytes:
+    if isinstance(seed, bytes):
+        return seed
+    if isinstance(seed, bytearray):
+        return bytes(seed)
+    if isinstance(seed, int):
+        return bytes([seed & 0xFF]) if 0 <= seed <= 255 else str(seed).encode("utf-8")
+    if isinstance(seed, list):
+        if all(isinstance(item, int) for item in seed):
+            return bytes(int(item) & 0xFF for item in seed)
+        if all(isinstance(item, str) for item in seed):
+            return "".join(seed).encode("utf-8")
+        return json.dumps(seed, ensure_ascii=False).encode("utf-8")
+    if seed is None:
+        return b""
+    if not isinstance(seed, str):
+        if isinstance(seed, dict):
+            return json.dumps(seed, ensure_ascii=False).encode("utf-8")
+        seed = str(seed)
+
     if r"\x" in seed:
         try:
             return bytes(seed, "utf-8").decode("unicode_escape").encode("latin-1", errors="replace")
         except Exception:
+            pass
+    compact_hex = seed.strip()
+    if compact_hex and len(compact_hex) % 2 == 0 and re.fullmatch(r"[0-9a-fA-F]+", compact_hex):
+        try:
+            return bytes.fromhex(compact_hex)
+        except ValueError:
             pass
     try:
         return seed.encode("latin-1")
@@ -223,11 +320,11 @@ def seed_to_bytes(seed: str) -> bytes:
         return seed.encode("utf-8")
 
 
-def choose_seed_extension(seed: str, format_info: FormatInfo) -> str:
+def choose_seed_extension(seed: object, format_info: FormatInfo) -> str:
     if format_info.extensions:
         return format_info.extensions[0]
 
-    trimmed = seed.lstrip()
+    trimmed = _sample_seed_text_preview(seed).lstrip()
     if trimmed.startswith("<"):
         return ".xml"
     if trimmed.startswith("{") or trimmed.startswith("["):
@@ -235,15 +332,23 @@ def choose_seed_extension(seed: str, format_info: FormatInfo) -> str:
     return ".txt" if format_info.is_text else ".bin"
 
 
-def save_sample_seeds(output_dir: Path, sample_seeds: list[str], format_info: FormatInfo) -> list[Path]:
+def save_sample_seeds(output_dir: Path, sample_seeds: list[object], format_info: FormatInfo) -> list[Path]:
     seeds_dir = output_dir / "sample_seeds"
     seeds_dir.mkdir(parents=True, exist_ok=True)
     saved_paths: list[Path] = []
     for index, seed in enumerate(sample_seeds, start=1):
-        suffix = choose_seed_extension(seed, format_info)
-        target = seeds_dir / f"seed_{index:02d}{suffix}"
-        target.write_bytes(seed_to_bytes(seed))
-        saved_paths.append(target)
+        try:
+            suffix = choose_seed_extension(seed, format_info)
+            target = seeds_dir / f"seed_{index:02d}{suffix}"
+            target.write_bytes(seed_to_bytes(seed))
+            saved_paths.append(target)
+        except Exception as exc:
+            logging.warning(
+                "Skipping malformed sample seed %d (%s): %s",
+                index,
+                type(seed).__name__,
+                exc,
+            )
     return saved_paths
 
 
@@ -741,12 +846,24 @@ def evaluate_iteration_with_coverage(
     out_dir = oss_fuzz.build_out_dir / project_name
     corpus_root = oss_fuzz.build_corpus_dir / project_name
     corpus_name = corpus_subdir_name or fuzzer_name
+    batch_size = DEFAULT_CORPUS_REPLAY_BATCH_SIZE
     command = (
-        "rm -f /tmp/iter.profraw /tmp/iter.profdata && "
-        "LLVM_PROFILE_FILE=/tmp/iter.profraw "
-        f"/out/{shlex.quote(fuzzer_name)} /corpus/{shlex.quote(corpus_name)} "
-        f"-max_total_time={int(fuzz_seconds)} -rss_limit_mb=0 -timeout=0 && "
-        "llvm-profdata merge -sparse /tmp/iter.profraw -o /tmp/iter.profdata && "
+        "rm -f /tmp/iter_*.profraw /tmp/iter.profdata && "
+        "seed_count=0 && batch_num=0 && batch=() && "
+        f"while IFS= read -r -d '' seed; do "
+        "batch+=(\"$seed\"); seed_count=$((seed_count + 1)); "
+        f"if [ ${{#batch[@]}} -ge {batch_size} ]; then "
+        f"LLVM_PROFILE_FILE=\"/tmp/iter_${{batch_num}}.profraw\" "
+        f"/out/{shlex.quote(fuzzer_name)} -rss_limit_mb=0 -timeout=0 \"${{batch[@]}}\" || exit $?; "
+        "batch_num=$((batch_num + 1)); batch=(); fi; "
+        f"done < <(find /corpus/{shlex.quote(corpus_name)} -type f -print0 | sort -z) && "
+        "if [ \"$seed_count\" -eq 0 ]; then echo \"No corpus seeds found for coverage replay.\" >&2; exit 3; fi && "
+        "if [ ${#batch[@]} -gt 0 ]; then "
+        f"LLVM_PROFILE_FILE=\"/tmp/iter_${{batch_num}}.profraw\" "
+        f"/out/{shlex.quote(fuzzer_name)} -rss_limit_mb=0 -timeout=0 \"${{batch[@]}}\" || exit $?; "
+        "fi && "
+        "if ! ls /tmp/iter_*.profraw >/dev/null 2>&1; then echo \"Coverage replay did not produce profraw files.\" >&2; exit 4; fi && "
+        "llvm-profdata merge -sparse /tmp/iter_*.profraw -o /tmp/iter.profdata && "
         f"llvm-cov show /out/{shlex.quote(fuzzer_name)} "
         "-instr-profile=/tmp/iter.profdata "
         "-show-branches=count "
@@ -867,6 +984,66 @@ def evaluate_seed_with_coverage_in_ossfuzz(
         "branch_reached": branch_hits > 0,
         "blocked_side_reached": blocked_hits > 0,
     }
+
+
+def evaluate_triggering_input_with_coverage(
+    oss_fuzz: OSSFuzz,
+    project_name: str,
+    fuzzer_name: str,
+    function_name: str,
+    source_file: str,
+    source_api_file: str | None,
+    branch_line: int,
+    blocked_side_line: int,
+    triggering_input: str,
+    format_info: FormatInfo,
+    output_dir: Path,
+) -> dict:
+    if not triggering_input:
+        return {
+            "success": False,
+            "error": "No triggering input is available.",
+        }
+
+    project_corpus_root = oss_fuzz.build_corpus_dir / project_name
+    eval_corpus_name = f"{fuzzer_name}__triggering_input_eval"
+    eval_corpus_dir = project_corpus_root / eval_corpus_name
+    if eval_corpus_dir.exists():
+        shutil.rmtree(eval_corpus_dir)
+    eval_corpus_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        trigger_path = Path(triggering_input)
+        if trigger_path.exists() and trigger_path.is_file():
+            seed_bytes = trigger_path.read_bytes()
+            suffix = trigger_path.suffix or choose_seed_extension(seed_bytes, format_info)
+        else:
+            seed_bytes = seed_to_bytes(triggering_input)
+            suffix = choose_seed_extension(triggering_input, format_info)
+        materialized_seed = eval_corpus_dir / f"triggering_input{suffix}"
+        materialized_seed.write_bytes(seed_bytes)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to materialize triggering input for coverage replay: {exc}",
+        }
+
+    eval_result = evaluate_seed_with_coverage_in_ossfuzz(
+        oss_fuzz=oss_fuzz,
+        project_name=project_name,
+        fuzzer_name=fuzzer_name,
+        function_name=function_name,
+        source_file=source_file,
+        source_api_file=source_api_file,
+        branch_line=branch_line,
+        blocked_side_line=blocked_side_line,
+        seed_path=materialized_seed,
+        output_dir=output_dir,
+        report_name="triggering_input",
+    )
+    if isinstance(eval_result, dict):
+        eval_result["seed_size_bytes"] = len(seed_bytes)
+    return eval_result
 
 
 def evaluate_representative_seed_records(
@@ -1054,6 +1231,169 @@ def compute_family_signal_score(family_summary: dict) -> int:
     )
 
 
+def select_best_symcc_candidates(
+    family_summary: dict,
+    representative_results: list[dict],
+) -> dict:
+    ranked_families = family_summary.get("ranked_families", []) or []
+    if not ranked_families:
+        return {
+            "best_family": "",
+            "top_families": [],
+            "candidate_seed_records": [],
+            "candidate_seed_paths": [],
+            "selection_reason": "No ranked family information is available.",
+        }
+
+    top_families = [
+        str(item.get("family") or "")
+        for item in ranked_families
+        if int(item.get("branch_reached_count", 0) or 0) > 0
+    ][:2]
+    if not top_families:
+        top_families = [str(ranked_families[0].get("family") or "")]
+    best_family = top_families[0] if top_families else ""
+
+    family_results = [item for item in representative_results if str(item.get("family") or "") in set(top_families)]
+    if not family_results:
+        return {
+            "best_family": best_family,
+            "top_families": top_families,
+            "candidate_seed_records": [],
+            "candidate_seed_paths": [],
+            "selection_reason": "Top-ranked branch-reaching families have no representative seed results.",
+        }
+
+    def _seed_size(result: dict) -> int:
+        seed_path = Path(str(result.get("seed_path", "")))
+        try:
+            return seed_path.stat().st_size
+        except OSError:
+            return 1 << 30
+
+    candidate_seed_records: list[dict] = []
+    for family in top_families:
+        branch_reaching_results = [
+            item for item in family_results if str(item.get("family") or "") == family and bool(item.get("branch_reached"))
+        ]
+        if not branch_reaching_results:
+            continue
+        best_seed = sorted(
+            branch_reaching_results,
+            key=lambda item: (
+                int(item.get("branch_hit_count", 0) or 0),
+                -_seed_size(item),
+            ),
+            reverse=True,
+        )[0]
+        candidate_seed_records.append(
+            {
+                "family": family,
+                "seed_path": str(best_seed.get("seed_path", "")).strip(),
+                "branch_hit_count": int(best_seed.get("branch_hit_count", 0) or 0),
+                "blocked_side_hit_count": int(best_seed.get("blocked_side_hit_count", 0) or 0),
+                "branch_reached": bool(best_seed.get("branch_reached")),
+                "blocked_side_reached": bool(best_seed.get("blocked_side_reached")),
+                "seed_size_bytes": _seed_size(best_seed),
+            }
+        )
+
+    ranked_seed_records = sorted(
+        candidate_seed_records,
+        key=lambda item: (
+            int(item.get("branch_hit_count", 0) or 0),
+            -int(item.get("seed_size_bytes", 1 << 30) or (1 << 30)),
+        ),
+        reverse=True,
+    )
+
+    candidate_seed_paths = [item["seed_path"] for item in ranked_seed_records if item.get("seed_path")][:3]
+
+    return {
+        "best_family": best_family,
+        "top_families": top_families,
+        "candidate_seed_records": ranked_seed_records[:3],
+        "candidate_seed_paths": candidate_seed_paths[:3],
+        "selection_reason": (
+            "Selected one branch-reaching representative seed from each top-ranked family, "
+            "then ranked by branch hit count and smaller seed size."
+        ),
+    }
+
+
+def select_recommended_symcc_generator_seeds(
+    generator_terminal_reason: str,
+    symcc_candidate_bundle: dict,
+    triggering_input_evaluation: dict | None,
+) -> dict:
+    if generator_terminal_reason in {
+        "no_branch_signal",
+        "invalid_generator",
+        "already_covered_in_baseline",
+        "no_useful_signal",
+    }:
+        return {
+            "recommended_generator_seed_paths": [],
+            "recommended_generator_seed_records": [],
+            "selection_reason": f"Generator terminal reason {generator_terminal_reason} does not justify generator-seed handoff.",
+        }
+
+    candidate_records = list(symcc_candidate_bundle.get("candidate_seed_records", []) or [])
+    if not candidate_records:
+        return {
+            "recommended_generator_seed_paths": [],
+            "recommended_generator_seed_records": [],
+            "selection_reason": "No branch-reaching candidate seeds were selected from generator families.",
+        }
+
+    baseline_branch = -1
+    baseline_size = 1 << 30
+    if isinstance(triggering_input_evaluation, dict) and triggering_input_evaluation.get("success"):
+        baseline_branch = int(triggering_input_evaluation.get("branch_hit_count", 0) or 0)
+        baseline_size = int(triggering_input_evaluation.get("seed_size_bytes", 1 << 30) or (1 << 30))
+
+    qualified_records: list[dict] = []
+    for item in candidate_records:
+        branch_hits = int(item.get("branch_hit_count", 0) or 0)
+        seed_size = int(item.get("seed_size_bytes", 1 << 30) or (1 << 30))
+        if branch_hits <= 0:
+            continue
+        if baseline_branch < 0:
+            qualified_records.append(item)
+            continue
+        if branch_hits > baseline_branch:
+            qualified_records.append(item)
+            continue
+        if branch_hits == baseline_branch and seed_size < baseline_size:
+            qualified_records.append(item)
+
+    max_generator_seed_count = 0
+    if generator_terminal_reason in {"stalled_at_branch", "coverage_progress_observed_but_not_solved"}:
+        max_generator_seed_count = 2
+    elif generator_terminal_reason == "family_progress_observed_but_not_solved":
+        max_generator_seed_count = 1
+
+    recommended_records = qualified_records[:max_generator_seed_count]
+    recommended_paths = [str(item.get("seed_path", "")).strip() for item in recommended_records if item.get("seed_path")]
+
+    if baseline_branch < 0:
+        baseline_note = "Triggering-input branch coverage was unavailable, so branch-reaching generator seeds were accepted without baseline comparison."
+    else:
+        baseline_note = (
+            f"Compared against triggering input baseline (branch_hit_count={baseline_branch}, "
+            f"seed_size_bytes={baseline_size})."
+        )
+
+    return {
+        "recommended_generator_seed_paths": recommended_paths,
+        "recommended_generator_seed_records": recommended_records,
+        "selection_reason": (
+            f"{baseline_note} Terminal reason {generator_terminal_reason} allows up to {max_generator_seed_count} "
+            "generator seeds for SymCC handoff."
+        ),
+    }
+
+
 def prepare_corpus_snapshot(
     oss_fuzz: OSSFuzz,
     project_name: str,
@@ -1109,8 +1449,10 @@ def classify_iteration_status(
         return "evaluation_failed", f"Baseline evaluation failed: {baseline_evaluation.get('error', 'unknown error')}"
     if not post_merge_evaluation.get("success"):
         return "evaluation_failed", f"Post-merge evaluation failed: {post_merge_evaluation.get('error', 'unknown error')}"
-    if post_merge_evaluation.get("blocked_side_line_reached"):
-        return "solved", "Blocked-side line reached after merging generated seeds."
+    if baseline_evaluation.get("blocked_side_line_reached"):
+        return "already_covered_in_baseline", "Blocked-side line was already covered before merging generated seeds."
+    if coverage_delta.get("newly_reached_blocked_side_line"):
+        return "solved", "Blocked-side line was newly reached after merging generated seeds."
 
     branch_delta = int(coverage_delta.get("branch_hit_count_delta", 0))
     blocked_delta = int(coverage_delta.get("blocked_side_hit_count_delta", 0))
@@ -1118,9 +1460,11 @@ def classify_iteration_status(
     family_progress = family_signal_score > previous_family_signal_score
     best_family = family_summary.get("best_family") or "N/A"
     if blocked_delta > 0:
-        return "progress", "Blocked-side hit count increased but blocker is not fully solved."
-    if branch_delta > 0 or family_progress:
-        return "progress", "Branch-line hit count increased."
+        return "coverage_progress", "Blocked-side hit count increased but blocker is not fully solved."
+    if branch_delta > 0:
+        return "coverage_progress", "Branch-line hit count increased."
+    if family_progress:
+        return "family_progress", f"Best family {best_family} improved blocker-oriented reachability without changing coverage."
     if not post_merge_evaluation.get("branch_line_reached") and not family_summary.get("stable_branch_families"):
         return "no_branch_signal", "No representative family or aggregate corpus can currently reach the branch line."
     if post_merge_evaluation.get("branch_line_reached") and not post_merge_evaluation.get("blocked_side_line_reached"):
@@ -1144,6 +1488,8 @@ def diagnose_iteration(
     skipped_duplicate_seed_count = int(staging_metadata.get("skipped_duplicate_seed_count", 0) or 0)
     branch_reached = bool(post_merge_evaluation.get("branch_line_reached"))
     blocked_reached = bool(post_merge_evaluation.get("blocked_side_line_reached"))
+    baseline_blocked_reached = bool(baseline_evaluation.get("blocked_side_line_reached"))
+    newly_blocked_reached = bool(coverage_delta.get("newly_reached_blocked_side_line"))
     stable_branch_families = family_summary.get("stable_branch_families", [])
     dead_families = family_summary.get("dead_families", [])
     keep_families = family_summary.get("keep_families", [])
@@ -1159,12 +1505,18 @@ def diagnose_iteration(
     elif not baseline_evaluation.get("success") or not post_merge_evaluation.get("success"):
         code = "coverage_evaluation_failed"
         action = "Fix build or coverage evaluation before interpreting seed quality."
-    elif blocked_reached:
+    elif baseline_blocked_reached:
+        code = "already_covered_in_baseline"
+        action = "Skip blocker solving for this target because the blocked side was already covered before this iteration."
+    elif newly_blocked_reached:
         code = "solved"
         action = "Stop seed generation for this blocker."
     elif iteration_status == "no_branch_signal":
         code = "no_branch_signal"
         action = "Replace dead families with structurally different families that target input materialization earlier in the harness."
+    elif iteration_status == "family_progress":
+        code = "family_progress_without_coverage_delta"
+        action = "Keep the best family as a SymCC candidate, but refine within that family because aggregate coverage did not improve."
     elif branch_reached and blocked_delta <= 0:
         code = "reaches_branch_but_condition_not_satisfied"
         action = "Refine blocker-controlled fields or escalate to SymCC if the path is stable."
@@ -1185,6 +1537,8 @@ def diagnose_iteration(
         "skipped_duplicate_seed_count": skipped_duplicate_seed_count,
         "branch_line_reached": branch_reached,
         "blocked_side_line_reached": blocked_reached,
+        "baseline_blocked_side_line_reached": baseline_blocked_reached,
+        "newly_reached_blocked_side_line": newly_blocked_reached,
         "iteration_status": iteration_status,
         "best_family": family_summary.get("best_family", ""),
         "stable_branch_families": stable_branch_families,
@@ -1217,10 +1571,14 @@ def summarize_evaluation(
         f"Iteration: {iteration_index}",
         f"Iteration status: {iteration_status}",
         f"Status reason: {status_reason}",
+        f"Coverage progress this iteration: {iteration_status == 'coverage_progress' or iteration_status == 'solved'}",
+        f"Family progress this iteration: {iteration_status == 'family_progress'}",
         f"Diagnosis: {diagnosis.get('diagnosis_code', 'unknown')}",
         f"Recommended next action: {diagnosis.get('recommended_next_action', 'N/A')}",
         f"SymCC candidate: {diagnosis.get('symcc_candidate', False)}",
         f"Best family: {family_summary.get('best_family') or 'N/A'}",
+        f"Best SymCC family: {diagnosis.get('best_symcc_family') or 'N/A'}",
+        f"Best SymCC seeds: {', '.join(diagnosis.get('best_symcc_seed_paths', [])) or 'none'}",
         f"Generator validation: {'success' if validation_ok else 'failed'}",
         f"Generator validation kind: {validation_error_kind or 'success'}",
         f"Materialized seed count: {generated_seed_count}",
@@ -1299,6 +1657,10 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     iterations: list[dict] = []
     best_iteration: dict | None = None
     max_fix_attempts = MAX_GENERATOR_FIX_ATTEMPTS
+    triggering_input_evaluation: dict = {
+        "success": False,
+        "error": "Triggering input was not evaluated.",
+    }
 
     effective_max_iterations = min(int(args.max_iterations), MAX_GENERATOR_ITERATIONS)
 
@@ -1328,7 +1690,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         if not response_text:
             raise RuntimeError(f"Empty LLM response on iteration {iteration_index}.")
 
-        parsed = extract_json(response_text)
+        parsed = enrich_parsed_response(response_text, extract_json(response_text))
         analysis_summary = parsed.get("analysis_summary", [])
         failure_analysis = parsed.get("failure_analysis", [])
         family_decisions = parsed.get("family_decisions", [])
@@ -1373,7 +1735,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                     raise RuntimeError(
                         f"Empty LLM repair response on iteration {iteration_index}, fix attempt {fix_attempt_index}."
                     )
-                candidate_parsed = extract_json(candidate_response_text)
+                candidate_parsed = enrich_parsed_response(candidate_response_text, extract_json(candidate_response_text))
 
             analysis_summary = candidate_parsed.get("analysis_summary", [])
             failure_analysis = candidate_parsed.get("failure_analysis", [])
@@ -1402,9 +1764,12 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 generator_code,
                 generator_filename if fix_attempt_index == 0 else f"fix_{fix_attempt_index:02d}_{generator_filename}",
             )
-            saved_seed_paths = (
-                save_sample_seeds(iteration_dir, sample_seeds, format_info) if isinstance(sample_seeds, list) else []
-            )
+            saved_seed_paths: list[Path] = []
+            if isinstance(sample_seeds, list):
+                try:
+                    saved_seed_paths = save_sample_seeds(iteration_dir, sample_seeds, format_info)
+                except Exception as exc:
+                    logging.warning("Failed to persist sample seeds on iteration %d: %s", iteration_index, exc)
             validation_result = validate_generator(
                 generator_path,
                 iteration_dir,
@@ -1432,6 +1797,11 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         family_counts = summarize_family_inventory(generated_dir) if generated_dir.exists() else {}
         representative_results: list[dict] = []
         representative_records: list[dict] = []
+        symcc_candidate_bundle = {
+            "best_family": "",
+            "candidate_seed_paths": [],
+            "selection_reason": "Representative seed selection was not available.",
+        }
         family_summary = {
             "best_family": "",
             "stable_branch_families": [],
@@ -1465,6 +1835,20 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 report_basename="baseline",
                 corpus_subdir_name=baseline_snapshot_name,
             )
+            if not triggering_input_evaluation.get("success") and args.triggering_input:
+                triggering_input_evaluation = evaluate_triggering_input_with_coverage(
+                    oss_fuzz=oss_fuzz,
+                    project_name=args.project_name,
+                    fuzzer_name=fuzzer_name,
+                    function_name=args.function_name,
+                    source_file=args.source_file,
+                    source_api_file=args.source_api_file,
+                    branch_line=int(args.branch_line_number),
+                    blocked_side_line=int(args.blocked_side_line_number),
+                    triggering_input=args.triggering_input,
+                    format_info=format_info,
+                    output_dir=iteration_dir,
+                )
             _, staging_metadata, staged_seed_records = stage_generated_seeds(
                 oss_fuzz=oss_fuzz,
                 project_name=args.project_name,
@@ -1512,6 +1896,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             )
             family_summary = summarize_family_performance(family_counts, representative_results)
             family_summary_text = render_family_summary_text(family_summary)
+            symcc_candidate_bundle = select_best_symcc_candidates(family_summary, representative_results)
             (iteration_dir / "representative_results.json").write_text(
                 json.dumps(representative_results, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -1563,6 +1948,9 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             coverage_delta=coverage_delta,
             family_summary=family_summary,
         )
+        diagnosis["best_symcc_family"] = symcc_candidate_bundle.get("best_family", "")
+        diagnosis["best_symcc_seed_paths"] = list(symcc_candidate_bundle.get("candidate_seed_paths", []))
+        diagnosis["best_symcc_selection_reason"] = symcc_candidate_bundle.get("selection_reason", "")
 
         evaluation_summary = summarize_evaluation(
             iteration_index=iteration_index,
@@ -1603,6 +1991,11 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "representative_results": representative_results,
             "family_summary": family_summary,
             "family_summary_text": family_summary_text,
+            "best_symcc_family": symcc_candidate_bundle.get("best_family", ""),
+            "best_symcc_seed_paths": list(symcc_candidate_bundle.get("candidate_seed_paths", [])),
+            "best_symcc_selection_reason": symcc_candidate_bundle.get("selection_reason", ""),
+            "best_symcc_top_families": list(symcc_candidate_bundle.get("top_families", [])),
+            "best_symcc_seed_records": list(symcc_candidate_bundle.get("candidate_seed_records", [])),
             "analysis_summary": analysis_summary,
             "failure_analysis": failure_analysis,
             "family_decisions": family_decisions,
@@ -1622,7 +2015,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         iterations.append(iteration_record)
 
         score = (
-            int(bool(post_merge_evaluation.get("blocked_side_line_reached"))) * 1_000_000
+            int(bool(coverage_delta.get("newly_reached_blocked_side_line"))) * 1_000_000
             + int(post_merge_evaluation.get("blocked_side_hit_count", 0)) * 1_000
             + int(post_merge_evaluation.get("branch_hit_count", 0))
         )
@@ -1636,8 +2029,11 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         logging.info("Iteration %d validation success: %s", iteration_index, validation_ok)
         logging.info("Iteration %d evaluation summary:\n%s", iteration_index, evaluation_summary)
 
-        if post_merge_evaluation.get("blocked_side_line_reached"):
-            logging.info("Blocked side reached on iteration %d. Stopping early.", iteration_index)
+        if coverage_delta.get("newly_reached_blocked_side_line"):
+            logging.info("Blocked side was newly reached on iteration %d. Stopping early.", iteration_index)
+            break
+        if baseline_evaluation.get("blocked_side_line_reached"):
+            logging.info("Blocked side was already covered before iteration %d. Stopping early.", iteration_index)
             break
 
         seen_families.update(family_counts.keys())
@@ -1649,10 +2045,16 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         previous_family_summary_text = family_summary_text
         previous_family_signal_score = compute_family_signal_score(family_summary)
 
-    success = any(item.get("success") for item in iterations)
-    progress_iteration_count = sum(1 for item in iterations if item.get("iteration_status") == "progress")
+    success = any(item.get("iteration_status") == "solved" for item in iterations)
+    coverage_progress_iteration_count = sum(
+        1 for item in iterations if item.get("iteration_status") == "coverage_progress"
+    )
+    family_progress_iteration_count = sum(
+        1 for item in iterations if item.get("iteration_status") == "family_progress"
+    )
     stalled_iteration_count = sum(1 for item in iterations if item.get("iteration_status") == "stalled_at_branch")
     no_branch_signal_count = sum(1 for item in iterations if item.get("iteration_status") == "no_branch_signal")
+    already_covered_count = sum(1 for item in iterations if item.get("iteration_status") == "already_covered_in_baseline")
     invalid_iteration_count = sum(
         1 for item in iterations if item.get("iteration_status") in {"invalid_generator", "evaluation_failed"}
     )
@@ -1666,26 +2068,58 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         diagnosis_counts[diagnosis_code] = diagnosis_counts.get(diagnosis_code, 0) + 1
         if diagnosis.get("symcc_candidate"):
             symcc_candidate_iteration_count += 1
+    best_symcc_bundle = {"best_family": "", "candidate_seed_paths": [], "selection_reason": ""}
+    if isinstance(best_iteration, dict):
+        best_symcc_bundle = {
+            "best_family": best_iteration.get("best_symcc_family", "") or "",
+            "top_families": list(best_iteration.get("best_symcc_top_families", []) or []),
+            "candidate_seed_records": list(best_iteration.get("best_symcc_seed_records", []) or []),
+            "candidate_seed_paths": list(best_iteration.get("best_symcc_seed_paths", []) or []),
+            "selection_reason": best_iteration.get("best_symcc_selection_reason", "") or "",
+        }
     if success:
-        final_status = "solved"
-    elif no_branch_signal_count == len(iterations) and iterations:
-        final_status = "no_branch_signal"
-    elif len(iterations) >= 2 and progress_iteration_count == 0:
-        final_status = "stalled_generator"
-    elif progress_iteration_count > 0 or stalled_iteration_count > 0:
-        final_status = "progress"
+        final_status = "solved_by_generator"
+    elif already_covered_count > 0:
+        final_status = "already_covered_in_baseline"
     else:
-        final_status = "stalled_generator"
+        final_status = "not_solved_by_generator"
+
+    if success:
+        generator_terminal_reason = "blocked_side_reached"
+    elif already_covered_count > 0:
+        generator_terminal_reason = "already_covered_in_baseline"
+    elif coverage_progress_iteration_count > 0:
+        generator_terminal_reason = "coverage_progress_observed_but_not_solved"
+    elif family_progress_iteration_count > 0:
+        generator_terminal_reason = "family_progress_observed_but_not_solved"
+    elif stalled_iteration_count > 0:
+        generator_terminal_reason = "stalled_at_branch"
+    elif no_branch_signal_count == len(iterations) and iterations:
+        generator_terminal_reason = "no_branch_signal"
+    elif invalid_iteration_count == len(iterations) and iterations:
+        generator_terminal_reason = "invalid_generator"
+    else:
+        generator_terminal_reason = "no_useful_signal"
+
+    symcc_handoff_bundle = select_recommended_symcc_generator_seeds(
+        generator_terminal_reason=generator_terminal_reason,
+        symcc_candidate_bundle=best_symcc_bundle,
+        triggering_input_evaluation=triggering_input_evaluation,
+    )
+
     return {
         "output_dir": str(output_dir),
         "success": success,
         "final_status": final_status,
+        "generator_terminal_reason": generator_terminal_reason,
         "pipeline_methods": ["llm_seed_generator"],
         "used_llm_seed_generator": True,
         "used_symcc": False,
         "used_klee": False,
         "iterations_run": len(iterations),
-        "progress_iteration_count": progress_iteration_count,
+        "progress_iteration_count": coverage_progress_iteration_count + family_progress_iteration_count,
+        "coverage_progress_iteration_count": coverage_progress_iteration_count,
+        "family_progress_iteration_count": family_progress_iteration_count,
         "stalled_iteration_count": stalled_iteration_count,
         "invalid_iteration_count": invalid_iteration_count,
         "symcc_candidate_iteration_count": symcc_candidate_iteration_count,
@@ -1694,6 +2128,15 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         "max_iterations": effective_max_iterations,
         "fuzz_seconds_per_iteration": args.fuzz_seconds,
         "best_iteration": best_iteration,
+        "best_symcc_family": best_symcc_bundle.get("best_family", ""),
+        "best_symcc_top_families": best_symcc_bundle.get("top_families", []),
+        "best_symcc_seed_paths": best_symcc_bundle.get("candidate_seed_paths", []),
+        "best_symcc_selection_reason": best_symcc_bundle.get("selection_reason", ""),
+        "best_symcc_seed_records": best_symcc_bundle.get("candidate_seed_records", []),
+        "triggering_input_evaluation": triggering_input_evaluation,
+        "recommended_symcc_generator_seed_paths": symcc_handoff_bundle.get("recommended_generator_seed_paths", []),
+        "recommended_symcc_generator_seed_records": symcc_handoff_bundle.get("recommended_generator_seed_records", []),
+        "recommended_symcc_selection_reason": symcc_handoff_bundle.get("selection_reason", ""),
         "iterations": iterations,
         "format_info": format_info.to_prompt_mapping(),
     }
@@ -1730,12 +2173,27 @@ def main() -> None:
         result = run_seed_generation(args)
     except FileNotFoundError as exc:
         logging.error("%s", exc)
+        print(json.dumps({"success": False, "attempt_result": "failed", "error": str(exc)}, ensure_ascii=False, indent=2))
         sys.exit(1)
     except RuntimeError as exc:
         logging.error("%s", exc)
+        print(
+            json.dumps(
+                {"success": False, "attempt_result": "llm_error", "error": str(exc)},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         sys.exit(2)
     except Exception as exc:
         logging.error("Seed generation failed: %s", exc, exc_info=True)
+        print(
+            json.dumps(
+                {"success": False, "attempt_result": "failed", "error": f"Seed generation failed: {exc}"},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         sys.exit(3)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
