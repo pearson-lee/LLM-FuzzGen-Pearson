@@ -3,6 +3,7 @@ import argparse
 import datetime
 import json
 import logging
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+from external.oss_fuzz import OSSFuzz  # noqa: E402
 
 SEED_GENERATOR = MODULE_ROOT / "input_dependent_seed_generator.py"
 HARNESS_GENERATOR = MODULE_ROOT / "input_dependent_harness_generator.py"
@@ -219,6 +222,68 @@ def blocker_payload(args: argparse.Namespace, seeds: list[str]) -> dict:
     }
 
 
+def run_libfuzzer_focused_pass(
+    project_name: str,
+    target_name: str,
+    initial_seeds: list[str],
+    fuzz_seconds: int,
+) -> dict:
+    """Run a short libFuzzer pass on the simplified harness using its already-built ASAN binary.
+
+    Copies initial_seeds into the OSS-Fuzz corpus directory for target_name, then runs
+    libFuzzer for fuzz_seconds. The enriched corpus (initial + fuzzer-discovered seeds)
+    is returned so Stage 3c (SymCC) can start from a richer set of starting points.
+
+    Returns a dict with keys: success (bool), corpus_dir (str), seed_count (int), error (str).
+    """
+    oss_fuzz = OSSFuzz()
+    corpus_dir = oss_fuzz.build_corpus_dir / project_name / target_name
+    corpus_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pre-populate corpus with the LLM-generated seeds.
+    for src_str in initial_seeds:
+        src = Path(src_str)
+        if src.is_file():
+            dest = corpus_dir / src.name
+            if not dest.exists():
+                try:
+                    shutil.copy2(str(src), str(dest))
+                except OSError:
+                    pass
+
+    seed_count_before = sum(1 for _ in corpus_dir.iterdir() if _.is_file())
+    logging.info(
+        "Stage 3b: running libFuzzer on %s for %ds with %d seed(s) in corpus",
+        target_name,
+        fuzz_seconds,
+        seed_count_before,
+    )
+
+    run_result = oss_fuzz.run_fuzzer(
+        proj_name=project_name,
+        fuzzer_name=target_name,
+        seconds=fuzz_seconds,
+        build_fuzzer=False,  # ASAN binary was already built by harness native build gate
+    )
+
+    seed_count_after = sum(1 for _ in corpus_dir.iterdir() if _.is_file())
+    new_seeds = seed_count_after - seed_count_before
+    logging.info(
+        "Stage 3b: libFuzzer pass finished (success=%s); %d new seed(s) discovered",
+        run_result.success,
+        new_seeds,
+    )
+
+    return {
+        "success": run_result.success,
+        "corpus_dir": str(corpus_dir),
+        "seed_count_before": seed_count_before,
+        "seed_count_after": seed_count_after,
+        "new_seeds": new_seeds,
+        "error": run_result.error or "",
+    }
+
+
 def build_symcc_cmd(
     args: argparse.Namespace,
     blocker_json_path: Path,
@@ -249,6 +314,8 @@ def build_symcc_cmd(
         str(args.symcc_max_total_seeds),
         "--timeout-sec",
         str(args.symcc_timeout_sec),
+        "--wall-clock-budget-sec",
+        str(getattr(args, "symcc_wall_clock_budget_sec", 0) or 0),
         "--json-output-file",
         str(json_output_path),
     ]
@@ -396,14 +463,45 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["attempt_result"] = infer_attempt_result(result)
         return result
 
+    simplified_target_name = parsed_symcc_harness.get("native_build_target_name")
+
+    # Stage 3b: Run a short libFuzzer pass on the simplified harness to enrich the
+    # seed corpus before handing off to SymCC (Stage 3c). This is best-effort —
+    # failures are logged but do not abort the pipeline.
+    libfuzzer_pass_seconds = int(getattr(args, "libfuzzer_pass_seconds", 0) or 0)
+    stage3b_seeds = list(symcc_seeds)
+    if libfuzzer_pass_seconds > 0 and simplified_target_name:
+        stage3b_result = run_libfuzzer_focused_pass(
+            project_name=args.project_name,
+            target_name=simplified_target_name,
+            initial_seeds=symcc_seeds,
+            fuzz_seconds=libfuzzer_pass_seconds,
+        )
+        result["stages"]["libfuzzer_focused_pass"] = stage3b_result
+        result["pipeline_methods"].append("libfuzzer_focused_pass")
+        # Use the enriched corpus dir as additional seeds for Stage 3c.
+        corpus_dir = Path(stage3b_result["corpus_dir"])
+        if corpus_dir.is_dir():
+            enriched = [str(p) for p in sorted(corpus_dir.iterdir()) if p.is_file()]
+            seen = set(stage3b_seeds)
+            for s in enriched:
+                if s not in seen:
+                    stage3b_seeds.append(s)
+                    seen.add(s)
+            logging.info(
+                "Stage 3b: enriched seed list from %d to %d for Stage 3c",
+                len(symcc_seeds),
+                len(stage3b_seeds),
+            )
+
     symcc_harness_json = output_dir / "symcc_harness_summary.json"
     symcc_harness_run_cmd = build_symcc_cmd(
         args=args,
         blocker_json_path=payload_path,
         work_dir=output_dir / "symcc_harness_run",
-        seeds=symcc_seeds,
+        seeds=stage3b_seeds,
         fuzz_target=parsed_symcc_harness["harness_path"],
-        target_name=parsed_symcc_harness.get("native_build_target_name"),
+        target_name=simplified_target_name,
         json_output_path=symcc_harness_json,
     )
     symcc_harness_run = run_program(symcc_harness_run_cmd, json_output_file=symcc_harness_json)
@@ -454,9 +552,12 @@ def main() -> None:
     parser.add_argument("--max-iterations", type=int, default=5)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
-    parser.add_argument("--symcc-max-generations", type=int, default=1)
-    parser.add_argument("--symcc-max-total-seeds", type=int, default=30)
-    parser.add_argument("--symcc-timeout-sec", type=int, default=10)
+    parser.add_argument("--symcc-max-generations", type=int, default=3)
+    parser.add_argument("--symcc-max-total-seeds", type=int, default=60)
+    parser.add_argument("--symcc-timeout-sec", type=int, default=15)
+    parser.add_argument("--symcc-wall-clock-budget-sec", type=int, default=300)
+    parser.add_argument("--libfuzzer-pass-seconds", type=int, default=60,
+                        help="Seconds for Stage 3b libFuzzer focused pass on simplified harness. 0 to disable.")
     parser.add_argument("--llvm-profdata", default=DEFAULT_LLVM_PROFDATA)
     parser.add_argument("--llvm-cov", default=DEFAULT_LLVM_COV)
     parser.add_argument("--keep-coverage-reports", action="store_true")

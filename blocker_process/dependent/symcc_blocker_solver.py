@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -123,6 +124,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-generations", type=int, default=5, help="Maximum SymCC exploration generations.")
     parser.add_argument("--max-total-seeds", type=int, default=200, help="Maximum total corpus size including generated seeds.")
     parser.add_argument("--timeout-sec", type=int, default=30, help="Timeout for each target execution.")
+    parser.add_argument("--wall-clock-budget-sec", type=int, default=0, help="Total wall-clock budget for SymCC exploration in seconds. 0 means no limit.")
+    parser.add_argument("--ossfuzz-supplement-corpus-dir", default=None, help="OSS-Fuzz corpus dir to scan for branch-reaching binary seeds when initial corpus is sparse (<4 seeds).")
     parser.add_argument("--symcc", default=str(DEFAULT_SYMCC), help=f"Path to symcc. Default: {DEFAULT_SYMCC}")
     parser.add_argument("--sympp", default=str(DEFAULT_SYMPP), help=f"Path to sym++. Default: {DEFAULT_SYMPP}")
     parser.add_argument("--clang", default="clang", help="Path to clang for the coverage build.")
@@ -387,32 +390,70 @@ def write_replay_driver(work_dir: Path, driver_language: str) -> Path:
     return driver_path
 
 
-def normalize_source_includes(source_text: str) -> str:
-    include_re = re.compile(r'^(?P<prefix>\s*#\s*include\s+")(?P<path>/(?:src|repo)/[^"]+)(?P<suffix>")', re.MULTILINE)
+def normalize_include_for_symcc(path: str, include_dirs: list[Path]) -> str:
+    """Find the correct include form for local SymCC compilation.
 
-    def repl(match: re.Match[str]) -> str:
-        raw_path = match.group("path").replace("\\", "/")
-        rewritten = raw_path.split("/")[-1]
-        if raw_path.startswith("/src/"):
-            rewritten = raw_path[len("/src/") :]
-        elif raw_path.startswith("/repo/"):
-            repo_relative = raw_path[len("/repo/") :]
-            src_marker = "/src/"
-            if src_marker in repo_relative:
-                rewritten = repo_relative.split(src_marker, 1)[1]
-            else:
-                rewritten = repo_relative.split("/")[-1]
-        return f'{match.group("prefix")}{rewritten}{match.group("suffix")}'
+    Strips leading directory components of `path` one at a time and checks whether
+    the resulting suffix exists under any of the include_dirs (-I search paths).
+    Returns the shortest working form in angle brackets, or the bare filename as a
+    double-quoted fallback when nothing is found.
+    """
+    parts = path.lstrip("/").split("/")
+    for i in range(len(parts)):
+        candidate = "/".join(parts[i:])
+        for inc_dir in include_dirs:
+            if (inc_dir / candidate).exists():
+                return f"<{candidate}>"
+    return f'"{parts[-1]}"'
+
+
+def normalize_source_includes(source_text: str, include_dirs: list[Path] | None = None) -> str:
+    if include_dirs:
+        # Broader pattern: any double-quoted include that contains a "/" (multi-level path).
+        # Excludes parent-relative "../" paths which should stay as-is.
+        include_re = re.compile(
+            r'^(?P<prefix>\s*#\s*include\s+")(?P<path>[^"]*[/][^"]+)(?P<suffix>")',
+            re.MULTILINE,
+        )
+
+        def repl(match: re.Match[str]) -> str:
+            raw_path = match.group("path").replace("\\", "/")
+            if raw_path.startswith("../"):
+                return match.group(0)
+            normalized = normalize_include_for_symcc(raw_path, include_dirs)
+            return match.group("prefix")[:-1] + normalized
+
+    else:
+        # Original narrow pattern: only Docker-absolute /src/ and /repo/ paths.
+        include_re = re.compile(r'^(?P<prefix>\s*#\s*include\s+")(?P<path>/(?:src|repo)/[^"]+)(?P<suffix>")', re.MULTILINE)
+
+        def repl(match: re.Match[str]) -> str:
+            raw_path = match.group("path").replace("\\", "/")
+            rewritten = raw_path.split("/")[-1]
+            if raw_path.startswith("/src/"):
+                rewritten = raw_path[len("/src/"):]
+            elif raw_path.startswith("/repo/"):
+                repo_relative = raw_path[len("/repo/"):]
+                src_marker = "/src/"
+                if src_marker in repo_relative:
+                    rewritten = repo_relative.split(src_marker, 1)[1]
+                else:
+                    rewritten = repo_relative.split("/")[-1]
+            return f'{match.group("prefix")}{rewritten}{match.group("suffix")}'
 
     return include_re.sub(repl, source_text)
 
 
-def materialize_normalized_source(source: Path, normalized_source_dir: Path) -> Path:
+def materialize_normalized_source(
+    source: Path,
+    normalized_source_dir: Path,
+    include_dirs: list[Path] | None = None,
+) -> Path:
     normalized_source_dir.mkdir(parents=True, exist_ok=True)
     path_digest = hashlib.sha1(str(source.resolve()).encode("utf-8")).hexdigest()[:10]
     target = normalized_source_dir / f"{path_digest}_{source.name}"
     source_text = source.read_text(encoding="utf-8", errors="replace")
-    target.write_text(normalize_source_includes(source_text), encoding="utf-8")
+    target.write_text(normalize_source_includes(source_text, include_dirs), encoding="utf-8")
     return target
 
 
@@ -537,7 +578,10 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
         deduped_sources.append(source)
 
     normalized_source_dir = work_dir / "normalized_sources"
-    normalized_sources = [materialize_normalized_source(source, normalized_source_dir) for source in deduped_sources]
+    normalized_sources = [
+        materialize_normalized_source(source, normalized_source_dir, include_dirs)
+        for source in deduped_sources
+    ]
 
     use_cxx = any(path_language(source) == "c++" for source in normalized_sources)
     driver_language = "c++" if use_cxx else "c"
@@ -547,7 +591,9 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
         required_sources = {
             driver_path.resolve(),
             *{
-                materialize_normalized_source(Path(path).resolve(), normalized_source_dir).resolve()
+                materialize_normalized_source(
+                    Path(path).resolve(), normalized_source_dir, include_dirs
+                ).resolve()
                 for path in build_context.required_sources
             },
         }
@@ -666,9 +712,14 @@ def explore_with_symcc(args: argparse.Namespace, symcc_bin: Path, corpus_dir: Pa
     processed_count = 0
     fuzz_target_path = Path(args.fuzz_target).resolve()
     use_cxx = path_language(fuzz_target_path) == "c++"
+    wall_clock_budget = int(getattr(args, "wall_clock_budget_sec", 0) or 0)
+    budget_start = time.monotonic()
 
     for generation in range(1, args.max_generations + 1):
         if not frontier or processed_count >= args.max_total_seeds:
+            break
+        if wall_clock_budget > 0 and (time.monotonic() - budget_start) >= wall_clock_budget:
+            log(f"[info] wall-clock budget {wall_clock_budget}s reached, stopping exploration")
             break
 
         log(f"[info] SymCC generation {generation}: {len(frontier)} seed(s)")
@@ -676,6 +727,9 @@ def explore_with_symcc(args: argparse.Namespace, symcc_bin: Path, corpus_dir: Pa
 
         for seed_path in frontier:
             if processed_count >= args.max_total_seeds:
+                break
+            if wall_clock_budget > 0 and (time.monotonic() - budget_start) >= wall_clock_budget:
+                log(f"[info] wall-clock budget {wall_clock_budget}s reached mid-generation, stopping")
                 break
 
             shutil.rmtree(symcc_out)
@@ -834,6 +888,83 @@ def evaluate_corpus(
     return results
 
 
+def supplement_corpus_from_ossfuzz(
+    *,
+    corpus_dir: Path,
+    known_hashes: set[str],
+    ossfuzz_corpus_dir: Path,
+    coverage_bin: Path,
+    branch_source: Path,
+    branch_line: int,
+    blocked_side_line: int,
+    target_args: str,
+    input_mode: str,
+    timeout_sec: int,
+    coverage_dir: Path,
+    llvm_profdata: str,
+    llvm_cov: str,
+    max_supplement: int = 4,
+    max_candidates: int = 32,
+) -> int:
+    """Supplement SymCC corpus with branch-reaching seeds from the OSS-Fuzz corpus.
+
+    Scans for SHA1-named (40-char hex, fuzzer-discovered) seeds, evaluates each with the
+    coverage binary, and adds only those where branch_line_hit_count > 0. Stops after
+    max_supplement seeds are added or max_candidates seeds are evaluated.
+    Only hex-named seeds are considered because they are in the native binary format the
+    fuzz target expects; .txt/.bpf LLM seeds may have format mismatches.
+    """
+    if not ossfuzz_corpus_dir.is_dir():
+        return 0
+
+    candidates: list[tuple[int, Path]] = []
+    for seed_path in ossfuzz_corpus_dir.iterdir():
+        if not seed_path.is_file():
+            continue
+        name = seed_path.name
+        if not (len(name) == 40 and all(c in "0123456789abcdef" for c in name)):
+            continue
+        if sha256_file(seed_path) in known_hashes:
+            continue
+        try:
+            candidates.append((seed_path.stat().st_size, seed_path))
+        except OSError:
+            pass
+    candidates.sort()
+    if len(candidates) <= max_candidates:
+        selected = candidates
+    else:
+        step = len(candidates) / max_candidates
+        selected = [candidates[int(i * step)] for i in range(max_candidates)]
+
+    coverage_dir.mkdir(parents=True, exist_ok=True)
+    added = 0
+    for _, seed_path in selected:
+        result = evaluate_seed_with_coverage(
+            coverage_bin=coverage_bin,
+            branch_source=branch_source,
+            branch_line=branch_line,
+            blocked_side_line=blocked_side_line,
+            seed_path=seed_path,
+            target_args=target_args,
+            input_mode=input_mode,
+            timeout_sec=timeout_sec,
+            coverage_dir=coverage_dir,
+            keep_report=False,
+            llvm_profdata=llvm_profdata,
+            llvm_cov=llvm_cov,
+        )
+        if result.branch_hit_count > 0:
+            dest = add_seed_to_corpus(seed_path, corpus_dir, known_hashes)
+            if dest is not None:
+                log(f"[info] corpus supplement: {seed_path.name} (branch_hits={result.branch_hit_count})")
+                added += 1
+        if added >= max_supplement:
+            break
+
+    return added
+
+
 def main() -> int:
     args = parse_args()
     if args.build_context_file:
@@ -893,6 +1024,29 @@ def main() -> int:
 
     baseline_reached = any(result.blocked_side_line_reached for result in baseline_results)
     log(f"[info] baseline reached blocked-side line: {'yes' if baseline_reached else 'no'}")
+
+    # Supplement corpus with branch-reaching seeds from OSS-Fuzz when initial seeds are sparse.
+    if getattr(args, "ossfuzz_supplement_corpus_dir", None) and len(initial_seeds) < 4:
+        supplement_cov_dir = work_dir / "coverage" / "supplement"
+        n_supplemented = supplement_corpus_from_ossfuzz(
+            corpus_dir=corpus_dir,
+            known_hashes=known_hashes,
+            ossfuzz_corpus_dir=Path(args.ossfuzz_supplement_corpus_dir),
+            coverage_bin=coverage_bin,
+            branch_source=branch_source,
+            branch_line=args.branch_line,
+            blocked_side_line=args.blocked_side_line,
+            target_args=args.target_args,
+            input_mode=args.input_mode,
+            timeout_sec=args.timeout_sec,
+            coverage_dir=supplement_cov_dir,
+            llvm_profdata=llvm_profdata,
+            llvm_cov=llvm_cov,
+            max_supplement=4 - len(initial_seeds),
+            max_candidates=32,
+        )
+        if n_supplemented > 0:
+            log(f"[info] supplemented corpus with {n_supplemented} branch-reaching seeds from OSS-Fuzz corpus")
 
     log("[info] starting SymCC exploration")
     final_corpus = explore_with_symcc(args, symcc_bin, corpus_dir, generated_dir)

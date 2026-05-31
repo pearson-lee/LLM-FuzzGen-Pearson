@@ -378,6 +378,18 @@ def _infer_harness_extension(language: str | None) -> str:
     return ".cpp"
 
 
+def extract_includes_from_file(source_path: str | None) -> str:
+    """Return the #include lines from the given source file as a formatted block."""
+    if not source_path:
+        return ""
+    try:
+        code = Path(source_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    includes = re.findall(r'^\s*#\s*include\s+[<"][^>"]+[>"]', code, re.MULTILINE)
+    return "\n".join(includes)
+
+
 def _select_compiler(language: str | None, harness_path: Path) -> str:
     suffix = harness_path.suffix.lower()
     lowered = str(language or "").strip().lower()
@@ -444,22 +456,14 @@ def run_harness_native_build_gate(
     }
 
 
-def run_harness_frontend_gate(
+def _run_local_syntax_check(
     harness_path: Path,
-    args: argparse.Namespace,
+    build_context,
     output_dir: Path,
-) -> tuple[str | None, str, dict]:
-    build_context = reconstruct_build_context(
-        project_name=args.project_name,
-        mode="generated_harness",
-        target_source=args.fuzz_file,
-        branch_source=args.source_file,
-        harness_source=str(harness_path),
-        header_file=args.header_file,
-    )
-    build_context.write_json(output_dir / "build_context.json")
-
-    compiler = _select_compiler(build_context.language or args.language, harness_path)
+    language: str | None,
+) -> tuple[str | None, str]:
+    """Run local clang syntax/compile check and return (failure_kind, details) or (None, '')."""
+    compiler = _select_compiler(build_context.language or language, harness_path)
     include_dirs = [Path(path) for path in build_context.include_dirs]
     common_flags = ["-std=c++17"] if compiler == "clang++" else ["-std=c11"]
     include_flags = [flag for path in include_dirs for flag in ("-I", str(path))]
@@ -480,73 +484,49 @@ def run_harness_frontend_gate(
         encoding="utf-8",
     )
     if syntax_result.returncode != 0:
-        return "syntax_invalid", syntax_result.stderr.strip() or syntax_result.stdout.strip() or "Syntax check failed.", {}
+        return "syntax_invalid", syntax_result.stderr.strip() or syntax_result.stdout.strip() or "Syntax check failed."
+    return None, ""
 
-    object_path = output_dir / f"{harness_path.stem}.o"
-    compile_cmd = [compiler, *common_flags, *include_flags, "-c", str(harness_path), "-o", str(object_path)]
-    compile_result = subprocess.run(
-        compile_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    compile_log = output_dir / "compile_check.txt"
-    compile_log.write_text(
-        "COMMAND:\n" + " ".join(compile_cmd) + "\n\nSTDOUT:\n" + compile_result.stdout + "\nSTDERR:\n" + compile_result.stderr,
-        encoding="utf-8",
-    )
-    if compile_result.returncode != 0:
-        return "compile_invalid", compile_result.stderr.strip() or compile_result.stdout.strip() or "Compile check failed.", {}
 
-    link_probe = output_dir / ("link_probe.cpp" if compiler == "clang++" else "link_probe.c")
-    link_probe.write_text(_link_probe_source("c++" if compiler == "clang++" else "c"), encoding="utf-8")
-    compile_units: list[Path] = []
-    for raw in build_context.required_sources:
-        candidate = Path(raw)
-        if candidate.resolve() == harness_path.resolve():
-            compile_units.append(harness_path)
-        else:
-            compile_units.append(candidate)
-    for raw in build_context.optional_sources:
-        compile_units.append(Path(raw))
-    link_cmd = [compiler, *common_flags, *include_flags, str(link_probe)]
-    seen_units: set[Path] = set()
-    for unit in compile_units:
-        resolved = unit.resolve()
-        if resolved in seen_units:
-            continue
-        seen_units.add(resolved)
-        link_cmd.append(str(unit))
-    link_cmd.extend(["-o", str(output_dir / "link_probe_bin")])
-    link_result = subprocess.run(
-        link_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
+def run_harness_frontend_gate(
+    harness_path: Path,
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[str | None, str, dict]:
+    # Always reconstruct build context so downstream SymCC can use build_context.json.
+    build_context = reconstruct_build_context(
+        project_name=args.project_name,
+        mode="generated_harness",
+        target_source=args.fuzz_file,
+        branch_source=args.source_file,
+        harness_source=str(harness_path),
+        header_file=args.header_file,
     )
-    link_log = output_dir / "link_check.txt"
-    link_log.write_text(
-        "COMMAND:\n" + " ".join(link_cmd) + "\n\nSTDOUT:\n" + link_result.stdout + "\nSTDERR:\n" + link_result.stderr,
-        encoding="utf-8",
-    )
-    if link_result.returncode != 0:
-        return "link_invalid", link_result.stderr.strip() or link_result.stdout.strip() or "Link check failed.", {}
+    build_context.write_json(output_dir / "build_context.json")
 
+    # Primary gate: OSS-Fuzz native build, which uses the project's own build.sh and
+    # has the correct sysroot / include paths. Avoids false failures from locally
+    # missing system headers (e.g. BSD types needed by libpcap headers).
     native_failure, native_details, native_metadata = run_harness_native_build_gate(
         harness_code=harness_path.read_text(encoding="utf-8"),
         args=args,
         output_dir=output_dir,
     )
-    if native_failure is not None:
-        return native_failure, native_details, {}
+    if native_failure is None:
+        return None, "", native_metadata
 
-    return None, "", native_metadata
+    # Native build failed. Run local syntax check as a supplementary diagnostic so
+    # the LLM repair prompt gets a more specific clang error message.
+    local_failure, local_details = _run_local_syntax_check(
+        harness_path, build_context, output_dir, args.language
+    )
+    if local_failure is not None:
+        # Prefer local clang error (more precise) combined with native build context.
+        combined = f"{local_details}\n[OSS-Fuzz native build also failed: {native_details}]"
+        return local_failure, combined.strip(), {}
+
+    # Native build failed but local syntax passes — return native build error.
+    return native_failure, native_details, {}
 
 
 def build_prompt(args: argparse.Namespace) -> str:
@@ -595,6 +575,7 @@ def build_prompt(args: argparse.Namespace) -> str:
         "triggering_input_preview": triggering_input_preview,
         "template_path": str(MODULE_ROOT / "symex_harness_template.cpp"),
         "template_code": clip_text(load_text(MODULE_ROOT / "symex_harness_template.cpp"), max_chars=12000),
+        "reference_target_includes": extract_includes_from_file(args.fuzz_file),
     }
     return format_prompt(load_text(template_path), mapping)
 
@@ -675,6 +656,22 @@ def run_generation(args: argparse.Namespace) -> dict:
             args,
             output_dir,
         )
+        if validation_kind is None:
+            # Static check: catch absolute Docker paths and parent-traversal paths that survived
+            # sanitize_generated_harness_code() but would still fail local SymCC compilation.
+            # Only flag #include "/absolute/..." and #include "../parent"; relative "sub/dir.h"
+            # paths with no leading slash are allowed (may be valid project-relative includes).
+            _abs_include_re = re.compile(r'^\s*#\s*include\s+"(/[^"]+|[^"]*\.\./[^"]*)"', re.MULTILINE)
+            bad_includes = _abs_include_re.findall(harness_code)
+            if bad_includes:
+                validation_kind = "absolute_include_paths"
+                validation_details = (
+                    "Harness contains absolute or parent-traversal #include paths that will fail "
+                    "local SymCC compilation (SymCC uses -I flags, not Docker /src/ paths). "
+                    "Replace ALL such includes with angle-bracket system includes, e.g. <pcap.h>. "
+                    "Offending: " + ", ".join(f'"{p}"' for p in bad_includes[:5])
+                )
+
         if validation_kind is None:
             semantic_errors = validate_harness_semantics(
                 original_code=original_code,

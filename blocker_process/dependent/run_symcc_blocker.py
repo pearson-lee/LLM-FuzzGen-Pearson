@@ -91,6 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-generations", type=int, default=5)
     parser.add_argument("--max-total-seeds", type=int, default=200)
     parser.add_argument("--timeout-sec", type=int, default=30)
+    parser.add_argument("--wall-clock-budget-sec", type=int, default=0, help="Total wall-clock budget for SymCC exploration in seconds. 0 means no limit.")
     parser.add_argument("--symcc", default=str(REPO_ROOT / "symcc" / "build" / "symcc"))
     parser.add_argument("--sympp", default=str(REPO_ROOT / "symcc" / "build" / "sym++"))
     parser.add_argument("--clang", default="clang")
@@ -243,6 +244,8 @@ def symcc_cmd(
         str(args.max_total_seeds),
         "--timeout-sec",
         str(args.timeout_sec),
+        "--wall-clock-budget-sec",
+        str(getattr(args, "wall_clock_budget_sec", 0) or 0),
         "--symcc",
         args.symcc,
         "--sympp",
@@ -276,6 +279,13 @@ def symcc_cmd(
         cmd.extend(["--seed-dir", str(repo_path(args.seed_dir))])
     if args.keep_coverage_reports:
         cmd.append("--keep-coverage-reports")
+    # Auto-derive OSS-Fuzz corpus dir for branch-reaching seed supplementation.
+    # symcc_blocker_solver.py only activates this when initial seed count < 4.
+    if getattr(args, "project_name", None) and getattr(args, "target_name", None):
+        oss_fuzz = OSSFuzz()
+        supplement_dir = oss_fuzz.build_corpus_dir / args.project_name / args.target_name
+        if supplement_dir.is_dir():
+            cmd.extend(["--ossfuzz-supplement-corpus-dir", str(supplement_dir)])
     return cmd
 
 

@@ -386,6 +386,17 @@ def reconstruct_build_context(
         explicit_include_dirs=explicit_include_paths,
         related_paths=[path for path in [branch_path, target_path, harness_path, header_path, *required, *optional] if path],
     )
+
+    if project_name:
+        work_dir = OSS_FUZZ_OUT / project_name / "work"
+        if work_dir.is_dir():
+            for subdir in sorted(work_dir.iterdir()):
+                resolved = _safe_resolve(subdir)
+                if resolved.is_dir() and resolved.name != "ccache" and any(resolved.glob("*.h")):
+                    if resolved not in include_dirs:
+                        include_dirs.append(resolved)
+                        diagnostics.append(f"Added build-generated headers dir: {resolved}")
+
     diagnostics.append(f"Resolved {len(include_dirs)} include directorie(s).")
 
     language_inputs = [path for path in [harness_path, target_path, branch_path, *required, *optional] if path]

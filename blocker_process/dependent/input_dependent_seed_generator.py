@@ -455,11 +455,20 @@ def build_iteration_prompt(
     evaluation_summary: str = "",
     generated_seed_preview: str = "",
     family_summary_text: str = "",
+    format_hint: str = "",
 ) -> str:
     if iteration_index == 1:
         return base_prompt
 
     analysis_text = "\n".join(f"- {item}" for item in (previous_analysis_summary or [])) or "N/A"
+    format_hint_section = ""
+    if format_hint:
+        format_hint_section = f"""
+
+## Format mismatch detected — reference seed hint
+
+{format_hint}
+"""
     appended = f"""
 
 # Iteration Context
@@ -467,7 +476,7 @@ def build_iteration_prompt(
 This is iteration {iteration_index} of {max_iterations}.
 
 You are revising the previous generator based on execution feedback. Keep any working ideas that improved blocker reachability, but change the generator where the evidence shows it is insufficient.
-
+{format_hint_section}
 ## Previous generator analysis summary
 {analysis_text}
 
@@ -1353,30 +1362,47 @@ def select_recommended_symcc_generator_seeds(
         baseline_size = int(triggering_input_evaluation.get("seed_size_bytes", 1 << 30) or (1 << 30))
 
     qualified_records: list[dict] = []
-    for item in candidate_records:
-        branch_hits = int(item.get("branch_hit_count", 0) or 0)
-        seed_size = int(item.get("seed_size_bytes", 1 << 30) or (1 << 30))
-        if branch_hits <= 0:
-            continue
-        if baseline_branch < 0:
-            qualified_records.append(item)
-            continue
-        if branch_hits > baseline_branch:
-            qualified_records.append(item)
-            continue
-        if branch_hits == baseline_branch and seed_size < baseline_size:
-            qualified_records.append(item)
+    if generator_terminal_reason == "stalled_at_branch":
+        # For stalled_at_branch, the goal is to give SymCC diverse starting points.
+        # Seeds from select_best_symcc_candidates() already have branch_reached=True,
+        # meaning they've already passed all input-gates. Accept them all regardless of
+        # baseline comparison — hitting branch more times than the original is not the goal.
+        qualified_records = [
+            item for item in candidate_records
+            if int(item.get("branch_hit_count", 0) or 0) > 0
+        ]
+    else:
+        for item in candidate_records:
+            branch_hits = int(item.get("branch_hit_count", 0) or 0)
+            seed_size = int(item.get("seed_size_bytes", 1 << 30) or (1 << 30))
+            if branch_hits <= 0:
+                continue
+            if baseline_branch < 0:
+                qualified_records.append(item)
+                continue
+            if branch_hits > baseline_branch:
+                qualified_records.append(item)
+                continue
+            if branch_hits == baseline_branch and seed_size < baseline_size:
+                qualified_records.append(item)
 
     max_generator_seed_count = 0
-    if generator_terminal_reason in {"stalled_at_branch", "coverage_progress_observed_but_not_solved"}:
-        max_generator_seed_count = 2
+    if generator_terminal_reason == "stalled_at_branch":
+        max_generator_seed_count = 4
+    elif generator_terminal_reason == "coverage_progress_observed_but_not_solved":
+        max_generator_seed_count = 4
     elif generator_terminal_reason == "family_progress_observed_but_not_solved":
         max_generator_seed_count = 1
 
     recommended_records = qualified_records[:max_generator_seed_count]
     recommended_paths = [str(item.get("seed_path", "")).strip() for item in recommended_records if item.get("seed_path")]
 
-    if baseline_branch < 0:
+    if generator_terminal_reason == "stalled_at_branch":
+        baseline_note = (
+            "Baseline comparison skipped for stalled_at_branch: all branch-reaching generator seeds "
+            "accepted to maximise SymCC starting-point diversity."
+        )
+    elif baseline_branch < 0:
         baseline_note = "Triggering-input branch coverage was unavailable, so branch-reaching generator seeds were accepted without baseline comparison."
     else:
         baseline_note = (
@@ -1512,8 +1538,17 @@ def diagnose_iteration(
         code = "solved"
         action = "Stop seed generation for this blocker."
     elif iteration_status == "no_branch_signal":
-        code = "no_branch_signal"
-        action = "Replace dead families with structurally different families that target input materialization earlier in the harness."
+        baseline_branch = int(baseline_evaluation.get("branch_hit_count", 0))
+        if baseline_branch > 0:
+            code = "format_mismatch_seed"
+            action = (
+                "Your generated seeds cannot reach the branch but the initial corpus seed can. "
+                "The next iteration prompt will include a format hint with the reference seed. "
+                "Analyze the reference seed's size, encoding, and structure before generating new seeds."
+            )
+        else:
+            code = "no_branch_signal"
+            action = "Replace dead families with structurally different families that target input materialization earlier in the harness."
     elif iteration_status == "family_progress":
         code = "family_progress_without_coverage_delta"
         action = "Keep the best family as a SymCC candidate, but refine within that family because aggregate coverage did not improve."
@@ -1653,6 +1688,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     previous_seed_preview = ""
     previous_family_summary_text = ""
     previous_family_signal_score = 0
+    previous_format_hint = ""
     seen_families: set[str] = set()
     iterations: list[dict] = []
     best_iteration: dict | None = None
@@ -1678,6 +1714,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             evaluation_summary=previous_evaluation_summary,
             generated_seed_preview=previous_seed_preview,
             family_summary_text=previous_family_summary_text,
+            format_hint=previous_format_hint,
         )
         logging.info("=============== Iteration %d/%d ===============", iteration_index, effective_max_iterations)
         logging.info("================ Generated Prompt ================\n%s\n", prompt)
@@ -2044,6 +2081,30 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         previous_seed_preview = seed_preview
         previous_family_summary_text = family_summary_text
         previous_family_signal_score = compute_family_signal_score(family_summary)
+
+        previous_format_hint = ""
+        if diagnosis.get("diagnosis_code") == "format_mismatch_seed" and args.triggering_input:
+            try:
+                trigger_path = Path(str(args.triggering_input))
+                if trigger_path.exists() and trigger_path.is_file():
+                    seed_bytes = trigger_path.read_bytes()
+                else:
+                    seed_bytes = seed_to_bytes(args.triggering_input)
+                seed_size = len(seed_bytes)
+                hex_dump = seed_bytes[:256].hex()
+                printable = "".join(chr(b) if 32 <= b < 127 else "." for b in seed_bytes[:256])
+                previous_format_hint = (
+                    "Your previous seeds ALL failed to reach the branch (branch_hits=0), "
+                    "but the initial corpus seed CAN reach it. This indicates a format mismatch.\n\n"
+                    f"Reference seed that WORKS:\n"
+                    f"  Size: {seed_size} bytes\n"
+                    f"  Hex (first 256 bytes): {hex_dump}\n"
+                    f"  Printable: {printable}\n\n"
+                    "Analyze the format and size requirements before generating new seeds. "
+                    "Pay attention to: minimum input size, binary vs text encoding, header structure."
+                )
+            except Exception as exc:
+                logging.warning("Failed to build format hint: %s", exc)
 
     success = any(item.get("iteration_status") == "solved" for item in iterations)
     coverage_progress_iteration_count = sum(
