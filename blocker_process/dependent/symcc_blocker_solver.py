@@ -613,8 +613,13 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
     log(f"[info] coverage toolchain: llvm-profdata={llvm_profdata} llvm-cov={llvm_cov}")
 
     symcc_env = os.environ.copy()
+    symcc_env["SYMCC_ENABLE_LINEARIZATION"] = "1"
     if use_cxx:
-        symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
+        libcxx_install = REPO_ROOT / "libcxx_symcc_install"
+        if libcxx_install.is_dir():
+            symcc_env["SYMCC_LIBCXX_PATH"] = str(libcxx_install)
+        else:
+            symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
 
     symcc_obj_dir = work_dir / "build" / "symcc" / "obj"
     symcc_bin = work_dir / "build" / "symcc" / "replay_symcc"
@@ -737,8 +742,13 @@ def explore_with_symcc(args: argparse.Namespace, symcc_bin: Path, corpus_dir: Pa
 
             symcc_env = os.environ.copy()
             symcc_env["SYMCC_OUTPUT_DIR"] = str(symcc_out)
+            symcc_env["SYMCC_ENABLE_LINEARIZATION"] = "1"
             if use_cxx:
-                symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
+                libcxx_install = REPO_ROOT / "libcxx_symcc_install"
+                if libcxx_install.is_dir():
+                    symcc_env["SYMCC_LIBCXX_PATH"] = str(libcxx_install)
+                else:
+                    symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
 
             try:
                 result = run_single_seed(

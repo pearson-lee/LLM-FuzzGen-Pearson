@@ -15,6 +15,11 @@ ENABLE_CACHED_LOOKUP_VALIDATION = os.environ.get("BLOCKER_VALIDATE_CACHED_LOOKUP
 _LINE_ENTRY_RE = re.compile(r"^\s*(?P<line>\d+)\|(?P<count>[^|]*)\|(?P<code>.*)$")
 
 
+def _count_is_positive(count: str) -> bool:
+    stripped = count.strip()
+    return bool(stripped) and stripped != "0" and bool(re.search(r"[1-9]", stripped))
+
+
 def _normalize_name(value: str | None) -> str:
     return re.sub(r"\s+", "", (value or "").strip())
 
@@ -80,6 +85,7 @@ def _legacy_get_line_execution_count(
     *,
     function_name: str | None = None,
     raw_function_name: str | None = None,
+    source_file: str | None = None,
 ) -> str:
     if not report or line_no <= 0:
         return ""
@@ -95,6 +101,18 @@ def _legacy_get_line_execution_count(
         matches = _extract_count_from_lines(section_lines, line_no)
         if matches:
             return matches[0]
+
+    if source_file:
+        sf_suffix = source_file if source_file.startswith("/") else "/" + source_file
+        for header, section_lines in sections:
+            normalized_header = _normalize_name(header)
+            if not (normalized_header.endswith(sf_suffix) or normalized_header == source_file):
+                continue
+            matches = _extract_count_from_lines(section_lines, line_no)
+            if not matches:
+                continue
+            non_zero = [m for m in matches if _count_is_positive(m)]
+            return non_zero[0] if non_zero else matches[0]
 
     global_matches = _extract_count_from_lines(report.splitlines(), line_no)
     if len(global_matches) == 1:
@@ -144,6 +162,7 @@ def _cached_get_line_execution_count(
     *,
     function_name: str | None = None,
     raw_function_name: str | None = None,
+    source_file: str | None = None,
 ) -> str:
     if not report or line_no <= 0:
         return ""
@@ -159,6 +178,17 @@ def _cached_get_line_execution_count(
         if matches:
             return matches[0]
 
+    if source_file:
+        sf_suffix = source_file if source_file.startswith("/") else "/" + source_file
+        for header_key, line_index in section_indexes.items():
+            if not (header_key.endswith(sf_suffix) or header_key == source_file):
+                continue
+            matches = line_index.get(line_no, [])
+            if not matches:
+                continue
+            non_zero = [m for m in matches if _count_is_positive(m)]
+            return non_zero[0] if non_zero else matches[0]
+
     global_matches = global_index.get(line_no, [])
     if len(global_matches) == 1:
         return global_matches[0]
@@ -173,17 +203,22 @@ def get_line_execution_count(
     *,
     function_name: str | None = None,
     raw_function_name: str | None = None,
+    source_file: str | None = None,
 ) -> str:
     """Extract the execution count for a source line from llvm-cov output.
 
-    Prefer the target function's section when llvm-cov emits multiple function blocks.
-    Fall back to scanning the full report when the report is a single-file listing.
+    Prefer the target function's section when llvm-cov emits function-level blocks.
+    When the report is project-wide (file-path sections), use source_file to narrow
+    the lookup to the correct file section and avoid collisions with same-numbered
+    lines in other source files.
+    Falls back to global scan when neither function nor source_file narrows the result.
     """
     cached_result = _cached_get_line_execution_count(
         report,
         line_no,
         function_name=function_name,
         raw_function_name=raw_function_name,
+        source_file=source_file,
     )
     if not ENABLE_CACHED_LOOKUP_VALIDATION:
         return cached_result
@@ -193,14 +228,16 @@ def get_line_execution_count(
         line_no,
         function_name=function_name,
         raw_function_name=raw_function_name,
+        source_file=source_file,
     )
 
     if legacy_result != cached_result:
         logger.warning(
-            "Coverage lookup mismatch at line=%s function=%s raw_function=%s legacy=%r cached=%r",
+            "Coverage lookup mismatch at line=%s function=%s raw_function=%s source_file=%s legacy=%r cached=%r",
             line_no,
             function_name,
             raw_function_name,
+            source_file,
             legacy_result,
             cached_result,
         )

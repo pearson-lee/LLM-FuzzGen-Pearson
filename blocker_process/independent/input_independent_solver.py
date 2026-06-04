@@ -175,7 +175,8 @@ def build_output_dir(args: argparse.Namespace) -> Path:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_project = sanitize_name(args.project_name)
     safe_function = sanitize_name(args.function_name)
-    out_dir = OUTPUT_ROOT / f"{safe_project}_{safe_function}_{timestamp}"
+    _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
+    out_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
@@ -1030,6 +1031,9 @@ def main() -> None:
     parser.add_argument("--max-iterations", type=int, default=config.ITERATION_LOOP)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
+    parser.add_argument("--output-root", default=None,
+                        help="Root directory under which output dirs are created. "
+                             "Defaults to generated_targets/.")
     args = parser.parse_args()
 
     try:

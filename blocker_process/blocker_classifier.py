@@ -952,9 +952,12 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
                     output["attempt_result"] = "failed"
                     return output
                 logging.info("--> Routing to Input Dependent Solver (Seed Gen -> Symbolic Execution)")
+                _dep_args = build_seed_generation_args(args)
+                if getattr(args, "output_root", None):
+                    _dep_args.extend(["--output-root", args.output_root])
                 pipeline_output = run_program(
                     MODULE_ROOT / "dependent" / "input_dependent_solver.py",
-                    build_seed_generation_args(args),
+                    _dep_args,
                 )
                 output["pipeline_returncode"] = pipeline_output["returncode"]
                 output["pipeline_output"] = pipeline_output
@@ -976,9 +979,12 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
                     output["attempt_result"] = "failed"
                     return output
                 logging.info("--> Routing to Input Independent Solver (Fuzz Target Refine -> New Target -> Drop)")
+                _indep_args = build_input_independent_solver_args(args)
+                if getattr(args, "output_root", None):
+                    _indep_args.extend(["--output-root", str(Path(args.output_root) / "independent_target")])
                 pipeline_output = run_program(
                     MODULE_ROOT / "independent" / "input_independent_solver.py",
-                    build_input_independent_solver_args(args),
+                    _indep_args,
                 )
                 output["pipeline_returncode"] = pipeline_output["returncode"]
                 output["pipeline_output"] = pipeline_output
@@ -1063,6 +1069,12 @@ def main():
         action="store_true",
         help="Only classify the blocker and skip downstream seed-generation / blocker-iteration pipelines",
     )
+    parser.add_argument(
+        "--output-root",
+        default=None,
+        help="Root directory for all pipeline outputs (sub-scripts write under symbolic_run/, "
+             "generator/, harness/). Auto-generated under experiments/ when not specified.",
+    )
     args = parser.parse_args()
     args = apply_blocker_payload(args)
     missing = [
@@ -1076,6 +1088,14 @@ def main():
     ]
     if missing:
         parser.error("Missing required blocker fields: " + ", ".join(missing))
+    if not args.output_root and not args.classify_only:
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fn = (args.function_name or "unknown").replace("/", "_")
+        branch = args.branch_line_number or "0"
+        args.output_root = str(
+            Path("experiments") / f"{ts}_{args.project_name}_{fn}_{branch}"
+        )
+        logging.info("Auto-generated output root: %s", args.output_root)
     try:
         result = classify_blocker(args, execute_pipeline=not args.classify_only)
     except FileNotFoundError as exc:

@@ -39,6 +39,10 @@ DEFAULT_REPRESENTATIVE_SEEDS_PER_NEW_FAMILY = 2
 DEFAULT_REPRESENTATIVE_SEEDS_PER_EXISTING_FAMILY = 1
 DEFAULT_MAX_REPRESENTATIVE_EVALS = 12
 DEFAULT_CORPUS_REPLAY_BATCH_SIZE = 300
+MAX_SEED_SIZE_BYTES = 65536           # 64KB; oversized seeds are skipped in representative eval
+DEFAULT_COVERAGE_SEED_TIMEOUT_SEC = 30    # libfuzzer -timeout per seed (primary defence)
+DEFAULT_COVERAGE_EVAL_TIMEOUT_SEC = 120   # subprocess wall-clock limit for per-seed Docker eval
+DEFAULT_COVERAGE_BATCH_TIMEOUT_SEC = 600  # subprocess wall-clock limit for aggregate batch eval
 _SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
 
 
@@ -693,19 +697,32 @@ def guess_container_source_file(project_name: str, local_source_file: str) -> st
     return f"/out/src/{project_name}/{source_path.name}"
 
 
-def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+def run_cmd(cmd: list[str], timeout_sec: int | None = None) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            cmd, returncode=-1, stdout="",
+            stderr=f"Command timed out after {timeout_sec}s",
+        )
 
 
-def run_in_ossfuzz(project_name: str, out_dir: Path, corpus_root: Path, command: str) -> subprocess.CompletedProcess:
+def run_in_ossfuzz(
+    project_name: str,
+    out_dir: Path,
+    corpus_root: Path,
+    command: str,
+    timeout_sec: int | None = None,
+) -> subprocess.CompletedProcess:
     image = f"{OSS_FUZZ_IMAGE_PREFIX}/{project_name}"
     docker_cmd = [
         "docker",
@@ -720,7 +737,7 @@ def run_in_ossfuzz(project_name: str, out_dir: Path, corpus_root: Path, command:
         "-lc",
         command,
     ]
-    return run_cmd(docker_cmd)
+    return run_cmd(docker_cmd, timeout_sec=timeout_sec)
 
 
 def materialized_seed_preview(generated_dir: Path, max_files: int = 8, max_bytes: int = 160) -> str:
@@ -863,13 +880,13 @@ def evaluate_iteration_with_coverage(
         "batch+=(\"$seed\"); seed_count=$((seed_count + 1)); "
         f"if [ ${{#batch[@]}} -ge {batch_size} ]; then "
         f"LLVM_PROFILE_FILE=\"/tmp/iter_${{batch_num}}.profraw\" "
-        f"/out/{shlex.quote(fuzzer_name)} -rss_limit_mb=0 -timeout=0 \"${{batch[@]}}\" || exit $?; "
+        f"/out/{shlex.quote(fuzzer_name)} -rss_limit_mb=0 -timeout={DEFAULT_COVERAGE_SEED_TIMEOUT_SEC} \"${{batch[@]}}\" || exit $?; "
         "batch_num=$((batch_num + 1)); batch=(); fi; "
         f"done < <(find /corpus/{shlex.quote(corpus_name)} -type f -print0 | sort -z) && "
         "if [ \"$seed_count\" -eq 0 ]; then echo \"No corpus seeds found for coverage replay.\" >&2; exit 3; fi && "
         "if [ ${#batch[@]} -gt 0 ]; then "
         f"LLVM_PROFILE_FILE=\"/tmp/iter_${{batch_num}}.profraw\" "
-        f"/out/{shlex.quote(fuzzer_name)} -rss_limit_mb=0 -timeout=0 \"${{batch[@]}}\" || exit $?; "
+        f"/out/{shlex.quote(fuzzer_name)} -rss_limit_mb=0 -timeout={DEFAULT_COVERAGE_SEED_TIMEOUT_SEC} \"${{batch[@]}}\" || exit $?; "
         "fi && "
         "if ! ls /tmp/iter_*.profraw >/dev/null 2>&1; then echo \"Coverage replay did not produce profraw files.\" >&2; exit 4; fi && "
         "llvm-profdata merge -sparse /tmp/iter_*.profraw -o /tmp/iter.profdata && "
@@ -881,7 +898,7 @@ def evaluate_iteration_with_coverage(
         "-path-equivalence=/,/out "
         f"{shlex.quote(container_source_file)}"
     )
-    result = run_in_ossfuzz(project_name, out_dir, corpus_root, command)
+    result = run_in_ossfuzz(project_name, out_dir, corpus_root, command, timeout_sec=DEFAULT_COVERAGE_BATCH_TIMEOUT_SEC)
     if result.returncode != 0:
         return {
             "success": False,
@@ -959,7 +976,7 @@ def evaluate_seed_with_coverage_in_ossfuzz(
     command = (
         f"rm -f /tmp/{profile_stem}.profraw /tmp/{profile_stem}.profdata && "
         f"LLVM_PROFILE_FILE=/tmp/{profile_stem}.profraw "
-        f"/out/{shlex.quote(fuzzer_name)} -runs=1 -rss_limit_mb=0 -timeout=0 "
+        f"/out/{shlex.quote(fuzzer_name)} -runs=1 -rss_limit_mb=0 -timeout={DEFAULT_COVERAGE_SEED_TIMEOUT_SEC} "
         f"{shlex.quote(container_seed_path)} && "
         f"llvm-profdata merge -sparse /tmp/{profile_stem}.profraw -o /tmp/{profile_stem}.profdata && "
         f"llvm-cov show /out/{shlex.quote(fuzzer_name)} "
@@ -970,7 +987,7 @@ def evaluate_seed_with_coverage_in_ossfuzz(
         "-path-equivalence=/,/out "
         f"{shlex.quote(container_source_file)}"
     )
-    result = run_in_ossfuzz(project_name, out_dir, corpus_root, command)
+    result = run_in_ossfuzz(project_name, out_dir, corpus_root, command, timeout_sec=DEFAULT_COVERAGE_EVAL_TIMEOUT_SEC)
     if result.returncode != 0:
         return {
             "success": False,
@@ -1071,6 +1088,22 @@ def evaluate_representative_seed_records(
     for index, record in enumerate(representative_records, start=1):
         staged_path = Path(str(record.get("staged_path", "")))
         family = str(record.get("family") or "F00_unclassified")
+        seed_size = staged_path.stat().st_size if staged_path.is_file() else 0
+        if seed_size > MAX_SEED_SIZE_BYTES:
+            logging.warning(
+                "Skipping oversized representative seed (%dB > %dB): %s",
+                seed_size, MAX_SEED_SIZE_BYTES, staged_path.name,
+            )
+            representative_results.append({
+                "family": family,
+                "seed_path": str(staged_path),
+                "source_path": str(record.get("source_path", "")),
+                "success": False,
+                "skipped": True,
+                "skip_reason": "oversized_seed",
+                "seed_size_bytes": seed_size,
+            })
+            continue
         eval_result = evaluate_seed_with_coverage_in_ossfuzz(
             oss_fuzz=oss_fuzz,
             project_name=project_name,
@@ -1676,7 +1709,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_project = sanitize_name(args.project_name)
     safe_function = sanitize_name(args.function_name)
-    output_dir = OUTPUT_ROOT / f"{safe_project}_{safe_function}_{timestamp}"
+    _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
+    output_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     oss_fuzz = OSSFuzz()
     fuzzer_name = Path(args.fuzz_file).stem
@@ -2228,6 +2262,9 @@ def main() -> None:
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
+    parser.add_argument("--output-root", default=None,
+                        help="Root directory under which iteration output dirs are created. "
+                             "Defaults to generated_generators/.")
     args = parser.parse_args()
 
     try:

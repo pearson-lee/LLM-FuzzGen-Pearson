@@ -1,0 +1,9 @@
+{
+  "native_archive": true,
+  "native_archive_build_flavor": "symcc_native",
+  "native_archive_subdir": "symcc_native",
+  "native_archive_filename": "libcjson.a",
+  "native_archive_include_dirs": [
+    "source_code"
+  ]
+}

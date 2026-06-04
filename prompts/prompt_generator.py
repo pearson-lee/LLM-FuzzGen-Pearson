@@ -187,6 +187,38 @@ def crash_analysis_prompt(
     )
 
 
+def crash_audit_prompt(
+    *,
+    finding: str,
+    confidence: float,
+    reasoning_summary: str,
+    frame_classification: str,
+    top_app_frame_source: str,
+    stack_trace: str,
+    fuzzer_source_code: str,
+) -> str:
+    """Generates a prompt for the evidence audit pass on a crash analysis."""
+    return _load_and_format_template(
+        template_name="crash_audit_template",
+        input_variables=[
+            "finding",
+            "confidence",
+            "reasoning_summary",
+            "frame_classification",
+            "top_app_frame_source",
+            "stack_trace",
+            "fuzzer_source_code",
+        ],
+        finding=finding,
+        confidence=confidence,
+        reasoning_summary=reasoning_summary,
+        frame_classification=frame_classification,
+        top_app_frame_source=top_app_frame_source,
+        stack_trace=stack_trace,
+        fuzzer_source_code=fuzzer_source_code,
+    )
+
+
 def blocker_reference_guided_prompt(
     *,
     project_name: str,

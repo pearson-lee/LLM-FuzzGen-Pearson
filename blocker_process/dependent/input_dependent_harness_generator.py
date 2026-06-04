@@ -150,20 +150,37 @@ def strip_markdown_code_fence(text: str) -> str:
     return text
 
 
+def _make_repair_hint(failure_details: str, language: str | None) -> str:
+    """Return an extra hint line when the error matches a known fixable pattern."""
+    lang = (language or "").strip().lower()
+    if lang in _C_LANGUAGE_VARIANTS and "expected identifier" in failure_details and 'extern' in failure_details:
+        return (
+            '\n**Hint**: The error "expected identifier or \'(\'" is caused by `extern "C"` '
+            "which is C++ syntax and is **not valid in a C file**. "
+            "Remove `extern \"C\"` from the function signature entirely — write "
+            "`int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)` with no prefix. "
+            "Also replace any C++ headers (`<cstddef>`, `<cstdint>`, etc.) with their C "
+            "equivalents (`<stddef.h>`, `<stdint.h>`, etc.)."
+        )
+    return ""
+
+
 def build_harness_repair_prompt(
     base_prompt: str,
     failure_kind: str,
     failure_details: str,
     previous_harness_code: str,
+    language: str | None = None,
 ) -> str:
     details = clip_text(failure_details or "N/A", max_chars=8000)
     previous_code = clip_text(previous_harness_code or "N/A", max_chars=16000)
+    hint = _make_repair_hint(failure_details, language)
     return (
         f"{base_prompt}\n\n"
         "## Repair Task\n"
         "The previous harness attempt failed validation.\n"
         f"- Failure kind: {failure_kind}\n"
-        f"- Failure details:\n{details}\n\n"
+        f"- Failure details:\n{details}{hint}\n\n"
         "Revise the harness so it preserves the blocker path requirements and passes the reported failure.\n"
         "Keep the same JSON output schema as before.\n\n"
         "## Previous Harness Code\n"
@@ -378,6 +395,32 @@ def _infer_harness_extension(language: str | None) -> str:
     return ".cpp"
 
 
+_C_LANGUAGE_VARIANTS = {"c", "c89", "c99", "c11", "c17"}
+
+_EXTERN_C_RE = re.compile(r'\bextern\s+"C"\s+')
+_CPP_HEADER_MAP = {
+    "#include <cstddef>": "#include <stddef.h>",
+    "#include <cstdint>": "#include <stdint.h>",
+    "#include <cstdlib>": "#include <stdlib.h>",
+    "#include <cstring>": "#include <string.h>",
+    "#include <cstdio>": "#include <stdio.h>",
+}
+
+
+def _fix_cpp_in_c_harness(code: str) -> str:
+    """Remove C++-only syntax from a harness that must compile as C.
+
+    LLMs tend to copy `extern "C"` and C++ headers from the .cpp template even
+    when the project language is C.  This strips the most common offenders so
+    the OSS-Fuzz native build (which uses $CC, not $CXX) does not fail with
+    "expected identifier or '(' extern".
+    """
+    code = _EXTERN_C_RE.sub("", code)
+    for cpp_hdr, c_hdr in _CPP_HEADER_MAP.items():
+        code = code.replace(cpp_hdr, c_hdr)
+    return code
+
+
 def extract_includes_from_file(source_path: str | None) -> str:
     """Return the #include lines from the given source file as a formatted block."""
     if not source_path:
@@ -456,6 +499,43 @@ def run_harness_native_build_gate(
     }
 
 
+def _try_fix_missing_include_subdirs(harness_code: str, original_code: str, error_msg: str) -> str | None:
+    """
+    When validation fails with 'Y.h file not found', check if original_code has '#include "X/Y.h"'
+    and replace '<Y.h>' with '<X/Y.h>' in harness_code. Returns patched code or None if no fix applies.
+
+    This handles the common LLM mistake of stripping subdirectory prefixes from includes
+    (e.g. 'vpx/vpx_decoder.h' -> 'vpx_decoder.h') when the project name and subdirectory share a name.
+    """
+    missing_headers = re.findall(r"'([^'/]+\.h[^']*?)' file not found", error_msg)
+    if not missing_headers:
+        return None
+
+    # Build basename -> full relative path from original includes ("X/Y.h" patterns only)
+    subdir_map: dict[str, str] = {}
+    for inc in re.findall(r'#\s*include\s+"([^"]+)"', original_code):
+        if "/" in inc:
+            basename = inc.rsplit("/", 1)[-1]
+            subdir_map.setdefault(basename, inc)
+
+    if not subdir_map:
+        return None
+
+    patched = harness_code
+    applied = False
+    for missing in missing_headers:
+        basename = missing.rsplit("/", 1)[-1]
+        if basename in subdir_map:
+            full_path = subdir_map[basename]
+            old_tok = f"<{missing}>"
+            new_tok = f"<{full_path}>"
+            if old_tok in patched and old_tok != new_tok:
+                patched = patched.replace(old_tok, new_tok)
+                applied = True
+
+    return patched if applied else None
+
+
 def _run_local_syntax_check(
     harness_path: Path,
     build_context,
@@ -503,6 +583,14 @@ def run_harness_frontend_gate(
         header_file=args.header_file,
     )
     build_context.write_json(output_dir / "build_context.json")
+
+    # For C projects: strip C++-only syntax (extern "C", C++ headers) that LLMs
+    # sometimes copy from the .cpp template, which breaks compilation with $CC.
+    if (args.language or "").strip().lower() in _C_LANGUAGE_VARIANTS:
+        original_code = harness_path.read_text(encoding="utf-8")
+        fixed_code = _fix_cpp_in_c_harness(original_code)
+        if fixed_code != original_code:
+            harness_path.write_text(fixed_code, encoding="utf-8")
 
     # Primary gate: OSS-Fuzz native build, which uses the project's own build.sh and
     # has the correct sysroot / include paths. Avoids false failures from locally
@@ -604,7 +692,8 @@ def run_generation(args: argparse.Namespace) -> dict:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_project = sanitize_name(args.project_name)
     safe_function = sanitize_name(args.function_name)
-    output_dir = OUTPUT_ROOT / f"{safe_project}_{safe_function}_{args.mode}_{timestamp}"
+    _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
+    output_dir = _output_root / f"{safe_project}_{safe_function}_{args.mode}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
@@ -685,6 +774,23 @@ def run_generation(args: argparse.Namespace) -> dict:
         if validation_kind is None:
             break
 
+        # Auto-fix: if error is 'Y.h file not found', try restoring subdirectory prefix from
+        # original fuzz target includes (e.g. '<vpx_decoder.h>' → '<vpx/vpx_decoder.h>')
+        if attempt_index == 0 and validation_kind == "syntax_invalid" and original_code:
+            patched = _try_fix_missing_include_subdirs(harness_code, original_code, validation_details)
+            if patched is not None:
+                patched_filename = f"autofix_{harness_filename}"
+                patched_path = write_harness(output_dir, patched, patched_filename)
+                fixed_kind, fixed_details, _ = run_harness_frontend_gate(patched_path, args, output_dir)
+                if fixed_kind is None:
+                    harness_code = patched
+                    harness_filename = patched_filename
+                    harness_path = patched_path
+                    validation_kind = None
+                    break
+                # Fix didn't fully resolve; fall through to LLM repair with updated error context
+                validation_details = fixed_details or validation_details
+
         if attempt_index >= 1:
             raise RuntimeError(f"Generated harness failed {validation_kind}: {validation_details}")
 
@@ -693,6 +799,7 @@ def run_generation(args: argparse.Namespace) -> dict:
             failure_kind=validation_kind,
             failure_details=validation_details,
             previous_harness_code=harness_code,
+            language=args.language,
         )
         (output_dir / "repair_prompt_01.txt").write_text(repair_prompt, encoding="utf-8")
         current_prompt = repair_prompt
@@ -753,6 +860,9 @@ def main() -> None:
     parser.add_argument("--cfg-call-chain", default=None)
     parser.add_argument("--cfg-source-codes", default=None)
     parser.add_argument("--triggering-input", default="")
+    parser.add_argument("--output-root", default=None,
+                        help="Root directory under which harness output dirs are created. "
+                             "Defaults to generated_harnesses/.")
     args = parser.parse_args()
 
     try:

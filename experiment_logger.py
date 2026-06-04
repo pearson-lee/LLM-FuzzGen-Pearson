@@ -22,7 +22,10 @@ class ExperimentLogger:
         self.run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_dir = output_dir or Path(__file__).parent / "artifacts" / "run_events"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.log_path = self.output_dir / f"{self.run_id}.jsonl"
+        if output_dir is not None:
+            self.log_path = self.output_dir / "events.jsonl"
+        else:
+            self.log_path = self.output_dir / f"{self.run_id}.jsonl"
         self._lock = threading.Lock()
 
     def log_event(self, event: str, **payload: Any) -> None:

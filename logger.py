@@ -24,12 +24,16 @@ class ConsoleHandler(logging.StreamHandler):
 
 
 def setup_logging(
-    project_name: str, model_name: str | None = None, log_dir: Path = Path(__file__).parent / "logs"
+    project_name: str,
+    model_name: str | None = None,
+    log_dir: Path = Path(__file__).parent / "logs",
+    log_filename: str | None = None,
 ) -> None:
     """Configure logging with both file and console handlers."""
-    log_dir.mkdir(exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
-    log_file = log_dir / f"{datetime.now().strftime('%m%d_%H%M%S')}_{project_name}.log"
+    name = log_filename or f"{datetime.now().strftime('%m%d_%H%M%S')}_{project_name}.log"
+    log_file = log_dir / name
     handlers = [
         logging.FileHandler(log_file, mode="w"),
         ConsoleHandler(sys.stdout),  # Use custom console handler

@@ -26,6 +26,9 @@ class CrashHeuristicTriage:
     suspected_fuzzer_bug: bool
     confidence: float
     rationale: list[str]
+    top_app_frame_source: str = ""
+    top_app_frame_function: str = ""
+    frame_classification: str = "unknown"
 
 
 class CrashAnalyzer:
@@ -91,7 +94,7 @@ class CrashAnalyzer:
 
         # Reproduce the crash to get a clean stack trace
         stack_trace = self.oss_fuzz.reproduce_crash(project_name, fuzzer_binary_name, crash_path)
-        triage = self._heuristic_triage(fuzzer_binary_name, stack_trace)
+        triage = self._heuristic_triage(fuzzer_binary_name, stack_trace, source_file)
 
         # Get analysis from LLM
         analysis = self._get_llm_analysis(
@@ -210,21 +213,133 @@ class CrashAnalyzer:
             return None
         analysis["confidence"] = confidence
 
+        # --- Optional: rubric_scores validation ---
+        rubric = analysis.get("rubric_scores")
+        if rubric is not None:
+            rubric_fields = (
+                "top_frame_ownership",
+                "api_contract",
+                "normal_caller_feasibility",
+                "sanitizer_signal",
+                "reproducibility",
+            )
+            if not isinstance(rubric, dict):
+                logger.warning("rubric_scores is not a dict; ignoring.")
+                analysis.pop("rubric_scores", None)
+            else:
+                valid_rubric = True
+                for field in rubric_fields:
+                    entry = rubric.get(field)
+                    if not isinstance(entry, dict):
+                        logger.warning("rubric_scores.%s is missing or not a dict; ignoring rubric.", field)
+                        valid_rubric = False
+                        break
+                    score = entry.get("score")
+                    evidence_val = entry.get("evidence", "")
+                    if not isinstance(score, (int, float)):
+                        logger.warning("rubric_scores.%s.score is not numeric; ignoring rubric.", field)
+                        valid_rubric = False
+                        break
+                    rubric[field]["score"] = int(score)
+                    rubric[field]["evidence"] = str(evidence_val).strip()
+                if valid_rubric:
+                    total = sum(rubric[f]["score"] for f in rubric_fields if isinstance(rubric.get(f), dict))
+                    rubric["total"] = total
+                    analysis["rubric_scores"] = rubric
+                else:
+                    analysis.pop("rubric_scores", None)
+
+        # --- Optional: missing_evidence validation ---
+        missing = analysis.get("missing_evidence")
+        if missing is not None:
+            if isinstance(missing, list):
+                analysis["missing_evidence"] = [str(m).strip() for m in missing if str(m).strip()]
+            else:
+                analysis.pop("missing_evidence", None)
+
         return analysis
 
-    def _heuristic_triage(self, fuzzer_binary_name: str, stack_trace: str) -> CrashHeuristicTriage:
+    def _parse_stack_frames(self, stack_trace: str, fuzz_target_filename: str) -> tuple[str, str, str]:
+        """
+        Parse ASAN/MSAN stack frames to find the top application frame.
+
+        Returns (top_app_frame_source, top_app_frame_function, frame_classification)
+        where frame_classification is one of: "fuzz_target" | "library" | "runtime" | "unknown"
+
+        OSS-Fuzz/ASAN frame format:
+            #N 0xADDR in FUNCTION_NAME /path/to/source.c:LINE:COL
+        """
+        frame_re = re.compile(
+            r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+(\S+)\s+(/[^\s:]+)",
+            re.MULTILINE,
+        )
+        # Sanitizer / libFuzzer runtime indicators — skip these frames
+        RUNTIME_FUNC_PREFIXES = (
+            "__asan", "__sanitizer", "__msan", "__ubsan", "__lsan",
+            "fuzzer::", "Fuzzer::",
+            "LLVMFuzzerRunDriver", "LLVMFuzzerInitialize",
+        )
+        RUNTIME_PATH_PREFIXES = ("/usr/", "/proc/")
+        RUNTIME_PATH_KEYWORDS = ("sanitizer", "libFuzzer", "compiler-rt", "llvm-project/compiler")
+
+        fuzz_target_basename = fuzz_target_filename  # e.g. "llm_fuzzgen1234.cc"
+
+        for m in frame_re.finditer(stack_trace):
+            func_name = m.group(1)
+            source_path = m.group(2)
+
+            is_runtime = (
+                any(func_name.startswith(p) for p in RUNTIME_FUNC_PREFIXES)
+                or any(source_path.startswith(p) for p in RUNTIME_PATH_PREFIXES)
+                or any(kw in source_path for kw in RUNTIME_PATH_KEYWORDS)
+            )
+            if is_runtime:
+                continue
+
+            # First non-runtime application frame
+            source_basename = Path(source_path).name
+            if source_basename == fuzz_target_basename:
+                classification = "fuzz_target"
+            elif "/src/" in source_path:
+                classification = "library"
+            else:
+                classification = "unknown"
+
+            return source_path, func_name, classification
+
+        return "", "", "unknown"
+
+    def _heuristic_triage(
+        self,
+        fuzzer_binary_name: str,
+        stack_trace: str,
+        source_file: "Path | None" = None,
+    ) -> CrashHeuristicTriage:
         trace = stack_trace or ""
         trace_lower = trace.lower()
         rationale: list[str] = []
 
-        crash_site = "unknown"
-        if f"/out/{fuzzer_binary_name}" in trace:
-            crash_site = "fuzzer"
-            rationale.append("Top crash log points to the generated fuzz target binary.")
-        elif "/src/" in trace:
-            crash_site = "library"
-            rationale.append("Stack trace contains project source paths under /src/.")
+        # --- Frame-level crash site detection ---
+        fuzz_target_filename = source_file.name if source_file else ""
+        top_source, top_func, frame_class = self._parse_stack_frames(trace, fuzz_target_filename)
 
+        crash_site = "unknown"
+        if frame_class == "fuzz_target":
+            crash_site = "fuzzer"
+            rationale.append(
+                f"Top application frame ({top_func}) is in the generated fuzz target source: {top_source}"
+            )
+        elif frame_class == "library":
+            crash_site = "library"
+            rationale.append(
+                f"Top application frame ({top_func}) is in library source: {top_source}"
+            )
+        else:
+            rationale.append(
+                f"Top application frame source could not be classified (source: {top_source or 'not found'})."
+            )
+
+        # --- Crash type from sanitizer header ---
         crash_type = "unknown"
         if "heap-use-after-free" in trace_lower:
             crash_type = "heap-use-after-free"
@@ -241,6 +356,7 @@ class CrashAnalyzer:
         elif "timeout" in trace_lower:
             crash_type = "timeout"
 
+        # --- Finding + confidence ---
         suspected_fuzzer_bug = False
         finding = "Ambiguous"
         confidence = 0.45
@@ -248,8 +364,13 @@ class CrashAnalyzer:
         if crash_site == "fuzzer":
             suspected_fuzzer_bug = True
             finding = "Fuzzer Logic Error"
-            confidence = 0.8
-            rationale.append("Crash appears to happen in fuzz target code before reaching library logic.")
+            # 0.75 (slightly conservative vs old 0.8): crash in fuzz target source
+            # is a strong signal, but could still be API misuse causing a library path
+            confidence = 0.75
+            rationale.append(
+                "Crash occurs in the generated fuzz target source. "
+                "Likely a fuzz target logic error or API misuse."
+            )
         elif crash_site == "library" and crash_type in {
             "heap-use-after-free",
             "null-dereference",
@@ -259,13 +380,16 @@ class CrashAnalyzer:
         }:
             finding = "Real Crash"
             confidence = 0.7
-            rationale.append("Sanitizer signal happens in library code with a memory-safety signature.")
+            rationale.append(
+                "Memory-safety sanitizer signal originates in library source. "
+                "Likely a real library bug."
+            )
         elif crash_type in {"assertion", "timeout"}:
             finding = "Ambiguous"
             confidence = 0.5
-            rationale.append("Assertion/timeout needs API-contract review before deciding ownership.")
+            rationale.append("Assertion/timeout requires API-contract review to determine ownership.")
 
-        if not rationale:
+        if len(rationale) == 1 and crash_site == "unknown":
             rationale.append("No strong heuristic signal found from the reproduced stack trace.")
 
         return CrashHeuristicTriage(
@@ -275,6 +399,9 @@ class CrashAnalyzer:
             suspected_fuzzer_bug=suspected_fuzzer_bug,
             confidence=confidence,
             rationale=rationale,
+            top_app_frame_source=top_source,
+            top_app_frame_function=top_func,
+            frame_classification=frame_class,
         )
 
     def _render_markdown_report(self, analysis: dict[str, Any], triage: CrashHeuristicTriage) -> str:
@@ -306,6 +433,50 @@ class CrashAnalyzer:
             for item in evidence:
                 lines.append(f"- {item}")
 
+        # --- Evidence Rubric table ---
+        rubric = analysis.get("rubric_scores")
+        if rubric and isinstance(rubric, dict):
+            rubric_field_labels = {
+                "top_frame_ownership": "Top Frame Ownership (0–2)",
+                "api_contract": "API Contract (0–2)",
+                "normal_caller_feasibility": "Normal Caller Feasibility (0–2)",
+                "sanitizer_signal": "Sanitizer Signal (0–1)",
+                "reproducibility": "Reproducibility (0–1)",
+            }
+            lines.extend(["", "## Evidence Rubric"])
+            lines.append("| Criterion | Score | Evidence |")
+            lines.append("|-----------|------:|---------|")
+            for field, label in rubric_field_labels.items():
+                entry = rubric.get(field, {})
+                score = entry.get("score", "?")
+                ev = entry.get("evidence", "")
+                lines.append(f"| {label} | {score} | {ev} |")
+            lines.append(f"| **Total** | **{rubric.get('total', '?')}** | |")
+
+        # --- Evidence Audit (if present) ---
+        audit = analysis.get("evidence_audit")
+        if audit and isinstance(audit, dict):
+            lines.extend(["", "## Evidence Audit"])
+            revised = audit.get("revised_finding", "")
+            rev_conf = audit.get("revised_confidence", "")
+            rationale_rev = audit.get("revision_rationale", "")
+            if revised:
+                lines.append(f"- Revised Finding: **{revised}** (confidence: {rev_conf})")
+            if rationale_rev:
+                lines.append(f"- Rationale: {rationale_rev}")
+            answers = audit.get("audit_answers", {})
+            if answers:
+                lines.append("")
+                for q, a in answers.items():
+                    lines.append(f"**{q}**: {a}")
+
+        # --- Missing evidence ---
+        missing = analysis.get("missing_evidence") or []
+        if missing:
+            lines.extend(["", "## Missing Evidence"])
+            for item in missing:
+                lines.append(f"- {item}")
+
         if poc:
             lines.extend(["", "## Minimized Proof-of-Concept (PoC)", "```", str(poc).strip(), "```"])
 
@@ -313,10 +484,83 @@ class CrashAnalyzer:
             lines.extend(["", "## Suggested Fix", "```", str(suggested_fix).strip(), "```"])
 
         lines.extend(["", "## Heuristic Triage Notes"])
+        if triage.top_app_frame_source:
+            lines.append(
+                f"- Top app frame: `{triage.top_app_frame_function}` "
+                f"in `{triage.top_app_frame_source}` [{triage.frame_classification}]"
+            )
         for item in triage.rationale:
             lines.append(f"- {item}")
 
         return "\n".join(lines).strip() + "\n"
+
+    def _run_evidence_audit(
+        self,
+        initial_analysis: dict[str, Any],
+        triage: CrashHeuristicTriage,
+        stack_trace: str,
+        source_code: str,
+    ) -> dict[str, Any] | None:
+        """
+        Runs a targeted evidence-gathering pass when the initial analysis is low-confidence,
+        Ambiguous, or conflicts with the heuristic frame classification.
+
+        Returns the parsed audit dict or None on failure.
+        """
+        logger.info("Running evidence audit pass...")
+        try:
+            prompt = prompt_generator.crash_audit_prompt(
+                finding=initial_analysis.get("finding", "Ambiguous"),
+                confidence=initial_analysis.get("confidence", 0.0),
+                reasoning_summary=initial_analysis.get("reasoning_summary", ""),
+                frame_classification=triage.frame_classification,
+                top_app_frame_source=triage.top_app_frame_source,
+                stack_trace=stack_trace,
+                fuzzer_source_code=source_code,
+            )
+            raw = self.llm_client.generate(prompt)
+            parsed = self._extract_json_object(raw or "")
+            if not parsed or not isinstance(parsed, dict):
+                logger.warning("Evidence audit did not return a valid JSON object; skipping.")
+                return None
+
+            # Validate required fields
+            revised_finding = parsed.get("revised_finding", "")
+            if revised_finding not in {"Real Crash", "Fuzzer Logic Error", "Ambiguous"}:
+                logger.warning("Evidence audit returned invalid revised_finding %r; skipping.", revised_finding)
+                return None
+
+            revised_conf = parsed.get("revised_confidence")
+            if not isinstance(revised_conf, (int, float)) or not 0.0 <= float(revised_conf) <= 1.0:
+                logger.warning("Evidence audit returned invalid revised_confidence; skipping.")
+                return None
+
+            parsed["revised_confidence"] = float(revised_conf)
+            parsed.setdefault("audit_answers", {})
+            parsed.setdefault("revision_rationale", "")
+            parsed.setdefault("missing_evidence", [])
+            return parsed
+        except Exception as e:
+            logger.error(f"Evidence audit pass failed: {e}", exc_info=True)
+            return None
+
+    @staticmethod
+    def _needs_audit(analysis: dict[str, Any], triage: CrashHeuristicTriage) -> bool:
+        """Returns True when the evidence audit pass should be triggered."""
+        confidence = analysis.get("confidence", 1.0)
+        finding = analysis.get("finding", "Ambiguous")
+
+        if confidence < 0.75 or finding == "Ambiguous":
+            return True
+
+        # Conflict: heuristic frame classification disagrees with LLM finding
+        frame_class = triage.frame_classification
+        if frame_class == "fuzz_target" and finding == "Real Crash":
+            return True
+        if frame_class == "library" and finding == "Fuzzer Logic Error":
+            return True
+
+        return False
 
     def _get_llm_analysis(
         self,
@@ -328,6 +572,7 @@ class CrashAnalyzer:
     ) -> dict[str, Any] | None:
         """
         Sends the crash data to an LLM for analysis and returns the report.
+        Runs an evidence audit pass for low-confidence or conflicting results.
         """
         logger.info("Getting analysis from LLM...")
         try:
@@ -341,6 +586,9 @@ class CrashAnalyzer:
                     "suspected_fuzzer_bug": triage.suspected_fuzzer_bug,
                     "confidence": triage.confidence,
                     "rationale": triage.rationale,
+                    "frame_classification": triage.frame_classification,
+                    "top_app_frame_source": triage.top_app_frame_source,
+                    "top_app_frame_function": triage.top_app_frame_function,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -372,6 +620,43 @@ class CrashAnalyzer:
             parsed.setdefault("confidence", triage.confidence)
             parsed.setdefault("evidence", [])
             parsed["raw_response"] = raw_response
+
+            # --- Evidence audit pass ---
+            if self._needs_audit(parsed, triage):
+                logger.info(
+                    "Triggering evidence audit (finding=%s, confidence=%.2f, frame=%s).",
+                    parsed.get("finding"),
+                    parsed.get("confidence", 0.0),
+                    triage.frame_classification,
+                )
+                audit = self._run_evidence_audit(parsed, triage, stack_trace, source_code)
+                if audit:
+                    initial_conf = float(parsed.get("confidence", 0.0))
+                    revised_conf = audit["revised_confidence"]
+
+                    if revised_conf > initial_conf + 0.15:
+                        # Strong revision — adopt the new finding
+                        logger.info(
+                            "Audit revised finding from %r to %r (confidence %.2f → %.2f).",
+                            parsed["finding"],
+                            audit["revised_finding"],
+                            initial_conf,
+                            revised_conf,
+                        )
+                        parsed["finding"] = audit["revised_finding"]
+                        parsed["confidence"] = revised_conf
+                    else:
+                        # Weak or moderate revision — keep original, slightly lower confidence
+                        parsed["confidence"] = max(0.0, initial_conf - 0.05)
+
+                    parsed["evidence_audit"] = audit
+                    # Merge missing_evidence lists
+                    existing_missing = parsed.get("missing_evidence") or []
+                    audit_missing = audit.get("missing_evidence") or []
+                    merged = list(dict.fromkeys(existing_missing + audit_missing))
+                    if merged:
+                        parsed["missing_evidence"] = merged
+
             return parsed
         except Exception as e:
             logger.error(f"An error occurred during LLM analysis: {e}", exc_info=True)
@@ -413,6 +698,9 @@ class CrashAnalyzer:
                     "suspected_fuzzer_bug": triage.suspected_fuzzer_bug,
                     "confidence": triage.confidence,
                     "rationale": triage.rationale,
+                    "frame_classification": triage.frame_classification,
+                    "top_app_frame_source": triage.top_app_frame_source,
+                    "top_app_frame_function": triage.top_app_frame_function,
                 },
                 ensure_ascii=False,
                 indent=2,

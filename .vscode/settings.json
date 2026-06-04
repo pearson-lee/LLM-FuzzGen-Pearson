@@ -6,5 +6,5 @@
     },
     "python.analysis.extraPaths": [
     "${workspaceFolder}/external/fuzz-introspector/src"
-  ]
+  ],
 }

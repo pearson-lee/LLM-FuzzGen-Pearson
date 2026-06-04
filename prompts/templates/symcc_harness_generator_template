@@ -16,6 +16,14 @@ Produce a complete standalone C or C++ source file that can be used as a fuzz ta
 - Project: `{project_name}`
 - Language: `{language}`
 - Original fuzz target name: `{fuzz_target_name}`
+
+> **Language constraint (enforced):**
+> - If Language is **`c`**: write a plain C file. Do **NOT** use `extern "C"` — it is C++ syntax
+>   and causes a compile error in a C file. The function signature must be exactly:
+>   `int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)` — no `extern "C"` prefix.
+>   Use C standard headers only (`<stdint.h>`, `<stddef.h>`, `<stdlib.h>`, `<string.h>`).
+>   Do NOT use `static_cast<>`, `reinterpret_cast<>`, or any other C++ syntax.
+> - If Language is **`c++`**: `extern "C"` before `LLVMFuzzerTestOneInput` is correct and required.
 - Original fuzz target source path: `{fuzz_file}`
 - Target function name: `{function_name}`
 - Source file: `{source_file}`
@@ -43,6 +51,16 @@ So your harness should:
 The blocker path already exists in the original fuzz target. Your job is to make it cleaner for SymCC without changing the blocker-relevant semantics.
 
 {fidelity_requirements}
+
+# Reference Includes (from original fuzz target)
+
+The original fuzz target uses these includes. Use them as a **type reference only** — do NOT copy the include paths.
+
+```c
+{reference_target_includes}
+```
+
+**CRITICAL**: The original fuzz target was compiled inside Docker where `/src/` paths exist. This SymCC harness is compiled **locally** using `-I` flags AND validated in Docker. Paths like `#include "/src/libpcap/pcap/pcap.h"` or `#include "libpcap/pcap/pcap.h"` will fail. You MUST use `<angle-bracket>` includes that preserve the header's subdirectory structure from the original path (e.g., `<pcap/pcap.h>` not `<pcap.h>`, `<tiffio.h>` for a flat header). This form works in both environments.
 
 # Existing Original Fuzz Target
 
@@ -125,6 +143,15 @@ You may follow this shape when useful, but adapt it to the actual project and AP
 7. Do not add symbolic logic or KLEE headers here; this is for SymCC replay.
 8. Keep the harness compact and buildable.
 9. Only use public includes or normal project headers implied by the context.
+10. All `#include` directives MUST use angle-bracket form and preserve the header's subdirectory
+    structure from the original path. The harness is validated in Docker AND compiled locally with
+    `-I` flags — both environments must be satisfied. NEVER copy Docker-specific absolute paths.
+    Rule: strip the project source prefix (`/src/{project}/`), keep the rest as-is.
+    Wrong:   `#include "/src/libpcap/pcap/pcap.h"`  ← absolute Docker path, fails locally
+    Wrong:   `#include "libpcap/pcap/pcap.h"`        ← relative path, fails locally
+    Wrong:   `#include <pcap.h>`                     ← loses subdirectory, may fail in Docker
+    Correct: `#include <pcap/pcap.h>`                ← subdirectory preserved, works everywhere
+    Correct: `#include <tiffio.h>`                   ← flat header (no subdir), works everywhere
 
 # Output Format
 

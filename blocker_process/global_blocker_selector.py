@@ -519,6 +519,7 @@ def annotate_blockers_with_project_target_coverage(
             0,
         )
         function_name = blocker.get("function_name")
+        source_file = blocker.get("source_file") or ""
 
         branch_hits_sum = 0
         blocked_hits_sum = 0
@@ -532,11 +533,13 @@ def annotate_blockers_with_project_target_coverage(
                 report_text,
                 branch_line,
                 function_name=function_name,
+                source_file=source_file,
             )
             blocked_raw = get_line_execution_count(
                 report_text,
                 blocked_side_line,
                 function_name=function_name,
+                source_file=source_file,
             )
             branch_hits = _normalize_count(branch_raw)
             blocked_hits = _normalize_count(blocked_raw)

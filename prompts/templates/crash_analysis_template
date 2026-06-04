@@ -31,25 +31,93 @@ Do not trust the heuristic blindly. Use it as a starting hypothesis only.
 
 # Required Workflow
 
-1. Start with triage:
-   - Decide whether the current best classification is `Real Crash`, `Fuzzer Logic Error`, or `Ambiguous`.
-   - Explicitly check whether the fuzz target appears to violate an API contract.
-   - Explicitly check whether a normal caller could plausibly trigger the same crash.
+## Step 1: Fill the Evidence Rubric (mandatory before concluding)
 
-2. Verify with evidence:
-   - You MUST inspect relevant source code before concluding.
-   - Use `search_function` and/or `project_source_code` to confirm the crash path, API expectations, or ownership of the bug.
-   - If the crash is clearly in fuzz-target logic, cite evidence from the fuzz target source and explain why library source inspection is unnecessary or limited.
+Fill all 5 fields. Each score MUST include a concrete evidence quote from the stack trace or
+source code. A score above the midpoint WITHOUT concrete evidence is invalid — treat it as 1.
 
-3. Produce a structured answer:
-   - Return exactly one JSON object.
-   - Do not wrap it in Markdown unless using a fenced `json` block.
-   - Do not add prose before or after the JSON.
+You MUST inspect relevant source code before scoring api_contract and normal_caller_feasibility.
+Use `search_function` and/or `project_source_code` to verify API expectations or caller patterns.
+
+---
+
+**1. top_frame_ownership** — What source file is the first non-sanitizer/runtime frame in?
+
+Score:
+- 0 = first non-runtime frame is in the generated fuzz target source file
+- 1 = unknown / mixed / cannot determine from available stack trace
+- 2 = first non-runtime frame is in library source (path contains /src/)
+
+Evidence: [copy the exact frame line with its source path]
+
+---
+
+**2. api_contract** — Does the fuzz target correctly follow the API's documented preconditions?
+
+Score:
+- 0 = clear violation: NULL where disallowed, uninitialized struct, wrong ownership,
+      missing required setup/teardown, out-of-range value for a constrained parameter
+- 1 = unclear — preconditions not obvious from headers or source
+- 2 = fuzz target correctly follows the API as declared in headers/docs
+
+Evidence: [quote the fuzz target line + the relevant API declaration or header comment]
+
+---
+
+**3. normal_caller_feasibility** — Could a correct, normal caller in the project's own
+tests or examples reach the same crashing function with similar arguments?
+
+Score:
+- 0 = no — this state is only reachable through the fuzz target's misuse of the API
+- 1 = unclear — no accessible test or example found for comparison
+- 2 = yes — a normal caller or existing test can plausibly trigger the same code path
+
+Evidence: [cite a real caller/test from /src/, OR state "no normal caller found in /src/"]
+
+---
+
+**4. sanitizer_signal** — What sanitizer signal is this?
+
+Score:
+- 0 = assertion failure / timeout / check-failed (weaker ownership signal)
+- 1 = memory-safety violation: heap-use-after-free, heap/stack-buffer-overflow,
+      use-of-uninitialized-value, null-dereference
+
+Evidence: [copy the sanitizer error header line, e.g. "heap-buffer-overflow on address ..."]
+
+---
+
+**5. reproducibility** — Does the same seed stably reproduce this crash?
+
+Score:
+- 0 = not yet verified / unstable
+- 1 = confirmed stable replay
+
+Evidence: [replay result, or "not yet verified"]
+
+---
+
+**Rubric Total** = sum of the 5 scores above (range 0–8)
+
+Mapping (initial guide — override with evidence if scores and evidence clearly conflict):
+- 0–2 → Fuzzer Logic Error (strong signal)
+- 3   → Fuzzer Logic Error (lean)
+- 4   → Ambiguous
+- 5   → Real Crash (lean)
+- 6–8 → Real Crash (strong signal)
+
+## Step 2: Final Judgment
+
+Based on the rubric scores AND the evidence, produce a single JSON object.
+If rubric total and evidence disagree, explain why in `reasoning_summary` and use
+`missing_evidence` to list what would resolve the ambiguity.
 
 # Output Schema
 
+Return exactly one JSON object. Do not add prose before or after the JSON.
+
 ```json
-{
+{{
   "finding": "Real Crash | Fuzzer Logic Error | Ambiguous",
   "crash_type": "short classifier",
   "crash_site": "library | fuzzer | unknown",
@@ -61,16 +129,28 @@ Do not trust the heuristic blindly. Use it as a starting hypothesis only.
     "concrete evidence item with function/file references",
     "concrete evidence item with function/file references"
   ],
+  "rubric_scores": {{
+    "top_frame_ownership":        {{"score": 0, "evidence": "exact frame or source quote"}},
+    "api_contract":               {{"score": 0, "evidence": "fuzz target line + API declaration"}},
+    "normal_caller_feasibility":  {{"score": 0, "evidence": "caller/test reference or 'not found'"}},
+    "sanitizer_signal":           {{"score": 0, "evidence": "sanitizer error header line"}},
+    "reproducibility":            {{"score": 0, "evidence": "replay result or 'not yet verified'"}},
+    "total": 0
+  }},
+  "missing_evidence": [],
   "minimized_poc": "minimal repro code or empty string",
   "suggested_fix": "targeted patch or fix direction",
   "confidence": 0.0
-}
+}}
 ```
 
 # Output Rules
 
 - `confidence` must be a number between 0.0 and 1.0.
 - `evidence` must contain concrete observations, not generic statements.
+- `rubric_scores`: every field must have a non-empty `evidence` string. Score > 1 without
+  concrete evidence is invalid.
+- `missing_evidence`: list specific items you could not verify (e.g. "API header for pcap_compile_nopcap not accessible").
 - If you cannot verify enough evidence, set `finding` to `Ambiguous`.
 - Use `cwe` only for real library bugs. Otherwise use an empty string.
 - For `Fuzzer Logic Error`, `suggested_fix` should describe how to fix the fuzz target misuse.

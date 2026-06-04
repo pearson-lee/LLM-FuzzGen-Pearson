@@ -32,6 +32,7 @@ introspector = Introspector()
 # The LLMClient will be initialized in main() after parsing arguments.
 llm_client: LLMClient | None = None
 experiment_logger: ExperimentLogger | None = None
+experiment_dir: Path | None = None
 
 
 @dataclass
@@ -81,9 +82,12 @@ def _live_revalidate_blocker_before_classify(
             "error": "Missing target, function, source file, or blocker line metadata.",
         }
 
-    output_dir = Path("artifacts") / "blocker_revalidation" / project_name / (
-        f"{target_name}_{function_name}_{branch_line}_{blocked_side_line}"
-    )
+    if experiment_dir is not None:
+        output_dir = experiment_dir / "blockers" / f"{function_name}_{branch_line}" / "revalidation"
+    else:
+        output_dir = Path("artifacts") / "blocker_revalidation" / project_name / (
+            f"{target_name}_{function_name}_{branch_line}_{blocked_side_line}"
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     evaluation = evaluate_iteration_with_coverage(
         oss_fuzz=oss_fuzz,
@@ -190,8 +194,11 @@ def _resolve_blocker_json_path(project_name: str, explicit_path: Path | None) ->
     return None
 
 
-def _branch_blocker_snapshot_path(project_name: str) -> Path:
+def _branch_blocker_snapshot_path(project_name: str, stage: str | None = None) -> Path:
     run_id = experiment_logger.run_id if experiment_logger is not None else datetime.now().strftime("%Y%m%d_%H%M%S")
+    if experiment_dir is not None:
+        suffix = f"_{stage}" if stage else ""
+        return experiment_dir / "branch_blockers" / f"{project_name}{suffix}.json"
     return Path(__file__).parent / "artifacts" / "branch_blocker_json" / f"{run_id}_{project_name}.json"
 
 
@@ -204,7 +211,7 @@ def _write_project_blocker_snapshot(
     blocker_top_k: int,
     aggregated_count: int,
 ) -> Path | None:
-    output_path = _branch_blocker_snapshot_path(project_name)
+    output_path = _branch_blocker_snapshot_path(project_name, stage=selection_stage)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -470,11 +477,13 @@ def _filter_and_refine_project_blockers(
             str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
         )
         function_name = blocker.get("function_name")
+        source_file = blocker.get("source_file") or ""
         project_branch_hit_count = _normalize_hitcount(
             get_line_execution_count(
                 coverage_context.project_report,
                 branch_line,
                 function_name=function_name,
+                source_file=source_file,
             )
         )
         project_blocked_hit_count = _normalize_hitcount(
@@ -482,6 +491,7 @@ def _filter_and_refine_project_blockers(
                 coverage_context.project_report,
                 blocked_side_line,
                 function_name=function_name,
+                source_file=source_file,
             )
         )
 
@@ -510,10 +520,10 @@ def _filter_and_refine_project_blockers(
         for target_name in contributing_targets:
             report = coverage_context.target_reports[target_name]
             branch_hit_count = _normalize_hitcount(
-                get_line_execution_count(report, branch_line, function_name=function_name)
+                get_line_execution_count(report, branch_line, function_name=function_name, source_file=source_file)
             )
             blocked_hit_count = _normalize_hitcount(
-                get_line_execution_count(report, blocked_side_line, function_name=function_name)
+                get_line_execution_count(report, blocked_side_line, function_name=function_name, source_file=source_file)
             )
             if branch_hit_count > 0:
                 branch_reached_targets.append(target_name)
@@ -559,6 +569,7 @@ def _build_blocker_immediate_validation_record(
         return None
 
     function_name = blocker.get("function_name")
+    source_file = blocker.get("source_file") or ""
     branch_line_number = int(str(blocker.get("branch_line_number", "0")) or 0)
     blocked_side_line_number = int(
         str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
@@ -566,10 +577,10 @@ def _build_blocker_immediate_validation_record(
     branch_hit_before = int(blocker.get("project_branch_hit_count", 0) or 0)
     blocked_side_hit_before = int(blocker.get("project_blocked_hit_count", 0) or 0)
     branch_hit_after = _normalize_hitcount(
-        get_line_execution_count(project_report, branch_line_number, function_name=function_name)
+        get_line_execution_count(project_report, branch_line_number, function_name=function_name, source_file=source_file)
     )
     blocked_side_hit_after = _normalize_hitcount(
-        get_line_execution_count(project_report, blocked_side_line_number, function_name=function_name)
+        get_line_execution_count(project_report, blocked_side_line_number, function_name=function_name, source_file=source_file)
     )
 
     return {
@@ -835,6 +846,13 @@ def run_blocker_pipeline(
         }
 
     pipeline_started_at = time.perf_counter()
+    _blocker_fn = blocker.get("function_name", "unknown")
+    _blocker_branch_line = blocker.get("branch_line_number", 0)
+    _blocker_base = (
+        experiment_dir / "blockers" / f"{_blocker_fn}_{_blocker_branch_line}"
+        if experiment_dir is not None
+        else None
+    )
     args = argparse.Namespace(
         backend=llm_backend,
         model=model_name,
@@ -873,6 +891,7 @@ def run_blocker_pipeline(
         skip_input_independent_pipeline=skip_input_independent_pipeline,
         classify_only=False,
         language=None,
+        output_root=str(_blocker_base) if _blocker_base is not None else None,
     )
 
     classify_started_at = time.perf_counter()
@@ -2515,9 +2534,12 @@ def _append_blocker_attempt_record(**payload) -> None:
     if experiment_logger is None:
         return
 
-    output_dir = Path(__file__).parent / "artifacts" / "blocker_attempts"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{experiment_logger.run_id}_{experiment_logger.project_name}.jsonl"
+    if experiment_dir is not None:
+        output_path = experiment_dir / "blocker_attempts.jsonl"
+    else:
+        output_dir = Path(__file__).parent / "artifacts" / "blocker_attempts"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{experiment_logger.run_id}_{experiment_logger.project_name}.jsonl"
     record = {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
         "run_id": experiment_logger.run_id,
@@ -2768,13 +2790,20 @@ def main() -> None:
         args = _parse_args()
 
         log_name = "run_all_fuzzer" if args.command == "run_all_fuzzer" else args.project_name
-        setup_logging(log_name, model_name=args.model)
 
         global llm_client
         global experiment_logger
+        global experiment_dir
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        experiment_dir = Path("experiments") / f"{run_id}_{log_name}"
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        setup_logging(log_name, model_name=args.model, log_dir=experiment_dir, log_filename="run.log")
+
         llm_client = LLMClient(backend=args.llm, model_name=args.model)
         system_name = "blocker" if args.command == "run_all_fuzzer" and args.use_blocker else "baseline"
-        experiment_logger = ExperimentLogger(system_name=system_name, project_name=log_name)
+        experiment_logger = ExperimentLogger(system_name=system_name, project_name=log_name,
+                                             run_id=run_id, output_dir=experiment_dir)
         _log_experiment_event(
             "run_started",
             command=args.command,
@@ -2783,6 +2812,12 @@ def main() -> None:
             llm_backend=args.llm,
         )
         
+        coverage_log = (
+            experiment_dir / "coverage" / f"{log_name}.jsonl"
+            if experiment_dir is not None
+            else args.coverage_log
+        )
+
         if args.command == "run_all_fuzzer":
             run_success = run_all_fuzzer(
                 args.project_names,
@@ -2793,7 +2828,7 @@ def main() -> None:
                 args.analyze_crashes,
                 args.fuzz_targets_parallel,
                 args.coverage_interval,
-                args.coverage_log,
+                coverage_log,
                 args.coverage_stagnation_window,
                 args.coverage_stagnation_threshold,
                 args.stop_on_coverage_stall,
@@ -2870,7 +2905,7 @@ def main() -> None:
             use_dict=args.dict,
             use_seeds=args.seeds,
             coverage_interval=args.coverage_interval,
-            coverage_log_path=args.coverage_log,
+            coverage_log_path=coverage_log,
             coverage_stagnation_window=args.coverage_stagnation_window,
             coverage_stagnation_threshold=args.coverage_stagnation_threshold,
             stop_on_coverage_stall=args.stop_on_coverage_stall,

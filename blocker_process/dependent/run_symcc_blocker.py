@@ -21,7 +21,7 @@ DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from blocker_process.dependent.build_context import reconstruct_build_context
+from blocker_process.dependent.build_context import BuildContext, reconstruct_build_context
 from external.oss_fuzz import OSSFuzz
 
 C_EXTENSIONS = {".c"}
@@ -123,6 +123,13 @@ def first_present(mapping: dict, keys: list[str], default=None):
     return default
 
 
+def load_project_config(project_name: str) -> dict:
+    config_path = REPO_ROOT / "external" / "oss-fuzz" / "projects" / project_name / "symcc_config.json"
+    if config_path.is_file():
+        return json.loads(config_path.read_text(encoding="utf-8"))
+    return {}
+
+
 def resolve_coverage_binary(oss_fuzz: OSSFuzz, project_name: str, target_name: str) -> Path | None:
     replay_name = f"{target_name}_replay"
     return (
@@ -131,12 +138,15 @@ def resolve_coverage_binary(oss_fuzz: OSSFuzz, project_name: str, target_name: s
     )
 
 
-def resolve_native_archive_inputs(oss_fuzz: OSSFuzz, project_name: str) -> tuple[list[Path], list[Path]]:
-    if project_name != "libpcap":
-        return [], []
-    archive_path = oss_fuzz.build_out_dir / project_name / "symcc_native" / "libpcap.a"
-    source_root = oss_fuzz.build_out_dir / project_name / "source_code"
-    include_dirs = [source_root, source_root / "pcap"]
+def resolve_native_archive_inputs(
+    oss_fuzz: OSSFuzz, project_name: str, project_config: dict
+) -> tuple[list[Path], list[Path]]:
+    archive_subdir = project_config.get("native_archive_subdir", "symcc_native")
+    archive_filename = project_config.get("native_archive_filename", f"{project_name}.a")
+    include_rel_dirs = project_config.get("native_archive_include_dirs", ["source_code"])
+    archive_path = oss_fuzz.build_out_dir / project_name / archive_subdir / archive_filename
+    base_dir = oss_fuzz.build_out_dir / project_name
+    include_dirs = [base_dir / rel_dir for rel_dir in include_rel_dirs]
     if not archive_path.is_file():
         return [], []
     usable_include_dirs = [path for path in include_dirs if path.is_dir()]
@@ -310,24 +320,33 @@ def main() -> int:
     )
     base_work_dir.mkdir(parents=True, exist_ok=True)
 
-    symcc_build_context = reconstruct_build_context(
-        project_name=args.project_name,
-        mode="original_target",
-        target_source=args.fuzz_target,
-        branch_source=args.branch_source,
-        explicit_sources=args.source,
-        explicit_include_dirs=args.include_dir,
-        defines=args.define,
-        cflags=args.cflags,
-        cxxflags=args.cxxflags,
-        ldflags=args.ldflags,
-    )
+    # T8: if fuzz_target lives inside a generated harness dir that has a pre-built
+    # build_context.json (created by input_dependent_harness_generator.py), reuse it
+    # directly instead of re-running reconstruct_build_context(), which would produce
+    # wrong include paths for harness sources located outside the original source tree.
+    harness_build_ctx_path = Path(args.fuzz_target).parent / "build_context.json"
+    if harness_build_ctx_path.is_file():
+        symcc_build_context = BuildContext.from_json_file(harness_build_ctx_path)
+        print(f"[info] using pre-built harness build context: {harness_build_ctx_path}", flush=True)
+    else:
+        symcc_build_context = reconstruct_build_context(
+            project_name=args.project_name,
+            mode="original_target",
+            target_source=args.fuzz_target,
+            branch_source=args.branch_source,
+            explicit_sources=args.source,
+            explicit_include_dirs=args.include_dir,
+            defines=args.define,
+            cflags=args.cflags,
+            cxxflags=args.cxxflags,
+            ldflags=args.ldflags,
+        )
+        if symcc_build_context.source_root:
+            print(f"[info] reconstructed source root: {symcc_build_context.source_root}", flush=True)
     build_context_path = base_work_dir / "build_context.json"
     symcc_build_context.write_json(build_context_path)
-    if symcc_build_context.source_root:
-        print(f"[info] reconstructed source root: {symcc_build_context.source_root}", flush=True)
     print(
-        f"[info] reconstructed build context: required={len(symcc_build_context.required_sources)} "
+        f"[info] build context: required={len(symcc_build_context.required_sources)} "
         f"optional={len(symcc_build_context.optional_sources)} include_dirs={len(symcc_build_context.include_dirs)}",
         flush=True,
     )
@@ -352,19 +371,24 @@ def main() -> int:
     }
     if args.project_name and args.target_name:
         oss_fuzz = OSSFuzz()
-        if args.project_name == "libpcap":
+        # T9: native archive mode is config-driven via external/oss-fuzz/projects/{project}/symcc_config.json
+        project_config = load_project_config(args.project_name)
+        if project_config.get("native_archive", False):
             native_prepare_info["attempted"] = True
+            native_archive_flavor = project_config.get("native_archive_build_flavor", "symcc_native")
             native_build = oss_fuzz.build_fuzzers(
                 args.project_name,
                 sanitizer="none",
                 extra_env={
-                    "LLM_FUZZGEN_BUILD_FLAVOR": "symcc_native",
+                    "LLM_FUZZGEN_BUILD_FLAVOR": native_archive_flavor,
                     "LLM_FUZZGEN_EXPORT_NATIVE_ARTIFACTS": "1",
                 },
-                variant="symcc_native",
+                variant=native_archive_flavor,
             )
             if native_build.success:
-                discovered_archives, native_include_dirs = resolve_native_archive_inputs(oss_fuzz, args.project_name)
+                discovered_archives, native_include_dirs = resolve_native_archive_inputs(
+                    oss_fuzz, args.project_name, project_config
+                )
                 native_prepare_info["discovered_archives"] = [str(path) for path in discovered_archives]
                 native_prepare_info["include_dirs"] = [str(path) for path in native_include_dirs]
                 if discovered_archives:
@@ -461,10 +485,26 @@ def main() -> int:
     print(symcc_result.stdout, end="")
     summary["used_symcc"] = True
     summary["pipeline_methods"] = ["symcc"]
+
+    failure_kind: str | None = None
+    if symcc_result.returncode != 0:
+        stdout_lower = symcc_result.stdout.lower()
+        if "no such file or directory" in stdout_lower or "file not found" in stdout_lower:
+            failure_kind = "build_context_missing_header"
+        elif "compile failed" in stdout_lower or "link failed" in stdout_lower:
+            failure_kind = "build_failure"
+        elif "no seed reached the blocked-side line" in symcc_result.stdout:
+            failure_kind = "coverage_no_blocked_side"
+        elif native_prepare_info.get("attempted") and not native_prepare_info.get("success"):
+            failure_kind = "native_archive_prepare_failed"
+        else:
+            failure_kind = "symcc_no_new_outputs"
+
     summary["symcc"] = {
         "returncode": symcc_result.returncode,
         "work_dir": str(symcc_work_dir),
         "solved": symcc_result.returncode == 0,
+        "failure_kind": failure_kind,
         "output": symcc_result.stdout,
     }
     summary["success"] = symcc_result.returncode == 0

@@ -1,0 +1,87 @@
+# Evidence Audit
+
+The initial analysis produced the following verdict:
+- Finding: {finding}
+- Confidence: {confidence}
+- Reasoning: {reasoning_summary}
+
+The heuristic frame classifier found:
+- Top application frame classification: {frame_classification}
+- Top application frame source: {top_app_frame_source}
+
+Your task is to answer specific evidence-gathering questions about this crash.
+Do NOT re-argue the original conclusion in general terms.
+Instead, find concrete source-level evidence for the specific questions below.
+
+---
+
+# Stack Trace (for reference)
+---
+{stack_trace}
+---
+
+# Fuzz Target Source (for reference)
+---
+{fuzzer_source_code}
+---
+
+---
+
+# Questions
+
+Answer the questions that apply to the current finding.
+For each question, provide either a direct quote/citation or state "not found" or "unknown".
+
+## If finding is "Fuzzer Logic Error"
+
+**Q1**: Which exact line in the fuzz target source constructs an invalid or impossible state?
+Quote the line and explain why it violates the API's precondition.
+(If not found: say "not found — no clear API misuse visible in fuzz target source")
+
+**Q2**: Does the API header, documentation, or source comment explicitly forbid this usage?
+Quote or cite the relevant declaration, comment, or documented precondition.
+(If unknown: say "unknown — no accessible documentation for this constraint")
+
+## If finding is "Real Crash"
+
+**Q3**: Is there a real caller in the project's own tests, examples, or main source
+that could reach the same crashing function with similar arguments?
+Cite one concrete example (file path + function name), OR say "not found in /src/".
+
+**Q4**: Would a correct, well-written fuzz target also be able to trigger this crash?
+Explain specifically why or why not, with reference to the crash path.
+
+## If finding is "Ambiguous"
+
+**Q5**: What single piece of missing evidence would most directly resolve the ambiguity?
+Be specific: name the function, header file, or test case you would need to inspect.
+
+---
+
+# Output
+
+Return exactly one JSON object. Do not add prose before or after the JSON.
+
+```json
+{{
+  "audit_answers": {{
+    "Q1": "...",
+    "Q2": "...",
+    "Q3": "...",
+    "Q4": "...",
+    "Q5": "..."
+  }},
+  "revised_finding": "Real Crash | Fuzzer Logic Error | Ambiguous",
+  "revised_confidence": 0.0,
+  "revision_rationale": "one or two sentences explaining why you maintained or changed the conclusion",
+  "missing_evidence": ["list specific items you still could not verify"]
+}}
+```
+
+# Rules
+
+- Only fill the Q fields that apply to the current finding. Leave others as empty strings.
+- If your answers reveal that evidence is insufficient, set `revised_finding` to `Ambiguous`
+  and list what is missing in `missing_evidence`. Do not force a verdict.
+- `revised_confidence` must be between 0.0 and 1.0.
+- `revision_rationale` must reference concrete evidence from your answers, not generic reasoning.

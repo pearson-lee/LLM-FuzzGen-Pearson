@@ -177,7 +177,7 @@ The JSON object must have exactly these keys:
 - Keep the generator compact and readable.
 - If the inferred target format is text-based, emit text seeds in that native format. If binary is needed, generate bytes in Python code.
 - The generated filenames inside `build_seeds()` should use the preferred extension when practical.
-- Prefer explicit boundary values over probabilistic logic.
+- Prefer deterministic systematic variants over probabilistic sampling: use range enumeration, interesting-value lists, bitflip variants, and Cartesian combinations of relevant fields. Each family should explore a meaningful range of the hypothesis space, not a single hardcoded point. For example, if a field controls a branch, enumerate all semantically distinct values for that field rather than picking one guess.
 - Inside `build_seeds()`, return tuples `(filename, payload)` where `filename` preserves the stable family tag.
 - Design families so some target structure reachability and some target blocker-boundary refinement, but every family must still be blocker-oriented.
 

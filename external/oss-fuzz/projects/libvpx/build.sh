@@ -30,6 +30,61 @@ if [ "$SANITIZER" == "introspector" ]; then
   export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
 fi
 #######################
+BUILD_FLAVOR="${LLM_FUZZGEN_BUILD_FLAVOR:-default}"
+SYMCC_REPLAY_ENABLED="${LLM_FUZZGEN_BUILD_SYMCC_REPLAY:-0}"
+SYMCC_NATIVE_EXPORT_ENABLED="${LLM_FUZZGEN_EXPORT_NATIVE_ARTIFACTS:-0}"
+
+if [ "$BUILD_FLAVOR" = "symcc_replay" ]; then
+  SYMCC_REPLAY_ENABLED=1
+fi
+if [ "$BUILD_FLAVOR" = "symcc_native" ]; then
+  SYMCC_NATIVE_EXPORT_ENABLED=1
+fi
+
+strip_instrumentation_flags() {
+  local raw_flags="$1"
+  local filtered_flags=()
+  local skip_next=0
+  local token
+
+  for token in $raw_flags; do
+    if [ "$skip_next" -eq 1 ]; then
+      skip_next=0
+      case "$token" in
+        *sanitizer-coverage*|*sancov*|*libfuzzer*|*fuzzer-no-link*)
+          continue
+          ;;
+      esac
+      filtered_flags+=("$token")
+      continue
+    fi
+
+    case "$token" in
+      -fsanitize-coverage=*|-fsanitize=fuzzer|-fsanitize=fuzzer-no-link|-fsanitize=fuzzer-no-link,*|-fsanitize=*fuzzer*)
+        continue
+        ;;
+      -mllvm)
+        skip_next=1
+        continue
+        ;;
+      *sanitizer-coverage*|*sancov*)
+        continue
+        ;;
+    esac
+    filtered_flags+=("$token")
+  done
+
+  printf '%s ' "${filtered_flags[@]}"
+}
+
+if [ "$BUILD_FLAVOR" = "symcc_native" ]; then
+  export CFLAGS="$(strip_instrumentation_flags "$CFLAGS")"
+  export CXXFLAGS="$(strip_instrumentation_flags "$CXXFLAGS")"
+  export LDFLAGS="$(strip_instrumentation_flags "${LDFLAGS:-}")"
+fi
+
+echo "[llm-fuzzgen] SANITIZER=$SANITIZER BUILD_FLAVOR=$BUILD_FLAVOR" >&2
+
 # Build libvpx
 chmod 0644 "$SRC"/vpx_fuzzer_seed_corpus.zip 2>/dev/null || true
 chmod 0644 "$SRC"/llm_fuzzgen*_seed_corpus.zip 2>/dev/null || true
@@ -80,19 +135,108 @@ for decoder in "${fuzzer_decoders[@]}"; do
   chmod 0644 $OUT/${fuzzer_name}_seed_corpus.zip
   cp $SRC/vpx_dec_fuzzer.dict $OUT/${fuzzer_name}.dict
 done
-##### LLM-FuzzGen #####
-# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
-find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
-  target_basename=$(basename "${target%.*}")
+SYMCC_REPLAY_DIR="$OUT/symcc_replay"
+SYMCC_NATIVE_DIR="$OUT/symcc_native"
 
-  #### compile the fuzz target
-  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++11 -I$SRC/libvpx -I${build_dir} "$target" \
-    -o "$OUT/$target_basename" \
+REPLAY_DRIVER_SOURCE="$SRC/libvpx_build_replay_driver.cc"
+cat > "$REPLAY_DRIVER_SOURCE" <<'EOF'
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size);
+
+static bool ReadAllBytes(FILE* input, std::vector<uint8_t>* data) {
+  if (!input || !data) {
+    return false;
+  }
+
+  constexpr size_t kChunkSize = 4096;
+  std::vector<uint8_t> buffer;
+  uint8_t chunk[kChunkSize];
+
+  for (;;) {
+    size_t count = fread(chunk, 1, sizeof(chunk), input);
+    if (count > 0) {
+      buffer.insert(buffer.end(), chunk, chunk + count);
+    }
+    if (count < sizeof(chunk)) {
+      if (feof(input)) {
+        break;
+      }
+      return false;
+    }
+  }
+
+  data->swap(buffer);
+  return true;
+}
+
+int main(int argc, char** argv) {
+  FILE* input = stdin;
+  std::vector<uint8_t> data;
+
+  if (argc > 2) {
+    fprintf(stderr, "usage: %s [seed-file]\n", argv[0]);
+    return 1;
+  }
+
+  if (argc == 2) {
+    input = fopen(argv[1], "rb");
+    if (!input) {
+      perror("fopen");
+      return 1;
+    }
+  }
+
+  if (!ReadAllBytes(input, &data)) {
+    fprintf(stderr, "failed to read input\n");
+    if (argc == 2) {
+      fclose(input);
+    }
+    return 1;
+  }
+
+  if (argc == 2) {
+    fclose(input);
+  }
+
+  return LLVMFuzzerTestOneInput(data.data(), data.size());
+}
+EOF
+
+compile_llm_target() {
+  local target="$1"
+  local target_basename="$2"
+  local target_obj="${target_basename}.o"
+  local replay_obj="${target_basename}_replay_driver.o"
+
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++11 \
+    -I$SRC/libvpx -I${build_dir} -c "$target" -o "$target_obj"
+  $CXX $CXXFLAGS "$target_obj" -o "$OUT/$target_basename" \
     -Wl,--start-group \
     -Wl,--whole-archive ${build_dir}/libvpx.a -Wl,--no-whole-archive \
     $LIB_FUZZING_ENGINE \
     -Wl,--end-group
-  ####
+
+  if [ "$SYMCC_REPLAY_ENABLED" = "1" ]; then
+    mkdir -p "$SYMCC_REPLAY_DIR"
+    $CXX $CXXFLAGS -std=c++11 -I$SRC/libvpx -I${build_dir} \
+      -c "$REPLAY_DRIVER_SOURCE" -o "$replay_obj"
+    $CXX $CXXFLAGS "$replay_obj" "$target_obj" \
+      -o "$SYMCC_REPLAY_DIR/${target_basename}_replay" \
+      -Wl,--start-group \
+      -Wl,--whole-archive ${build_dir}/libvpx.a -Wl,--no-whole-archive \
+      -Wl,--end-group
+  fi
+}
+
+##### LLM-FuzzGen #####
+# Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
+find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
+  target_basename=$(basename "${target%.*}")
+  compile_llm_target "$target" "$target_basename"
 
   if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
     echo "[libfuzzer]" > "$SRC/${target_basename}.options"
@@ -134,3 +278,14 @@ fi
 # copy klee harness files if present
 find "$SRC" -maxdepth 1 -type f \( -name "klee_*.c" -o -name "klee_*.cpp" \) \
   -exec cp {} "$OUT_PROJECT_DIR/" \;
+
+if [ "$SYMCC_NATIVE_EXPORT_ENABLED" = "1" ]; then
+  mkdir -p "$SYMCC_NATIVE_DIR/build_headers"
+  cp "${build_dir}/libvpx.a" "$SYMCC_NATIVE_DIR/libvpx.a"
+  # Export generated headers (vpx_config.h, vpx_version.h, *_rtcd.h, etc.)
+  find "${build_dir}" -maxdepth 1 -name "*.h" -exec cp {} "$SYMCC_NATIVE_DIR/build_headers/" \;
+  if nm -A "$SYMCC_NATIVE_DIR/libvpx.a" | grep -qE '__sanitizer_cov_|__sancov_'; then
+    echo "[llm-fuzzgen] symcc_native archive still contains sanitizer coverage symbols" >&2
+    exit 1
+  fi
+fi

@@ -360,7 +360,8 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_project = sanitize_name(args.project_name)
     safe_function = sanitize_name(args.function_name)
-    output_dir = OUTPUT_ROOT / f"{safe_project}_{safe_function}_{timestamp}"
+    _output_root = (Path(args.output_root) / "symbolic_run") if getattr(args, "output_root", None) else OUTPUT_ROOT
+    output_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     payload_path = output_dir / "blocker_payload.json"
@@ -391,6 +392,8 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     ]
     if args.reset_corpus_per_iteration:
         llm_seed_cmd.append("--reset-corpus-per-iteration")
+    if getattr(args, "output_root", None):
+        llm_seed_cmd.extend(["--output-root", str(Path(args.output_root) / "generator")])
     llm_seed_result = run_program(llm_seed_cmd)
     result["used_llm_seed_generator"] = True
     result["pipeline_methods"].append("llm_seed_generator")
@@ -451,6 +454,8 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         "symcc",
         *build_context_args(args),
     ]
+    if getattr(args, "output_root", None):
+        symcc_harness_cmd.extend(["--output-root", str(Path(args.output_root) / "harness")])
     symcc_harness_gen = run_program(symcc_harness_cmd)
     result["stages"]["symcc_harness_generation"] = symcc_harness_gen.get("parsed_output") or {
         "returncode": symcc_harness_gen["returncode"],
@@ -561,6 +566,9 @@ def main() -> None:
     parser.add_argument("--llvm-profdata", default=DEFAULT_LLVM_PROFDATA)
     parser.add_argument("--llvm-cov", default=DEFAULT_LLVM_COV)
     parser.add_argument("--keep-coverage-reports", action="store_true")
+    parser.add_argument("--output-root", default=None,
+                        help="Root directory under which output dirs are created. "
+                             "Defaults to generated_symbolic_runs/.")
     args = parser.parse_args()
 
     try:
