@@ -5,8 +5,165 @@ import os
 import re
 import time
 from glob import glob
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from blocker_process.coverage_utils import get_line_execution_count
+
+
+# ── Phase 1: Terminal function signal ─────────────────────────────────────────
+# Functions that, when uniquely reachable only through a blocked branch, indicate
+# the blocked side is a defensive/terminal path (abort-on-impossible-state).
+# Only standard C/C++/GLib/Rust names are included; project-specific wrappers
+# like xmalloc are excluded because their abort() is internal and won't appear
+# in blocked_unique_functions.
+_TERMINAL_FUNCTIONS: frozenset = frozenset({
+    "abort", "_abort", "exit", "_exit", "_Exit", "quick_exit",
+    "__assert_fail", "__assert_rtn",
+    "__builtin_trap", "__builtin_unreachable",
+    "std::terminate", "std::abort",
+    "g_assertion_message_expr", "g_assertion_message",
+    "rust_begin_unwind",
+})
+
+
+def _compute_static_solvability(blocker: Dict[str, Any]) -> tuple:
+    blocked_funcs = blocker.get("blocked_unique_functions", [])
+    if any(f in _TERMINAL_FUNCTIONS for f in blocked_funcs):
+        return 0.15, "terminal_function"
+    return 1.0, "normal"
+
+
+# ── Phase 2: Conservative source-level penalty ────────────────────────────────
+# Hard rule: fetch entire file once (range fetch), not line-by-line.
+# Generated-parser variables (yyerrstatus, yy_fill_buffer, etc.) are
+# self-certifying — they only appear in bison/flex generated code.
+
+_PAT_GENERATED_SKELETON = re.compile(
+    r"\b(yyerrstatus|yyerrlab1?"
+    r"|yy_fill_buffer"
+    r"|YY_CURRENT_BUFFER(?:_LVALUE)?"
+    r")\b"
+)
+_PAT_OOM_ALLOC = re.compile(
+    r"\b(\w{3,})\s*=\s*(?:malloc|calloc|realloc|g_try_malloc|zmalloc)\s*\("
+)
+_PAT_OOM_NULL_CHECK = re.compile(
+    r"\bif\s*\(\s*(?:!\s*(\w+)|(\w+)\s*==\s*NULL)\s*\)"
+)
+_AUDIT_HINTS: List = [
+    (re.compile(r"\b(yychar|yytable|yyreduce)\b"), "possible_parser_var"),
+    (re.compile(r"\b(NOTREACHED|UNREACHABLE|ASSERT\s*\(\s*(?:false|0)\s*\))"), "possible_assertion_macro"),
+    (re.compile(r'"(?:out of memory|not enough memory|ENOMEM)"', re.I), "possible_oom_string"),
+]
+
+
+def _fetch_file_lines(project_name: str, source_file: str) -> List[str]:
+    def _read(p: Path) -> List[str]:
+        return p.read_text(encoding="utf-8", errors="replace").splitlines()
+
+    # Strategy 1: direct local path (works when running inside container)
+    path = Path(source_file)
+    if path.is_file():
+        try:
+            return _read(path)
+        except OSError:
+            pass
+
+    # Strategy 1.5: inspector source-code mirror (host path for container-relative paths)
+    # FuzzIntrospector copies source files preserving the full container path structure,
+    # so /src/foo/bar.c maps to .../inspector/source-code/src/foo/bar.c on the host.
+    if project_name:
+        mirrored = (
+            Path(f"external/oss-fuzz/build/out/{project_name}/inspector/source-code")
+            / source_file.lstrip("/")
+        )
+        if mirrored.is_file():
+            try:
+                return _read(mirrored)
+            except OSError:
+                pass
+
+    # Strategy 2: Introspector API (network, fallback)
+    try:
+        from blocker_process.blocker_classifier import get_introspector
+        content = get_introspector().get_project_source_code(
+            project_name=project_name,
+            filepath=source_file,
+            begin_line=1,
+            end_line=999999,
+        )
+        return content.splitlines() if content else []
+    except Exception:
+        return []
+
+
+def _extract_range(lines: List[str], center: int, radius: int) -> str:
+    lo = max(0, center - 1 - radius)
+    hi = min(len(lines), center + radius)
+    return "\n".join(lines[lo:hi])
+
+
+def _apply_snippet_solvability(
+    branch_line_text: str,
+    branch_snippet: str,
+) -> tuple:
+    hints: List[str] = []
+    for pat, hint in _AUDIT_HINTS:
+        if pat.search(branch_snippet):
+            hints.append(hint)
+
+    # P1: generated-parser/lexer skeleton variable in the branch condition itself.
+    # yyerrstatus/yyerrlab (bison) and yy_fill_buffer/YY_CURRENT_BUFFER (flex) are
+    # self-certifying — they only exist in bison/flex generated code.
+    if _PAT_GENERATED_SKELETON.search(branch_line_text):
+        return 0.20, "generated_skeleton_state", hints
+
+    # P2: OOM null check requires same variable name in alloc call and null check
+    alloc_vars = {m.group(1) for m in _PAT_OOM_ALLOC.finditer(branch_snippet)}
+    if alloc_vars:
+        for m in _PAT_OOM_NULL_CHECK.finditer(branch_snippet):
+            checked = m.group(1) or m.group(2)
+            if checked in alloc_vars:
+                return 0.25, "oom_null_check", hints
+
+    return 1.0, "normal", hints
+
+
+def _enrich_with_snippet_solvability(
+    scored: List[Dict[str, Any]],
+    project_name: str,
+    top_k: Optional[int],
+) -> List[Dict[str, Any]]:
+    cap = min(len(scored), (top_k or 10) * 2, 30)
+    file_cache: Dict[str, List[str]] = {}
+
+    for blocker in scored[:cap]:
+        source_file = blocker.get("source_file", "")
+        branch_line = _safe_int(blocker.get("branch_line_number", 0), 0)
+        if not source_file or branch_line <= 0:
+            continue
+
+        if source_file not in file_cache:
+            file_cache[source_file] = _fetch_file_lines(project_name, source_file)
+        file_lines = file_cache[source_file]
+        if not file_lines:
+            continue
+
+        branch_line_text = file_lines[branch_line - 1] if 0 < branch_line <= len(file_lines) else ""
+        branch_snippet = _extract_range(file_lines, branch_line, radius=3)
+
+        solv, reason, hints = _apply_snippet_solvability(branch_line_text, branch_snippet)
+        if solv < blocker.get("solvability_score", 1.0):
+            blocker["solvability_score"] = round(solv, 4)
+            blocker["solvability_reason"] = reason
+            blocker["score_components"]["solvability_score"] = round(solv, 4)
+            blocker["score"] = (
+                blocker.get("actionability_score", 0.0) + blocker.get("impact_score", 0.0)
+            ) * solv
+        if hints:
+            blocker["solvability_hints"] = hints
+
+    return scored
 
 
 def _read_json(path: str) -> Any:
@@ -375,18 +532,23 @@ def aggregate_and_score_blockers(
 
         actionability_score = _compute_actionability_score(gb)
         impact_score = _compute_impact_score(gb)
+        static_solv, static_reason = _compute_static_solvability(gb)
 
         gb["score_components"] = {
             "actionability_score": round(actionability_score, 4),
             "impact_score": round(impact_score, 4),
+            "solvability_score": round(static_solv, 4),
         }
         gb["actionability_score"] = actionability_score
         gb["impact_score"] = impact_score
-        gb["score"] = actionability_score + impact_score
+        gb["solvability_score"] = round(static_solv, 4)
+        gb["solvability_reason"] = static_reason
+        gb["score"] = (actionability_score + impact_score) * static_solv
         result.append(gb)
 
     result.sort(
         key=lambda x: (
+            x["score"],
             x["actionability_score"],
             x["impact_score"],
             x["globally_unhit_function_count"],
@@ -619,6 +781,7 @@ def aggregate_score_and_revalidate_blockers(
     all_functions_js_path: Optional[str] = None,
     summary_json_path: Optional[str] = None,
     include_resolved: bool = False,
+    project_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     started_at = time.perf_counter()
     aggregate_started_at = time.perf_counter()
@@ -674,13 +837,17 @@ def aggregate_score_and_revalidate_blockers(
 
             actionability_score = _compute_actionability_score(enriched)
             impact_score = _compute_impact_score(enriched)
+            static_solv, static_reason = _compute_static_solvability(enriched)
             enriched["score_components"] = {
                 "actionability_score": round(actionability_score, 4),
                 "impact_score": round(impact_score, 4),
+                "solvability_score": round(static_solv, 4),
             }
             enriched["actionability_score"] = actionability_score
             enriched["impact_score"] = impact_score
-            enriched["score"] = actionability_score + impact_score
+            enriched["solvability_score"] = round(static_solv, 4)
+            enriched["solvability_reason"] = static_reason
+            enriched["score"] = (actionability_score + impact_score) * static_solv
             scored.append(enriched)
         inline_score_elapsed = time.perf_counter() - inline_score_started_at
     else:
@@ -695,6 +862,7 @@ def aggregate_score_and_revalidate_blockers(
     scored.sort(
         key=lambda blocker: (
             state_priority.get(str(blocker.get("project_blocker_state")), -1),
+            blocker.get("score", 0.0),
             blocker.get("actionability_score", 0.0),
             blocker.get("impact_score", 0.0),
             blocker.get("project_branch_hit_count", 0),
@@ -703,14 +871,32 @@ def aggregate_score_and_revalidate_blockers(
         ),
         reverse=True,
     )
-    sort_elapsed = time.perf_counter() - sort_started_at
+
+    snippet_started_at = time.perf_counter()
+    if project_name is not None:
+        scored = _enrich_with_snippet_solvability(scored, project_name, top_k)
+        scored.sort(
+            key=lambda blocker: (
+                state_priority.get(str(blocker.get("project_blocker_state")), -1),
+                blocker.get("score", 0.0),
+                blocker.get("actionability_score", 0.0),
+                blocker.get("impact_score", 0.0),
+                blocker.get("project_branch_hit_count", 0),
+                blocker.get("globally_unhit_function_count", 0),
+                blocker.get("sum_blocked_function_undiscovered_complexity", 0),
+            ),
+            reverse=True,
+        )
+    snippet_elapsed = time.perf_counter() - snippet_started_at
+    sort_elapsed = snippet_started_at - sort_started_at
     total_elapsed = time.perf_counter() - started_at
     print(
         "[Timing] aggregate_score_and_revalidate_blockers: "
         f"aggregate={aggregate_elapsed:.2f}s annotate={annotate_elapsed:.2f}s "
         f"filter={filter_elapsed:.2f}s pre_score={pre_score_elapsed:.2f}s "
         f"inline_score={inline_score_elapsed:.2f}s sort={sort_elapsed:.2f}s "
-        f"total={total_elapsed:.2f}s blockers_in={len(blockers)} annotated={len(annotated)} scored={len(scored)}"
+        f"snippet={snippet_elapsed:.2f}s total={total_elapsed:.2f}s "
+        f"blockers_in={len(blockers)} annotated={len(annotated)} scored={len(scored)}"
     )
     if top_k is not None and top_k > 0:
         return scored[:top_k]
@@ -725,6 +911,8 @@ def main() -> None:
     parser.add_argument("--summary-json", default=None)
     parser.add_argument("--project-linecov-dir", default=None)
     parser.add_argument("--include-resolved", action="store_true")
+    parser.add_argument("--project-name", default=None,
+                        help="Enable Phase 2 snippet inspection (requires Introspector API or local source files)")
     args = parser.parse_args()
 
     print("[Info] Aggregate and evaluate global blockers...")
@@ -747,6 +935,7 @@ def main() -> None:
         all_functions_js_path=args.all_functions_js,
         summary_json_path=args.summary_json,
         include_resolved=args.include_resolved,
+        project_name=args.project_name,
     )
 
     if not global_blockers:
