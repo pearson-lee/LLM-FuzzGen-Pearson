@@ -166,6 +166,7 @@ def crash_analysis_prompt(
     crash_input_hex: str,
     stack_trace: str,
     heuristic_summary: str,
+    reproduce_result: str,
 ) -> str:
     """Generates a prompt for analyzing a crash."""
     return _load_and_format_template(
@@ -177,6 +178,7 @@ def crash_analysis_prompt(
             "crash_input_hex",
             "stack_trace",
             "heuristic_summary",
+            "reproduce_result",
         ],
         project_name=project_name,
         lang=lang,
@@ -184,6 +186,7 @@ def crash_analysis_prompt(
         crash_input_hex=crash_input_hex,
         stack_trace=stack_trace,
         heuristic_summary=heuristic_summary,
+        reproduce_result=reproduce_result,
     )
 
 

@@ -94,6 +94,7 @@ class CrashAnalyzer:
 
         # Reproduce the crash to get a clean stack trace
         stack_trace = self.oss_fuzz.reproduce_crash(project_name, fuzzer_binary_name, crash_path)
+        reproduce_summary = self._build_reproduce_summary(stack_trace)
         triage = self._heuristic_triage(fuzzer_binary_name, stack_trace, source_file)
 
         # Get analysis from LLM
@@ -103,6 +104,7 @@ class CrashAnalyzer:
             crash_input_bytes,
             stack_trace,
             triage,
+            reproduce_summary,
         )
 
         if not analysis:
@@ -130,6 +132,20 @@ class CrashAnalyzer:
             if source_file.exists():
                 return source_file
         return None
+
+    @staticmethod
+    def _build_reproduce_summary(stack_trace: str) -> dict[str, Any]:
+        stack_trace_text = stack_trace or ""
+        succeeded = bool(stack_trace_text.strip())
+        return {
+            "attempted": True,
+            "succeeded": succeeded,
+            "evidence": (
+                "oss_fuzz.reproduce_crash returned a non-empty sanitizer stack trace"
+                if succeeded
+                else "oss_fuzz.reproduce_crash returned an empty stack trace"
+            ),
+        }
 
     def _extract_json_object(self, content: str) -> dict[str, Any] | None:
         if not content:
@@ -162,7 +178,11 @@ class CrashAnalyzer:
 
         return parsed if isinstance(parsed, dict) else None
 
-    def _validate_analysis_schema(self, analysis: dict[str, Any]) -> dict[str, Any] | None:
+    def _validate_analysis_schema(
+        self,
+        analysis: dict[str, Any],
+        reproduce_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         required_string_fields = (
             "finding",
             "crash_type",
@@ -213,41 +233,88 @@ class CrashAnalyzer:
             return None
         analysis["confidence"] = confidence
 
+        validation_warnings = analysis.get("validation_warnings", [])
+        if not isinstance(validation_warnings, list):
+            validation_warnings = []
+        validation_warnings = [str(w).strip() for w in validation_warnings if str(w).strip()]
+
         # --- Optional: rubric_scores validation ---
         rubric = analysis.get("rubric_scores")
         if rubric is not None:
-            rubric_fields = (
-                "top_frame_ownership",
-                "api_contract",
-                "normal_caller_feasibility",
-                "sanitizer_signal",
-                "reproducibility",
-            )
+            rubric_schema = {
+                "top_frame_ownership": (0, 2),
+                "api_contract": (0, 2),
+                "normal_caller_feasibility": (0, 2),
+                "sanitizer_signal": (0, 1),
+                "reproducibility": (0, 1),
+            }
             if not isinstance(rubric, dict):
-                logger.warning("rubric_scores is not a dict; ignoring.")
+                warning = "invalid_rubric_scores: rubric_scores is not a dict"
+                logger.warning(warning)
+                validation_warnings.append(warning)
                 analysis.pop("rubric_scores", None)
             else:
                 valid_rubric = True
-                for field in rubric_fields:
+                invalid_reason = ""
+                for field, (min_score, max_score) in rubric_schema.items():
                     entry = rubric.get(field)
                     if not isinstance(entry, dict):
-                        logger.warning("rubric_scores.%s is missing or not a dict; ignoring rubric.", field)
+                        invalid_reason = f"rubric_scores.{field} is missing or not a dict"
                         valid_rubric = False
                         break
                     score = entry.get("score")
                     evidence_val = entry.get("evidence", "")
-                    if not isinstance(score, (int, float)):
-                        logger.warning("rubric_scores.%s.score is not numeric; ignoring rubric.", field)
+                    if (
+                        isinstance(score, bool)
+                        or not isinstance(score, (int, float))
+                        or int(score) != score
+                    ):
+                        invalid_reason = f"rubric_scores.{field}.score is not an integer"
                         valid_rubric = False
                         break
-                    rubric[field]["score"] = int(score)
-                    rubric[field]["evidence"] = str(evidence_val).strip()
+                    score = int(score)
+                    if not min_score <= score <= max_score:
+                        invalid_reason = (
+                            f"rubric_scores.{field}.score {score} out of range "
+                            f"{min_score}..{max_score}"
+                        )
+                        valid_rubric = False
+                        break
+                    evidence_str = str(evidence_val).strip()
+                    if not evidence_str:
+                        invalid_reason = f"rubric_scores.{field}.evidence is empty"
+                        valid_rubric = False
+                        break
+                    rubric[field]["score"] = score
+                    rubric[field]["evidence"] = evidence_str
                 if valid_rubric:
-                    total = sum(rubric[f]["score"] for f in rubric_fields if isinstance(rubric.get(f), dict))
+                    reproduce_entry = rubric["reproducibility"]
+                    if reproduce_summary and reproduce_summary.get("succeeded") is False:
+                        if reproduce_entry["score"] != 0:
+                            valid_rubric = False
+                            invalid_reason = (
+                                "rubric_scores.reproducibility.score conflicts with "
+                                "reproduce_summary.succeeded=false"
+                            )
+                    if reproduce_summary and reproduce_summary.get("succeeded") is True:
+                        if reproduce_entry["score"] != 1:
+                            valid_rubric = False
+                            invalid_reason = (
+                                "rubric_scores.reproducibility.score conflicts with "
+                                "reproduce_summary.succeeded=true"
+                            )
+                if valid_rubric:
+                    total = sum(rubric[f]["score"] for f in rubric_schema)
                     rubric["total"] = total
                     analysis["rubric_scores"] = rubric
                 else:
+                    warning = f"invalid_rubric_scores: {invalid_reason}"
+                    logger.warning("%s; ignoring rubric.", warning)
+                    validation_warnings.append(warning)
                     analysis.pop("rubric_scores", None)
+
+        if validation_warnings:
+            analysis["validation_warnings"] = list(dict.fromkeys(validation_warnings))
 
         # --- Optional: missing_evidence validation ---
         missing = analysis.get("missing_evidence")
@@ -270,7 +337,7 @@ class CrashAnalyzer:
             #N 0xADDR in FUNCTION_NAME /path/to/source.c:LINE:COL
         """
         frame_re = re.compile(
-            r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+(\S+)\s+(/[^\s:]+)",
+            r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+(.+?)\s+(/[^\s:]+(?::\d+){0,2})(?:\s|$)",
             re.MULTILINE,
         )
         # Sanitizer / libFuzzer runtime indicators — skip these frames
@@ -287,20 +354,21 @@ class CrashAnalyzer:
         for m in frame_re.finditer(stack_trace):
             func_name = m.group(1)
             source_path = m.group(2)
+            source_file_path = re.sub(r":\d+(?::\d+)?$", "", source_path)
 
             is_runtime = (
                 any(func_name.startswith(p) for p in RUNTIME_FUNC_PREFIXES)
-                or any(source_path.startswith(p) for p in RUNTIME_PATH_PREFIXES)
-                or any(kw in source_path for kw in RUNTIME_PATH_KEYWORDS)
+                or any(source_file_path.startswith(p) for p in RUNTIME_PATH_PREFIXES)
+                or any(kw in source_file_path for kw in RUNTIME_PATH_KEYWORDS)
             )
             if is_runtime:
                 continue
 
             # First non-runtime application frame
-            source_basename = Path(source_path).name
+            source_basename = Path(source_file_path).name
             if source_basename == fuzz_target_basename:
                 classification = "fuzz_target"
-            elif "/src/" in source_path:
+            elif "/src/" in source_file_path:
                 classification = "library"
             else:
                 classification = "unknown"
@@ -415,6 +483,8 @@ class CrashAnalyzer:
         suggested_fix = analysis.get("suggested_fix", "")
         poc = analysis.get("minimized_poc", "")
         cwe = analysis.get("cwe", "")
+        reproduce_result = analysis.get("reproduce_result")
+        validation_warnings = analysis.get("validation_warnings", [])
 
         lines = [f"# Crash Analysis Report: {finding} in `{crash_function}`", "", "## Triage"]
         lines.append(f"- Finding: **{finding}**")
@@ -431,6 +501,17 @@ class CrashAnalyzer:
         if evidence:
             lines.extend(["", "## Evidence"])
             for item in evidence:
+                lines.append(f"- {item}")
+
+        if reproduce_result and isinstance(reproduce_result, dict):
+            lines.extend(["", "## Reproduce Result"])
+            lines.append(f"- Attempted: {reproduce_result.get('attempted')}")
+            lines.append(f"- Succeeded: {reproduce_result.get('succeeded')}")
+            lines.append(f"- Evidence: {reproduce_result.get('evidence', '')}")
+
+        if validation_warnings:
+            lines.extend(["", "## Validation Warnings"])
+            for item in validation_warnings:
                 lines.append(f"- {item}")
 
         # --- Evidence Rubric table ---
@@ -553,6 +634,9 @@ class CrashAnalyzer:
         if confidence < 0.75 or finding == "Ambiguous":
             return True
 
+        if analysis.get("validation_warnings"):
+            return True
+
         # Conflict: heuristic frame classification disagrees with LLM finding
         frame_class = triage.frame_classification
         if frame_class == "fuzz_target" and finding == "Real Crash":
@@ -569,6 +653,7 @@ class CrashAnalyzer:
         crash_input_bytes: bytes,
         stack_trace: str,
         triage: CrashHeuristicTriage,
+        reproduce_summary: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """
         Sends the crash data to an LLM for analysis and returns the report.
@@ -593,6 +678,12 @@ class CrashAnalyzer:
                 ensure_ascii=False,
                 indent=2,
             )
+            effective_reproduce_summary = reproduce_summary or self._build_reproduce_summary(stack_trace)
+            reproduce_result = json.dumps(
+                effective_reproduce_summary,
+                ensure_ascii=False,
+                indent=2,
+            )
 
             prompt = prompt_generator.crash_analysis_prompt(
                 project_name=project_name,
@@ -601,6 +692,7 @@ class CrashAnalyzer:
                 crash_input_hex=crash_input_hex,
                 stack_trace=stack_trace,
                 heuristic_summary=heuristic_summary,
+                reproduce_result=reproduce_result,
             )
 
             raw_response = self.llm_client.generate(prompt)
@@ -609,7 +701,7 @@ class CrashAnalyzer:
                 logger.error("Crash analysis did not return a valid JSON object.")
                 return None
 
-            parsed = self._validate_analysis_schema(parsed)
+            parsed = self._validate_analysis_schema(parsed, reproduce_summary=effective_reproduce_summary)
             if not parsed:
                 logger.error("Crash analysis JSON object failed schema validation.")
                 return None
@@ -619,6 +711,7 @@ class CrashAnalyzer:
             parsed.setdefault("crash_site", triage.crash_site)
             parsed.setdefault("confidence", triage.confidence)
             parsed.setdefault("evidence", [])
+            parsed["reproduce_result"] = effective_reproduce_summary
             parsed["raw_response"] = raw_response
 
             # --- Evidence audit pass ---

@@ -184,6 +184,14 @@ class OSSFuzz:
             return False
         return any(path.is_file() and path.name.startswith("llm_fuzzgen") and not path.suffix for path in build_dir.iterdir())
 
+    def _has_built_symcc_library_artifact(self, proj_name: str, variant: str) -> bool:
+        if not variant.startswith("symcc_library"):
+            return False
+        lib_dir = self.build_out_dir / proj_name / "symcc_library"
+        if not lib_dir.exists():
+            return False
+        return any(f.suffix == ".a" and f.is_file() for f in lib_dir.iterdir())
+
     def _artifact_cache_path(self, proj_name: str, sanitizer: str, fingerprint: str, variant: str = "default") -> Path:
         variant_name = variant or "default"
         return self.build_cache_dir / proj_name / sanitizer / variant_name / fingerprint
@@ -267,7 +275,8 @@ class OSSFuzz:
             proj_name,
             fingerprint[:12],
         )
-        return self._has_built_llm_targets(proj_name)
+        return (self._has_built_llm_targets(proj_name)
+                or self._has_built_symcc_library_artifact(proj_name, variant))
 
     def _store_build_artifacts_in_cache(
         self,
@@ -391,6 +400,7 @@ class OSSFuzz:
         deadline: float | None = None,
         extra_env: dict[str, str] | None = None,
         variant: str = "default",
+        extra_volumes: list[str] | None = None,
     ) -> CompilationResult:
         """Builds fuzzers for the given project."""
         if not self._should_rebuild(proj_name, sanitizer, variant):
@@ -400,10 +410,13 @@ class OSSFuzz:
         timeout = self._remaining_timeout(deadline)
         if timeout == 0:
             return CompilationResult(success=False, error="deadline reached")
+        combined_env: dict[str, str] = dict(extra_env) if extra_env else {}
+        if extra_volumes:
+            combined_env["LLM_FUZZGEN_EXTRA_VOLUMES"] = "|".join(extra_volumes)
         helper_result = self._run_helper_command(
             ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
             timeout=timeout,
-            extra_env=extra_env,
+            extra_env=combined_env if combined_env else None,
         )
 
         if helper_result.success:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -128,6 +129,46 @@ def load_project_config(project_name: str) -> dict:
     if config_path.is_file():
         return json.loads(config_path.read_text(encoding="utf-8"))
     return {}
+
+
+# Phase 1 allowlist: only projects where symcc_library has been validated.
+_SYMCC_LIBRARY_PROJECTS = {"libpcap"}
+
+
+def _symcc_variant_name(symcc_bin_host: Path, length: int = 8) -> str:
+    """Compute a variant name that embeds a hash of all SymCC binary files.
+
+    This binds the artifact-cache key to the SymCC version, so updating
+    symcc/build/ automatically invalidates the cached symcc_library archive.
+    """
+    h = hashlib.sha256()
+    for fname in (
+        "symcc",
+        "sym++",
+        "libsymcc.so",
+        "SymCCRuntime-prefix/src/SymCCRuntime-build/libsymcc-rt.a",
+        "SymCCRuntime-prefix/src/SymCCRuntime-build/libsymcc-rt.so",
+    ):
+        fpath = symcc_bin_host / fname
+        try:
+            h.update(fpath.read_bytes())
+        except OSError:
+            h.update(fname.encode())
+    return f"symcc_library_{h.hexdigest()[:length]}"
+
+
+def _should_use_symcc_library(
+    project_name: str, project_config: dict, seeds: list
+) -> bool:
+    """Return True if symcc_library instrumentation should be attempted."""
+    if project_name not in _SYMCC_LIBRARY_PROJECTS:
+        return False
+    if not project_config.get("symcc_library", False):
+        return False
+    if not seeds:
+        print("[info] symcc_library skip: no branch-reaching seeds available", flush=True)
+        return False
+    return True
 
 
 def resolve_coverage_binary(oss_fuzz: OSSFuzz, project_name: str, target_name: str) -> Path | None:
@@ -369,6 +410,12 @@ def main() -> int:
         "resolved_binary": None,
         "resolved_binary_kind": None,
     }
+    symcc_library_archives: list[Path] = []
+    symcc_lib_archive: Path | None = None
+    symcc_lib_build_result = None
+    symcc_variant: str | None = None
+    symcc_fail_marker: Path | None = None
+
     if args.project_name and args.target_name:
         oss_fuzz = OSSFuzz()
         # T9: native archive mode is config-driven via external/oss-fuzz/projects/{project}/symcc_config.json
@@ -423,6 +470,66 @@ def main() -> int:
                     f"{native_build.error}",
                     flush=True,
                 )
+        # symcc_library: re-build libpcap with SymCC instrumentation so symbolic tracking
+        # can follow execution into library internals (not just the harness).
+        seeds_for_check = getattr(args, "seed", []) or []
+        if _should_use_symcc_library(args.project_name, project_config, seeds_for_check):
+            symcc_bin_host = REPO_ROOT / "symcc" / "build_llvm18"
+            symcc_variant = _symcc_variant_name(symcc_bin_host)
+            symcc_fail_marker = (
+                oss_fuzz.build_cache_dir
+                / args.project_name
+                / "none"
+                / symcc_variant
+                / ".build_failed"
+            )
+
+            if symcc_fail_marker.exists():
+                print(
+                    f"[warn] symcc_library build previously failed this session "
+                    f"(marker: {symcc_fail_marker}), skipping; using native archive",
+                    flush=True,
+                )
+            else:
+                symcc_lib_flavor = project_config.get("symcc_library_build_flavor", "symcc_library")
+                symcc_lib_build_result = oss_fuzz.build_fuzzers(
+                    args.project_name,
+                    sanitizer="none",
+                    extra_env={
+                        "LLM_FUZZGEN_BUILD_FLAVOR": symcc_lib_flavor,
+                        "LLM_FUZZGEN_BUILD_SYMCC_LIBRARY": "1",
+                    },
+                    extra_volumes=[f"{symcc_bin_host}:/symcc-bin:ro"],
+                    variant=symcc_variant,
+                )
+                if symcc_lib_build_result.success:
+                    lib_subdir = project_config.get("symcc_library_subdir", "symcc_library")
+                    lib_fname = project_config.get("symcc_library_filename", "libpcap.a")
+                    symcc_lib_archive = oss_fuzz.build_out_dir / args.project_name / lib_subdir / lib_fname
+                    if symcc_lib_archive.is_file():
+                        # Copy to work dir alongside native archives for consistent linking.
+                        symcc_archive_copy_dir = base_work_dir / "symcc_library_archives"
+                        symcc_archive_copy_dir.mkdir(parents=True, exist_ok=True)
+                        copied = symcc_archive_copy_dir / symcc_lib_archive.name
+                        shutil.copy2(symcc_lib_archive, copied)
+                        symcc_library_archives = [copied]
+                        prebuilt_archives = symcc_library_archives
+                        print(f"[info] symcc_library archive ready, replacing native archive: {copied}", flush=True)
+                    else:
+                        print(
+                            f"[warn] symcc_library build succeeded but archive not found at {symcc_lib_archive}; "
+                            "falling back to native archive",
+                            flush=True,
+                        )
+                else:
+                    symcc_fail_marker.parent.mkdir(parents=True, exist_ok=True)
+                    symcc_fail_marker.touch()
+                    print(
+                        f"[warn] symcc_library build failed; failure marker written; "
+                        "falling back to native archive",
+                        flush=True,
+                    )
+
         coverage_prepare_info["attempted"] = True
         coverage_build = oss_fuzz.ensure_target_binary(
             args.project_name,
@@ -474,6 +581,22 @@ def main() -> int:
         "native_archives": [str(path) for path in prebuilt_archives],
         "native_prepare": native_prepare_info,
         "coverage_prepare": coverage_prepare_info,
+        # symcc_library instrumentation fields — key for post-run diagnosis
+        "linked_archive_kind": "symcc_library" if symcc_library_archives else "native_archive",
+        "symcc_library_archive": str(symcc_library_archives[0]) if symcc_library_archives else None,
+        "native_archive_path": str(prebuilt_archives[0]) if (prebuilt_archives and not symcc_library_archives) else None,
+        "symcc_library_prepare": {
+            "attempted": symcc_variant is not None,
+            "build_success": symcc_lib_build_result.success if symcc_lib_build_result is not None else None,
+            "variant": symcc_variant,
+            "archive_found": bool(symcc_library_archives),
+            "fail_marker_existed": symcc_fail_marker.exists() if symcc_fail_marker is not None else None,
+            "runtime_note": (
+                "library: LLVM-18 pass (Docker build_llvm18), "
+                "harness+link: LLVM-14 runtime (host symcc/build/); "
+                "same source → _sym_* API compatible"
+            ),
+        },
     }
 
     symcc_work_dir = base_work_dir / "symcc"
@@ -493,7 +616,7 @@ def main() -> int:
             failure_kind = "build_context_missing_header"
         elif "compile failed" in stdout_lower or "link failed" in stdout_lower:
             failure_kind = "build_failure"
-        elif "no seed reached the blocked-side line" in symcc_result.stdout:
+        elif "no seed reached the blocked-side line" in stdout_lower:
             failure_kind = "coverage_no_blocked_side"
         elif native_prepare_info.get("attempted") and not native_prepare_info.get("success"):
             failure_kind = "native_archive_prepare_failed"

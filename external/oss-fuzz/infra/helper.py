@@ -873,6 +873,15 @@ def build_fuzzers_impl(  # pylint: disable=too-many-arguments,too-many-locals,to
   if env_to_add:
     env += env_to_add
 
+  # LLM-FuzzGen: extract extra volume mounts from env before converting to docker args.
+  # Encoded as LLM_FUZZGEN_EXTRA_VOLUMES=host:container[:mode]|... to avoid colon ambiguity.
+  # Only applies in build_fuzzers_impl(), not in generic docker_run().
+  _extra_vols_str = ''
+  for _item in env:
+    if _item.startswith('LLM_FUZZGEN_EXTRA_VOLUMES='):
+      _extra_vols_str = _item[len('LLM_FUZZGEN_EXTRA_VOLUMES='):]
+      break
+
   command = _env_to_docker_args(env)
   if source_path:
     workdir = _workdir_from_dockerfile(project)
@@ -891,10 +900,14 @@ def build_fuzzers_impl(  # pylint: disable=too-many-arguments,too-many-locals,to
           '%s:%s' % (_get_absolute_path(source_path), workdir),
       ]
 
-  command += [
-      '-v', f'{project_out}:/out', '-v', f'{project.work}:/work',
-      f'gcr.io/oss-fuzz/{project.name}'
-  ]
+  command += ['-v', f'{project_out}:/out', '-v', f'{project.work}:/work']
+  # LLM-FuzzGen: inject extra volume mounts (e.g. symcc/build → /symcc-bin) before image name.
+  if _extra_vols_str:
+    for _vol_spec in _extra_vols_str.split('|'):
+      _vol_spec = _vol_spec.strip()
+      if _vol_spec:
+        command.extend(['-v', _vol_spec])
+  command.append(f'gcr.io/oss-fuzz/{project.name}')
   if sys.stdin.isatty():
     command.insert(-1, '-t')
 

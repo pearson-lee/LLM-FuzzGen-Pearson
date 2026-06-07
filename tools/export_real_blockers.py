@@ -130,11 +130,12 @@ def _filter_real_blockers(
             str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
         )
         function_name = blocker.get("function_name")
+        source_file = blocker.get("source_file") or ""
         project_branch_hit_count = _normalize_hitcount(
-            get_line_execution_count(project_report, branch_line, function_name=function_name)
+            get_line_execution_count(project_report, branch_line, function_name=function_name, source_file=source_file)
         )
         project_blocked_hit_count = _normalize_hitcount(
-            get_line_execution_count(project_report, blocked_side_line, function_name=function_name)
+            get_line_execution_count(project_report, blocked_side_line, function_name=function_name, source_file=source_file)
         )
 
         if project_branch_hit_count <= 0 or project_blocked_hit_count > 0:
@@ -162,10 +163,10 @@ def _filter_real_blockers(
         for target_name in contributing_targets:
             report = target_reports[target_name]
             branch_hit_count = _normalize_hitcount(
-                get_line_execution_count(report, branch_line, function_name=function_name)
+                get_line_execution_count(report, branch_line, function_name=function_name, source_file=source_file)
             )
             blocked_hit_count = _normalize_hitcount(
-                get_line_execution_count(report, blocked_side_line, function_name=function_name)
+                get_line_execution_count(report, blocked_side_line, function_name=function_name, source_file=source_file)
             )
             if branch_hit_count > 0:
                 branch_reached_targets.append(target_name)
