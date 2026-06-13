@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -211,7 +212,11 @@ class OSSFuzz:
             f"gcr.io/oss-fuzz/{proj_name}",
             "/bin/bash",
             "-c",
-            "find /out -mindepth 1 ! -path '/out/inspector' ! -path '/out/inspector/*' -delete",
+            (
+                "chmod -R u+rwX,go+rwX /out 2>/dev/null || true; "
+                "find /out -mindepth 1 ! -path '/out/inspector' ! -path '/out/inspector/*' -delete; "
+                "chmod u+rwx,go+rwx /out 2>/dev/null || true"
+            ),
         ]
         process = subprocess.run(
             cmd,
@@ -232,7 +237,59 @@ class OSSFuzz:
         )
         return False
 
-    def _copy_directory_contents(self, source_dir: Path, destination_dir: Path) -> None:
+    def _normalize_artifact_permissions(self, proj_name: str, path: Path) -> None:
+        if not path.exists():
+            return
+
+        def chmod_with_python() -> None:
+            targets = [path, *path.rglob("*")]
+            for target in targets:
+                try:
+                    current_mode = stat.S_IMODE(target.stat().st_mode)
+                    if target.is_dir():
+                        target.chmod(current_mode | 0o777)
+                    else:
+                        target.chmod(current_mode | 0o666)
+                except FileNotFoundError:
+                    continue
+
+        try:
+            chmod_with_python()
+            return
+        except PermissionError:
+            pass
+
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{path.resolve()}:/artifacts",
+            "-t",
+            f"gcr.io/oss-fuzz/{proj_name}",
+            "/bin/bash",
+            "-c",
+            "chmod -R u+rwX,go+rwX /artifacts",
+        ]
+        process = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            text=True,
+            errors="ignore",
+        )
+        if process.returncode != 0:
+            logger.warning(
+                "Failed to normalize artifact permissions for %s via docker: %s%s",
+                path,
+                process.stdout,
+                process.stderr,
+            )
+
+    def _copy_directory_contents(self, proj_name: str, source_dir: Path, destination_dir: Path) -> None:
+        self._normalize_artifact_permissions(proj_name, source_dir)
+        self._normalize_artifact_permissions(proj_name, destination_dir)
         destination_dir.mkdir(parents=True, exist_ok=True)
         for source_path in source_dir.iterdir():
             if source_path.name == "inspector":
@@ -266,7 +323,10 @@ class OSSFuzz:
         build_dir.mkdir(parents=True, exist_ok=True)
         if not self._clear_build_out_dir(proj_name):
             return False
-        self._copy_directory_contents(cache_dir, build_dir)
+        self._normalize_artifact_permissions(proj_name, cache_dir)
+        self._normalize_artifact_permissions(proj_name, build_dir)
+        self._copy_directory_contents(proj_name, cache_dir, build_dir)
+        self._normalize_artifact_permissions(proj_name, build_dir)
         self._record_build_state(proj_name, sanitizer, variant, fingerprint)
         logger.info(
             "Restored %s/%s build artifacts for %s from cache fingerprint %s.",
@@ -306,7 +366,9 @@ class OSSFuzz:
         if cache_dir.exists():
             shutil.rmtree(cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        self._copy_directory_contents(build_dir, cache_dir)
+        self._normalize_artifact_permissions(proj_name, build_dir)
+        self._copy_directory_contents(proj_name, build_dir, cache_dir)
+        self._normalize_artifact_permissions(proj_name, cache_dir)
         logger.info(
             "Stored %s/%s build artifacts for %s into cache fingerprint %s at %s",
             sanitizer,
@@ -422,6 +484,7 @@ class OSSFuzz:
         if helper_result.success:
             fingerprint = self._get_project_target_fingerprint(proj_name)
             self._record_build_state(proj_name, sanitizer, variant, fingerprint)
+            self._normalize_artifact_permissions(proj_name, self.build_out_dir / proj_name)
             self._store_build_artifacts_in_cache(proj_name, sanitizer, fingerprint, variant)
             logger.info(
                 "Completed %s/%s rebuild for %s with fingerprint %s.",
@@ -995,16 +1058,78 @@ class OSSFuzz:
 
     def remove_target(self, proj_name: str, target_name: str) -> None:
         """Removes the fuzzer target for the given project"""
-        target_dir = self.oss_fuzz_dir / "projects" / proj_name
-        for item in target_dir.iterdir():
-            if item.is_file() and item.name.startswith(target_name):
-                item.unlink(True)
-                logger.info(f"Removed target file {item}")
+        def is_target_artifact(name: str) -> bool:
+            return (
+                name == target_name
+                or name.startswith(f"{target_name}.")
+                or name.startswith(f"{target_name}_")
+            )
 
-        binary_path = self.build_out_dir / proj_name / target_name
-        if binary_path.exists():
-            binary_path.unlink(True)
-            logger.info(f"Removed binary target at {binary_path}")
+        removed_any_artifact = False
+        target_dir = self.oss_fuzz_dir / "projects" / proj_name
+        if target_dir.is_dir():
+            for item in target_dir.iterdir():
+                if item.is_file() and is_target_artifact(item.name):
+                    item.unlink(True)
+                    removed_any_artifact = True
+                    logger.info(f"Removed target file {item}")
+
+        project_out_dir = self.build_out_dir / proj_name
+        if project_out_dir.exists():
+            self._normalize_artifact_permissions(proj_name, project_out_dir)
+            for artifact_path in sorted(path for path in project_out_dir.rglob("*") if path.is_file()):
+                if is_target_artifact(artifact_path.name):
+                    artifact_path.unlink(True)
+                    removed_any_artifact = True
+                    logger.info(f"Removed build artifact at {artifact_path}")
+
+        project_cache_root = self.build_cache_dir / proj_name
+        if project_cache_root.exists():
+            self._normalize_artifact_permissions(proj_name, project_cache_root)
+            cache_snapshots: set[Path] = set()
+            for artifact_path in sorted(path for path in project_cache_root.rglob("*") if path.is_file()):
+                if not is_target_artifact(artifact_path.name):
+                    continue
+                try:
+                    relative = artifact_path.relative_to(project_cache_root)
+                    parts = relative.parts
+                except ValueError:
+                    parts = ()
+                if len(parts) >= 4:
+                    cache_snapshots.add(project_cache_root / parts[0] / parts[1] / parts[2])
+                else:
+                    cache_snapshots.add(artifact_path.parent)
+
+            for cache_snapshot in sorted(cache_snapshots):
+                if cache_snapshot.exists():
+                    shutil.rmtree(cache_snapshot)
+                    removed_any_artifact = True
+                    logger.info(
+                        "Removed artifact cache snapshot containing target %s: %s",
+                        target_name,
+                        cache_snapshot,
+                    )
+                    parent = cache_snapshot.parent
+                    while parent != project_cache_root:
+                        try:
+                            parent.rmdir()
+                        except OSError:
+                            break
+                        parent = parent.parent
+
+        if removed_any_artifact and project_out_dir.exists():
+            for stale_path in (
+                project_out_dir / "inspector",
+                project_out_dir / "textcov_reports",
+                project_out_dir / "report",
+                project_out_dir / "report_target",
+            ):
+                if stale_path.is_dir():
+                    shutil.rmtree(stale_path)
+                    logger.info("Removed stale project report directory after target deletion: %s", stale_path)
+                elif stale_path.is_file():
+                    stale_path.unlink(True)
+                    logger.info("Removed stale project report file after target deletion: %s", stale_path)
 
         self.remove_corpus(proj_name, target_name)
 

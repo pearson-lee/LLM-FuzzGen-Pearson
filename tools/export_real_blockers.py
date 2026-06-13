@@ -10,7 +10,17 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from blocker_process.coverage_utils import get_line_execution_count
-from blocker_process.global_blocker_selector import aggregate_blockers
+from blocker_process.global_blocker_selector import (
+    _compute_actionability_score,
+    _compute_impact_score,
+    _compute_static_solvability,
+    _infer_project_artifact_paths,
+    _summarize_blocked_functions,
+    _summarize_blocker_file,
+    aggregate_blockers,
+    load_project_file_coverage,
+    load_project_function_coverage,
+)
 from external.oss_fuzz import OSSFuzz
 
 
@@ -202,6 +212,46 @@ def _filter_real_blockers(
     return filtered
 
 
+_STATE_PRIORITY = {"stalled_at_branch": 2, "unreached_branch": 1, "resolved": 0}
+
+
+def _score_and_sort_blockers(blockers: list[dict], blocker_json_path: Path) -> list[dict]:
+    all_functions_js_path, summary_json_path = _infer_project_artifact_paths(str(blocker_json_path))
+    function_coverage_map = load_project_function_coverage(all_functions_js_path)
+    file_coverage_map = load_project_file_coverage(summary_json_path)
+
+    scored = []
+    for blocker in blockers:
+        enriched = dict(blocker)
+        enriched.update(_summarize_blocked_functions(enriched.get("blocked_unique_functions", []), function_coverage_map))
+        enriched.update(_summarize_blocker_file(enriched.get("source_file", ""), file_coverage_map))
+
+        actionability_score = _compute_actionability_score(enriched)
+        impact_score = _compute_impact_score(enriched)
+        static_solv, static_reason = _compute_static_solvability(enriched)
+
+        enriched["actionability_score"] = actionability_score
+        enriched["impact_score"] = impact_score
+        enriched["solvability_score"] = round(static_solv, 4)
+        enriched["solvability_reason"] = static_reason
+        enriched["score"] = (actionability_score + impact_score) * static_solv
+        scored.append(enriched)
+
+    scored.sort(
+        key=lambda b: (
+            _STATE_PRIORITY.get(str(b.get("project_blocker_state")), -1),
+            b.get("score", 0.0),
+            b.get("actionability_score", 0.0),
+            b.get("impact_score", 0.0),
+            b.get("project_branch_hit_count", 0),
+            b.get("globally_unhit_function_count", 0),
+            b.get("sum_blocked_function_undiscovered_complexity", 0),
+        ),
+        reverse=True,
+    )
+    return scored
+
+
 def _default_output_path(project_name: str) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return Path("artifacts") / "branch_blocker_json" / f"{timestamp}_{project_name}.json"
@@ -256,6 +306,7 @@ def main() -> None:
     project_report, target_reports = coverage_context
     aggregated_blockers = aggregate_blockers(json_path=str(blocker_json_path), top_k=None)
     filtered_blockers = _filter_real_blockers(aggregated_blockers, project_report, target_reports)
+    filtered_blockers = _score_and_sort_blockers(filtered_blockers, blocker_json_path)
     if args.top_k > 0:
         filtered_blockers = filtered_blockers[: args.top_k]
 

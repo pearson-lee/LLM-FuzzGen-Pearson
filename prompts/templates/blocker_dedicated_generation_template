@@ -96,6 +96,7 @@ You MUST NOT blindly stick to mimicking the failed trace. Instead, act as an AI 
 - Prefer public high-level API routes first, then public lower-level component APIs, and only use direct utility/helper calls as a fallback.
 - Build the shortest realistic LibFuzzer API sequence that crosses the blocker without unnecessarily collapsing the reachable downstream state space.
 - Maintain strict memory safety and use public APIs only.
+- **Language Constraints**: The target must be written in the project language `{language}`. The constraint-relaxed nature of this stage applies only to API sequence, object flow, and input-consumption strategy; it does not relax the project language. If the target language is C, write strict C: do not use C++ headers, `extern "C"`, `std::`, references, classes, templates, `new`/`delete`, or `<fuzzer/FuzzedDataProvider.h>`. Only use `FuzzedDataProvider` when `{language}` is C++.
 - Treat the reference-guided handoff summary as prior evidence, not as a base implementation. Structural redesign is allowed and encouraged when local refinement already failed.
 
 # Output Requirements
@@ -107,12 +108,5 @@ You MUST NOT blindly stick to mimicking the failed trace. Instead, act as an AI 
 
 Example Structure:
 <fuzz_target>
-#include <fuzzer/FuzzedDataProvider.h>
-#include "project_public_header.h" // Replace with the correct project-specific public header(s)
-
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {{
-    FuzzedDataProvider fdp(data, size);
-    // ...
-    return 0;
-}}
+{output_example}
 </fuzz_target>

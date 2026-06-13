@@ -33,12 +33,16 @@ fi
 BUILD_FLAVOR="${LLM_FUZZGEN_BUILD_FLAVOR:-default}"
 SYMCC_REPLAY_ENABLED="${LLM_FUZZGEN_BUILD_SYMCC_REPLAY:-0}"
 SYMCC_NATIVE_EXPORT_ENABLED="${LLM_FUZZGEN_EXPORT_NATIVE_ARTIFACTS:-0}"
+SYMCC_LIBRARY_ENABLED="${LLM_FUZZGEN_BUILD_SYMCC_LIBRARY:-0}"
 
 if [ "$BUILD_FLAVOR" = "symcc_replay" ]; then
   SYMCC_REPLAY_ENABLED=1
 fi
 if [ "$BUILD_FLAVOR" = "symcc_native" ]; then
   SYMCC_NATIVE_EXPORT_ENABLED=1
+fi
+if [ "$BUILD_FLAVOR" = "symcc_library" ]; then
+  SYMCC_LIBRARY_ENABLED=1
 fi
 
 strip_instrumentation_flags() {
@@ -77,10 +81,27 @@ strip_instrumentation_flags() {
   printf '%s ' "${filtered_flags[@]}"
 }
 
-if [ "$BUILD_FLAVOR" = "symcc_native" ]; then
+if [ "$BUILD_FLAVOR" = "symcc_native" ] || [ "$BUILD_FLAVOR" = "symcc_library" ]; then
   export CFLAGS="$(strip_instrumentation_flags "$CFLAGS")"
   export CXXFLAGS="$(strip_instrumentation_flags "$CXXFLAGS")"
   export LDFLAGS="$(strip_instrumentation_flags "${LDFLAGS:-}")"
+fi
+
+if [ "$SYMCC_LIBRARY_ENABLED" = "1" ]; then
+  test -x "/symcc-bin/symcc"    || { echo "[llm-fuzzgen] ERROR: /symcc-bin/symcc not found (volume mount missing?)" >&2; exit 1; }
+  test -x "/symcc-bin/sym++"    || { echo "[llm-fuzzgen] ERROR: /symcc-bin/sym++ not found" >&2; exit 1; }
+  test -f "/symcc-bin/libsymcc.so" || { echo "[llm-fuzzgen] ERROR: /symcc-bin/libsymcc.so not found" >&2; exit 1; }
+  test -f "/symcc-bin/SymCCRuntime-prefix/src/SymCCRuntime-build/libsymcc-rt.a" \
+    || test -f "/symcc-bin/SymCCRuntime-prefix/src/SymCCRuntime-build/libsymcc-rt.so" \
+    || { echo "[llm-fuzzgen] ERROR: libsymcc-rt not found in /symcc-bin volume" >&2; exit 1; }
+  export CC="/symcc-bin/symcc"
+  export CXX="/symcc-bin/sym++"
+  export SYMCC_PASS_DIR="/symcc-bin"
+  export SYMCC_RUNTIME_DIR="/symcc-bin/SymCCRuntime-prefix/src/SymCCRuntime-build"
+  export SYMCC_CLANG="/usr/local/bin/clang"
+  export SYMCC_CLANGPP="/usr/local/bin/clang++"
+  export SYMCC_REGULAR_LIBCXX="yes"
+  export SYMCC_ENABLE_LINEARIZATION="1"
 fi
 
 echo "[llm-fuzzgen] SANITIZER=$SANITIZER BUILD_FLAVOR=$BUILD_FLAVOR" >&2
@@ -92,6 +113,10 @@ build_dir=$WORK/build
 rm -rf ${build_dir}
 mkdir -p ${build_dir}
 pushd ${build_dir}
+if [ "$SYMCC_LIBRARY_ENABLED" = "1" ]; then
+  apt-get install -y libz3-4 -q 2>/dev/null || true
+  export LD_LIBRARY_PATH="/symcc-bin:/symcc-libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 # oss-fuzz has 2 GB total memory allocation limit. So, we limit per-allocation
 # limit in libvpx to 1 GB to avoid OOM errors. A smaller per-allocation is
@@ -288,4 +313,39 @@ if [ "$SYMCC_NATIVE_EXPORT_ENABLED" = "1" ]; then
     echo "[llm-fuzzgen] symcc_native archive still contains sanitizer coverage symbols" >&2
     exit 1
   fi
+fi
+
+if [ "$SYMCC_LIBRARY_ENABLED" = "1" ]; then
+  SYMCC_LIBRARY_DIR="$OUT/symcc_library"
+  mkdir -p "$SYMCC_LIBRARY_DIR"
+  cp "${build_dir}/libvpx.a" "$SYMCC_LIBRARY_DIR/libvpx.a"
+  mkdir -p "$SYMCC_LIBRARY_DIR/build_headers"
+  find "${build_dir}" -maxdepth 1 -name "*.h" -exec cp {} "$SYMCC_LIBRARY_DIR/build_headers/" \;
+  if ! nm -A "$SYMCC_LIBRARY_DIR/libvpx.a" | grep -qE '[[:space:]]U[[:space:]]+_sym_'; then
+    echo "[llm-fuzzgen] ERROR: symcc_library archive missing SymCC runtime refs (_sym_*)" >&2
+    exit 1
+  fi
+  if nm -A "$SYMCC_LIBRARY_DIR/libvpx.a" | grep -qE '__sanitizer_cov_|__sancov_'; then
+    echo "[llm-fuzzgen] ERROR: symcc_library archive contains sanitizer coverage symbols" >&2
+    exit 1
+  fi
+  echo "[llm-fuzzgen] symcc_library archive validated OK: $SYMCC_LIBRARY_DIR/libvpx.a" >&2
+
+  OUT_PROJECT_DIR="$OUT/source_code"
+  if [ -e "$OUT_PROJECT_DIR" ] && [ ! -d "$OUT_PROJECT_DIR" ]; then
+    rm -f "$OUT_PROJECT_DIR"
+  fi
+  mkdir -p "$OUT_PROJECT_DIR"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --no-perms \
+      --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+      --exclude='build' --exclude='cmake' --exclude='CMakeFiles' \
+      --exclude='*.o' --exclude='*.a' --exclude='*.so' --exclude='*.dll' \
+      "$SRC/libvpx/" "$OUT_PROJECT_DIR/"
+  else
+    find "$SRC/libvpx" -maxdepth 1 -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+      -exec cp {} "$OUT_PROJECT_DIR/" \;
+  fi
+
+  exit 0
 fi

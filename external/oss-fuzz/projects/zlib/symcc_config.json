@@ -2,12 +2,8 @@
   "native_archive": true,
   "native_archive_build_flavor": "symcc_native",
   "native_archive_subdir": "symcc_native",
-  "native_archive_filename": "libtiff_combined.a",
+  "native_archive_filename": "libz.a",
   "native_archive_include_dirs": [
-    "symcc_native/include",
     "source_code"
-  ],
-  "extra_ldflags": [
-    "/usr/lib/x86_64-linux-gnu/liblzma.so.5"
   ]
 }

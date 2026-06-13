@@ -602,6 +602,7 @@ def _build_blocker_immediate_validation_record(
         "pipeline_methods": pipeline_result.get("pipeline_methods", []),
         "pipeline_success": pipeline_result.get("pipeline_success"),
         "pipeline_success_stage": pipeline_result.get("pipeline_success_stage"),
+        "triage_result": pipeline_result.get("triage_result"),
         "classify_elapsed_seconds": pipeline_result.get("classify_elapsed_seconds"),
         "pipeline_elapsed_seconds": pipeline_result.get("pipeline_elapsed_seconds"),
     }
@@ -630,6 +631,7 @@ def _select_project_blockers(
         project_target_reports=coverage_context.target_reports,
         top_k=None,
         include_resolved=include_resolved,
+        project_name=project_name,
     )
     aggregated_count = len(blockers)
     filtered = _filter_and_refine_project_blockers(blockers, coverage_context)
@@ -674,6 +676,7 @@ def run_blocker_pipeline(
     blocker_pipeline_mode: str | None = None,
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
+    enable_blocker_triage: bool = False,
     deadline: float | None = None,
 ) -> dict:
     if deadline is not None:
@@ -889,6 +892,11 @@ def run_blocker_pipeline(
         blocker_pipeline_mode=blocker_pipeline_mode,
         skip_input_dependent_pipeline=skip_input_dependent_pipeline,
         skip_input_independent_pipeline=skip_input_independent_pipeline,
+        enable_triage=enable_blocker_triage,
+        skip_triage=False,
+        triage_emit_prompts_only=False,
+        triage_source_context_lines=25,
+        blocked_side_hit_count=live_revalidation.get("blocked_side_hit_count"),
         classify_only=False,
         language=None,
         output_root=str(_blocker_base) if _blocker_base is not None else None,
@@ -968,11 +976,12 @@ def run_blocker_pipeline(
     classify_elapsed = time.perf_counter() - classify_started_at
     pipeline_elapsed = time.perf_counter() - pipeline_started_at
     pipeline_returncode = result.get("pipeline_returncode", 0)
-    success = pipeline_returncode == 0
+    success = bool(result["success"]) if "success" in result else pipeline_returncode == 0
     attempt_result = result.get("attempt_result", "success" if success else "failed")
     pipeline_methods = result.get("pipeline_methods", [])
     pipeline_output = result.get("pipeline_output") or {}
     pipeline_parsed_output = pipeline_output.get("parsed_output") if isinstance(pipeline_output, dict) else None
+    triage_result = result.get("triage_result") or {}
     pipeline_success = None
     pipeline_output_dir = None
     pipeline_summary_path = None
@@ -1000,6 +1009,26 @@ def run_blocker_pipeline(
         classify_elapsed_seconds=classify_elapsed,
         pipeline_elapsed_seconds=pipeline_elapsed,
         reason=result.get("reason"),
+        analysis_trace=(result.get("parsed_result") or {}).get("analysis_trace", []),
+        triage_first_layer_decision=triage_result.get("first_layer_decision"),
+        triage_refined_label=triage_result.get("refined_triage_label"),
+        triage_solver_action=triage_result.get("solver_action"),
+        triage_raw_first_layer_decision=triage_result.get("raw_first_layer_decision"),
+        triage_raw_refined_label=triage_result.get("raw_refined_triage_label"),
+        triage_raw_solver_action=triage_result.get("raw_solver_action"),
+        triage_routing_source=triage_result.get("routing_source"),
+        triage_normalization_applied=triage_result.get("normalization_applied"),
+        triage_normalization_reason=triage_result.get("normalization_reason"),
+        triage_review_required=triage_result.get("review_required"),
+        triage_status=triage_result.get("triage_status"),
+        triage_error_reason=triage_result.get("triage_error_reason"),
+        triage_llm_attempt_count=triage_result.get("llm_attempt_count"),
+        triage_evidence_strength=triage_result.get("evidence_strength"),
+        triage_classifier_agreement=triage_result.get("classifier_agreement"),
+        triage_source_overrides_classifier=triage_result.get("source_overrides_classifier"),
+        triage_required_solver_hint=triage_result.get("required_solver_hint"),
+        triage_prompt_path=triage_result.get("triage_prompt_path"),
+        triage_parsed_path=triage_result.get("triage_parsed_path"),
         target_name=blocker.get("best_target"),
         function_name=blocker.get("function_name"),
         branch_line_number=blocker.get("branch_line_number"),
@@ -1024,6 +1053,26 @@ def run_blocker_pipeline(
         pipeline_output_dir=pipeline_output_dir,
         pipeline_summary_path=pipeline_summary_path,
         reason=result.get("reason"),
+        analysis_trace=(result.get("parsed_result") or {}).get("analysis_trace", []),
+        triage_first_layer_decision=triage_result.get("first_layer_decision"),
+        triage_refined_label=triage_result.get("refined_triage_label"),
+        triage_solver_action=triage_result.get("solver_action"),
+        triage_raw_first_layer_decision=triage_result.get("raw_first_layer_decision"),
+        triage_raw_refined_label=triage_result.get("raw_refined_triage_label"),
+        triage_raw_solver_action=triage_result.get("raw_solver_action"),
+        triage_routing_source=triage_result.get("routing_source"),
+        triage_normalization_applied=triage_result.get("normalization_applied"),
+        triage_normalization_reason=triage_result.get("normalization_reason"),
+        triage_review_required=triage_result.get("review_required"),
+        triage_status=triage_result.get("triage_status"),
+        triage_error_reason=triage_result.get("triage_error_reason"),
+        triage_llm_attempt_count=triage_result.get("llm_attempt_count"),
+        triage_evidence_strength=triage_result.get("evidence_strength"),
+        triage_classifier_agreement=triage_result.get("classifier_agreement"),
+        triage_source_overrides_classifier=triage_result.get("source_overrides_classifier"),
+        triage_required_solver_hint=triage_result.get("required_solver_hint"),
+        triage_prompt_path=triage_result.get("triage_prompt_path"),
+        triage_parsed_path=triage_result.get("triage_parsed_path"),
     )
     if success:
         logger.info(
@@ -1031,6 +1080,15 @@ def run_blocker_pipeline(
             project_name,
             pipeline_elapsed,
             classify_elapsed,
+        )
+    elif attempt_result in {"triage_skipped", "triage_manual_review"}:
+        logger.info(
+            "Blocker pipeline stopped by triage for %s in %.2fs (classify=%.2fs): %s/%s.",
+            project_name,
+            pipeline_elapsed,
+            classify_elapsed,
+            triage_result.get("first_layer_decision"),
+            triage_result.get("refined_triage_label"),
         )
     else:
         logger.warning(
@@ -1050,6 +1108,7 @@ def run_blocker_pipeline(
         "pipeline_success_stage": pipeline_success_stage,
         "pipeline_failure_stage": pipeline_failure_stage,
         "pipeline_returncode": pipeline_returncode,
+        "triage_result": triage_result,
         "classify_elapsed_seconds": classify_elapsed,
         "pipeline_elapsed_seconds": pipeline_elapsed,
         "live_revalidation": live_revalidation,
@@ -1073,6 +1132,7 @@ def run_blocker_session(
     blocker_pipeline_mode: str | None = None,
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
+    enable_blocker_triage: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
@@ -1308,6 +1368,7 @@ def run_blocker_session(
             blocker_pipeline_mode=blocker_pipeline_mode,
             skip_input_dependent_pipeline=skip_input_dependent_pipeline,
             skip_input_independent_pipeline=skip_input_independent_pipeline,
+            enable_blocker_triage=enable_blocker_triage,
             deadline=deadline,
         )
         attempted += 1
@@ -1435,6 +1496,7 @@ def run_blocker_once(
     blocker_pipeline_mode: str | None = None,
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
+    enable_blocker_triage: bool = False,
     blocker_artifact_report_seconds: int = 30,
     prepare_artifacts: bool = False,
     force_refresh_artifacts: bool = False,
@@ -1469,6 +1531,7 @@ def run_blocker_once(
         blocker_pipeline_mode=blocker_pipeline_mode,
         skip_input_dependent_pipeline=skip_input_dependent_pipeline,
         skip_input_independent_pipeline=skip_input_independent_pipeline,
+        enable_blocker_triage=enable_blocker_triage,
         deadline=deadline,
     )
     if not result.get("success"):
@@ -1521,7 +1584,7 @@ class CoverageTimelineRecorder:
         self,
         project_name: str,
         log_path: Path | None = None,
-        stagnation_window: int = 3,
+        stagnation_window: int = 2,
         stagnation_threshold: float = 0.01,
     ) -> None:
         self.project_name = project_name
@@ -1647,6 +1710,7 @@ def run_fuzzers_and_get_coverage(
     blocker_pipeline_mode: str | None = None,
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
+    enable_blocker_triage: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
@@ -1716,6 +1780,7 @@ def run_fuzzers_and_get_coverage(
             blocker_pipeline_mode=blocker_pipeline_mode,
             skip_input_dependent_pipeline=skip_input_dependent_pipeline,
             skip_input_independent_pipeline=skip_input_independent_pipeline,
+            enable_blocker_triage=enable_blocker_triage,
             blocker_session_refresh_mode=blocker_session_refresh_mode,
             blocker_artifact_report_seconds=blocker_artifact_report_seconds,
             blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
@@ -1778,6 +1843,7 @@ def run_fuzzers_and_get_coverage(
                     blocker_pipeline_mode=blocker_pipeline_mode,
                     skip_input_dependent_pipeline=skip_input_dependent_pipeline,
                     skip_input_independent_pipeline=skip_input_independent_pipeline,
+                    enable_blocker_triage=enable_blocker_triage,
                     blocker_session_refresh_mode=blocker_session_refresh_mode,
                     blocker_artifact_report_seconds=blocker_artifact_report_seconds,
                     blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
@@ -1825,6 +1891,7 @@ def run_all_fuzzer(
     blocker_pipeline_mode: str | None = None,
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
+    enable_blocker_triage: bool = False,
     blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
@@ -1882,6 +1949,7 @@ def run_all_fuzzer(
                     blocker_pipeline_mode,
                     skip_input_dependent_pipeline,
                     skip_input_independent_pipeline,
+                    enable_blocker_triage,
                     blocker_session_refresh_mode,
                     blocker_artifact_report_seconds,
                     blocker_refresh_branch_growth_threshold,
@@ -2220,6 +2288,12 @@ def _parse_args() -> argparse.Namespace:
         help="Classify input-independent blockers but skip the input-independent solver pipeline.",
     )
     parser_run.add_argument(
+        "--enable-blocker-triage",
+        action="store_true",
+        default=False,
+        help="Run C/C++ blocker solvability triage as a hard gate before solver dispatch.",
+    )
+    parser_run.add_argument(
         "--blocker-session-refresh-mode",
         choices=["reuse_session_artifacts", "refresh_before_next_blocker"],
         default="reuse_session_artifacts",
@@ -2307,6 +2381,12 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Classify input-independent blockers but skip the input-independent solver pipeline.",
+    )
+    parser_blocker.add_argument(
+        "--enable-blocker-triage",
+        action="store_true",
+        default=False,
+        help="Run C/C++ blocker solvability triage as a hard gate before solver dispatch.",
     )
     parser_blocker.add_argument(
         "--blocker-artifact-report-seconds",
@@ -2845,6 +2925,7 @@ def main() -> None:
                 args.blocker_pipeline_mode,
                 args.skip_input_dependent_pipeline,
                 args.skip_input_independent_pipeline,
+                args.enable_blocker_triage,
                 args.blocker_session_refresh_mode,
                 args.blocker_artifact_report_seconds,
                 args.blocker_refresh_branch_growth_threshold,
@@ -2871,6 +2952,7 @@ def main() -> None:
                 blocker_pipeline_mode=args.blocker_pipeline_mode,
                 skip_input_dependent_pipeline=args.skip_input_dependent_pipeline,
                 skip_input_independent_pipeline=args.skip_input_independent_pipeline,
+                enable_blocker_triage=args.enable_blocker_triage,
                 blocker_artifact_report_seconds=args.blocker_artifact_report_seconds,
                 prepare_artifacts=args.prepare_artifacts,
                 force_refresh_artifacts=args.force_refresh_artifacts,

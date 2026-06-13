@@ -69,6 +69,25 @@ Use this only as supplementary structure when the runtime path is too short or m
 
 ---
 
+## Classification Scope
+
+```
+CLASSIFICATION SCOPE:
+The primary classification is current-target input-only.
+Ask only: without modifying the current fuzz target code, can arbitrary fuzzer
+input bytes make execution reach the blocked side?
+
+Do not classify as Input Dependent merely because the blocked side might be
+reachable by modifying the fuzz target, using a different public API sequence,
+writing a new fuzz target, or calling internal/generated APIs.
+
+If input bytes alone cannot reach the blocked side under the current target,
+classify as Input Independent. The later solver may decide whether to adjust
+the existing target or generate a new one.
+```
+
+---
+
 ## Core Analytical Framework: Semantic Data Flow Tracing
 
 To determine whether a blocker is **Input Dependent** or **Input Independent**, you MUST trace the variables in the blocked predicate backward to the fuzz target and the observed runtime path.
@@ -81,11 +100,9 @@ If the predicate depends on semantic properties derived from input, it is still 
 - **Length & Boundaries**: `strlen(value)`, pointer arithmetic, or size parameters derived from input.
 - **Structural Properties**: recursion depth, iteration count, state transitions, nesting level, or parser state derived from input.
 
-### Rule 3: Strictly Uncontrollable Internal State (Input Independent)
-Classify as **Input Independent** only if the predicate depends on state that cannot be influenced by:
-- fuzz input bytes or derived values
-- input-induced structure, length, depth, or ordering
-- public API call sequencing or object construction performed by the current fuzz target
+### Rule 3: Observed-Path Invariants (Input Independent)
+Apply Rule 3 when the executed library/API path enforces an invariant that input bytes cannot break — the value/state is locked by the library's own initialization or transition logic on the observed runtime path.
+Do not generalize this to all public APIs unless the provided evidence explicitly proves it.
 
 IMPORTANT: A variable being 'internal' to the library is NOT sufficient.
 If the internal state is computed from parsing, decoding, traversal, state transitions, or counters driven by externally supplied input, it remains **Input Dependent** (apply Rule 2).
@@ -99,13 +116,22 @@ If the fuzz target misuses `FuzzedDataProvider` in a way that makes the blocked 
 - creating or loading objects from fuzz input but then never using the relevant object state
 
 ### Rule 5: Fuzz Target Hardcoded Logic & Incomplete Scope (Input Independent)
-Classify as **Input Independent** only when the fuzz target's hardcoded logic, guard conditions, missing setup, or restricted API usage prevents the blocked predicate from being satisfiable by input alone under the current target. Examples:
+Apply Rule 5 when the required value/state would require changing the current fuzz target's setup, API sequence, hardcoded args, guards, or object materialization — the library could produce it, but this target's design prevents it. Examples:
 - hardcoded safe arguments that constrain the state relevant to the predicate
 - missing required API calls or incomplete setup needed to make the predicate reachable
 - object creation without later materialization or consumption
 
 IMPORTANT: It is NOT sufficient that the fuzz target could be improved.
 You must show that the current target logic blocks the predicate even if the fuzzer generates arbitrary bytes.
+Do NOT claim "no public API can reach this" unless the provided evidence explicitly supports that broad claim.
+C/C++ public APIs may include macros, optional features, platform-specific sources, generated headers, and callback APIs not visible in the provided evidence.
+
+---
+
+**RULE SELECTION NOTE**: Rule selection is secondary to the L1 dependency label.
+First answer: under the current-target input-only scope, can arbitrary input bytes reach the blocked side?
+If NO → classify as Input Independent, then select the most fitting Rule (3–6) to explain WHY.
+Rule selection determines the reason and guides solver direction; it does not change the primary classification.
 
 ### Rule 6: Environmental or System API Failures (Input Independent)
 Classify as **Input Independent** if the blocked predicate strictly checks for extraordinary system or environmental failures that cannot be reliably triggered by altering the fuzzer's data content. Examples include:
@@ -128,6 +154,12 @@ Use the following 4-part structure in `analysis_trace`:
 - If `{branch_hit_count}` == 0: the line was NEVER executed. This may indicate the enclosing function is never called, OR an earlier condition always short-circuits before reaching this line. Do NOT skip steps [2] and [3].
 - If `{branch_hit_count}` > 0: the blocked predicate IS being evaluated repeatedly. Focus on why the blocked side is never satisfied. Do NOT classify as 'Missing Function Calls'.
 - Identify the predicate variable or condition at line `{branch_line_number}`.
+- STATISTICAL SIGNAL: If `{branch_hit_count}` is large and `{blocked_side_hit_count}` is 0, treat this as a signal to search for a structural blocker before concluding Input Dependent. Do not conclude "coverage issue" unless you can identify a concrete input-controlled path that would satisfy the required blocked-side value/state. Do not conclude Input Independent from hit counts alone.
+
+[1.5. Blocked Side Direction]:
+- Using the surrounding source, state whether line `{blocked_side_line_number}` is reached when the branch condition at line `{branch_line_number}` evaluates to TRUE, FALSE, an else case, a switch case/default, a fall-through after early return/goto, or some other control flow path.
+- Pin the required predicate value/state needed to reach the blocked side.
+- All later reasoning in [3A] and [3B] must target this required value/state, not the opposite.
 
 [2. Fuzz Target Call Site]:
 - Identify the fuzz target API call in `<fuzz_target_code>` that launches the observed path toward the blocker.
@@ -142,24 +174,28 @@ Use the following 4-part structure in `analysis_trace`:
   - Registering a callback does not prove the callback performs the required API calls.
 - If the fuzz target only parses or builds objects but never materially consumes the relevant state, treat it as a fuzz-target scope/setup issue (Rule 5).
 
-[3. Origin Trace]:
-- Trace the blocked predicate backward through `<runtime_blocker_segment_source_codes>` first.
-- Use `<cfg_call_chain>` and `<cfg_source_codes>` only to fill runtime gaps caused by inlining or missing frames.
-- You MUST cite the exact assignment/update site of the predicate variable.
-- If the reasoning depends on an enum, bitmask, or constant, quote the exact definition. Do NOT guess numeric values.
-- If you claim a function is the only setter, state: 'Based on provided code, observed sources are: [list]'. Do not assert uniqueness beyond what the code shows.
-- If any key conclusion cannot be proven from the provided evidence, explicitly state: 'Not provable from provided code'.
+[3A. Setter / Transition Evidence]:
+- Enumerate every visible assignment, update, initializer, API call, callback, macro, or state transition in the provided evidence that can affect the predicate variable or state from [1.5].
+- For each: (a) the value/state it produces, (b) where it occurs, (c) whether it lies on the observed runtime path.
+- If complete setter coverage is not provable from provided evidence, explicitly state: 'Not provable from provided code'.
+- Identify which visible setter(s) can produce the required target value/state from [1.5].
 - **MANDATORY FDP STARVATION CHECK**: You MUST examine whether earlier `fdp.Consume...()` calls deterministically exhaust or trivialize the data used to reach the blocked predicate.
   - If `fdp.ConsumeRemainingBytes...()` appears earlier, explicitly state: 'DATA STARVATION DETECTED: ConsumeRemainingBytes was called earlier'.
   - Otherwise, if earlier `Consume...()` calls leave the relevant later value deterministically empty, zero, false, or structurally trivial, explicitly state: 'DATA STARVATION DETECTED: prior FDP consumption exhausts the later input path'.
 
+[3B. Survival / Feasibility Check]:
+- If a visible path in [3A] can produce the required value/state, trace whether execution can reach the blocked side at line `{blocked_side_line_number}` while that value/state still holds.
+- Check for: early return, abort, goto, longjmp, cleanup reset, object destruction, parser/state-machine transition failure, required second condition, feature flag, platform guard, or API lifecycle invariant between the setter and the blocked side.
+- If the value is input-reachable but cannot survive to the blocked-side read under the current target, classify as Input Independent.
+
 [4. Rule Application]:
 - Apply exactly one of Rules 1 to 6.
+- Rule selection is secondary: first determine the L1 dependency label, then select the Rule that best explains WHY.
 - If dynamic evidence already shows the observed runtime path is driven by fuzz input into the blocker, do not let unrelated static alternatives override that observation.
 
 **MANDATORY CHECKS before final classification**:
-1. **FDP Starvation**: If [3] identified data starvation, classify as **Input Independent** regardless of other signals.
-2. **Input-alone satisfiability**: Assuming the fuzz target is NOT modified, can the fuzzer's input alone satisfy the blocked condition?
+1. **FDP Starvation**: If [3A] identified data starvation, classify as **Input Independent** regardless of other signals.
+2. **Input-alone satisfiability**: Assuming the fuzz target is NOT modified, can the fuzzer's input alone satisfy the blocked condition AND survive to the blocked side (per [3B])?
    - If YES → **Input Dependent**.
    - If NO, AND modifying only the fuzz target logic (not the input) would resolve it → **Input Independent**.
 
@@ -173,9 +209,11 @@ In the `reason` field, use only single quotes for any internal quotations.
 {
   "analysis_trace": [
     "[1. Target Variable]: ...",
+    "[1.5. Blocked Side Direction]: ...",
     "[2. Fuzz Target Call Site]: `...`",
     "[2.5. Materialization Check]: ...",
-    "[3. Origin Trace]: ...",
+    "[3A. Setter / Transition Evidence]: ...",
+    "[3B. Survival / Feasibility Check]: ...",
     "[4. Rule Application]: ..."
   ],
   "classification": {

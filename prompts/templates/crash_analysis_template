@@ -19,6 +19,10 @@ Do not trust the heuristic blindly. Use it as a starting hypothesis only.
 ```json
 {heuristic_summary}
 ```
+- Reproduce Result:
+```json
+{reproduce_result}
+```
 - Fuzz Target Source:
 ---
 {fuzzer_source_code}
@@ -90,10 +94,10 @@ Evidence: [copy the sanitizer error header line, e.g. "heap-buffer-overflow on a
 **5. reproducibility** — Does the same seed stably reproduce this crash?
 
 Score:
-- 0 = not yet verified / unstable
-- 1 = confirmed stable replay
+- 0 = Reproduce Result says `succeeded: false` or the status is unknown
+- 1 = Reproduce Result says `succeeded: true`
 
-Evidence: [replay result, or "not yet verified"]
+Evidence: [copy the exact `evidence` value from Reproduce Result]
 
 ---
 
@@ -150,6 +154,7 @@ Return exactly one JSON object. Do not add prose before or after the JSON.
 - `evidence` must contain concrete observations, not generic statements.
 - `rubric_scores`: every field must have a non-empty `evidence` string. Score > 1 without
   concrete evidence is invalid.
+- `rubric_scores.reproducibility.score` must match Reproduce Result exactly.
 - `missing_evidence`: list specific items you could not verify (e.g. "API header for pcap_compile_nopcap not accessible").
 - If you cannot verify enough evidence, set `finding` to `Ambiguous`.
 - Use `cwe` only for real library bugs. Otherwise use an empty string.

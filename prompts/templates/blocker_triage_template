@@ -1,0 +1,211 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: {language}
+- Project: {project_name}
+- Target: {target_name}
+- Function: {function_name}
+- Branch line: {branch_line_number}
+- Branch code: `{blocker_line_code}`
+- Blocked-side line: {blocked_side_line_number}
+- Blocked-side code: `{blocked_side_line_code}`
+- Branch hit count: {branch_hit_count}
+- Blocked-side hit count: {blocked_side_hit_count}
+- Pipeline failure stage: {pipeline_failure_stage}
+- Pipeline methods attempted: {pipeline_methods}
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+{source_snippet}
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+{related_source_snippets}
+```
+
+### Runtime Segment Source Codes
+```c
+{runtime_blocker_segment_source_codes}
+```
+
+### Static Supplementary Source Codes
+```c
+{cfg_source_codes}
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+{runtime_blocker_segment}
+```
+
+### Pipeline Summary
+```text
+{pipeline_summary}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: {classifier_dependency}
+- Classifier reason: {classifier_reason}
+
+### Classifier Analysis Trace
+```text
+{classifier_trace}
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Before accepting any proposed path to the blocked side, verify that execution
+   actually reaches blocked-side line {blocked_side_line_number}. When an
+   enclosing `if`, `for`, or `while` condition evaluates to false, ALL lines
+   inside that block's `{}` are skipped — including any nested `if` branches
+   within it. A condition being satisfiable (e.g., `!ptr == true`) does not
+   prove the line is reachable if that line is inside a block whose own guard
+   is not entered. Use the step "[1b. Enclosing-block reachability]" to make
+   this check explicit before proceeding.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For internal parser or scanner state variables managed by generated code or
+   opaque internal transitions, do not infer solvability from generic parser
+   theory alone. Choose `Generated Parser State` or `Structurally Unreachable
+   API Path` unless the provided source shows a visible legal public transition
+   that sets the required state and persists to the blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+   inventing missing data. The pipeline derives routing from the label and keeps
+   solver execution enabled for inconclusive cases.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line {blocked_side_line_number}. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
+
+Do not output `first_layer_decision` or `solver_action`. The pipeline derives both
+deterministically from `refined_triage_label`.

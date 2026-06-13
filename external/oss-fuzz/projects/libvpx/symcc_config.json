@@ -6,5 +6,8 @@
   "native_archive_include_dirs": [
     "source_code",
     "symcc_native/build_headers"
+  ],
+  "extra_include_dirs": [
+    "llvm-project-14/compiler-rt/include/fuzzer"
   ]
 }

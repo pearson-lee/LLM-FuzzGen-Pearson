@@ -514,6 +514,19 @@ You are revising the previous generator based on execution feedback. Keep any wo
 - Keep stable family names for useful families. Do not rename or reshuffle every family on each iteration.
 - If a family reaches the branch line but not the blocked side, refine that family near the blocker condition.
 - If a family cannot reach the branch line, either discard it or replace it with a structurally different family.
+- Distinguish corpus-level coverage from generated-family coverage. If post-merge coverage says the branch is
+  reached but every generated family has branch_hits=0, then the generated seeds did NOT reach the branch. Treat this
+  as did_not_reach_branch, not as predicate_false.
+- If generated families do not reach the branch, revisit [0A API Anchor] and [0B Input Layout] before changing
+  predicate values.
+- If the blocker is selected through a parser, decoder, dispatcher, state machine, opcode switch, field-tag switch,
+  handler table, or virtual/visitor dispatch, also revisit whether the generated input used the exact representation
+  category that selects the target route. Do not treat a semantically similar surface form as equivalent unless it
+  reaches the same function path.
+- If generated families reach the branch but not the blocked side, revisit [0C Predicate Setter], [0D Reader Path],
+  and [0E Survival Check].
+- Do not switch to another input format or another API unless execution feedback proves the current API anchor is
+  wrong.
 - Preserve useful seed families and add new targeted variants instead of replacing everything blindly.
 - Your job is to improve the generator for the next iteration, not to explain why iteration is impossible.
 """
@@ -1223,8 +1236,17 @@ def summarize_family_performance(
         if int(item["branch_reached_count"]) > 0 and int(item["blocked_side_reached_count"]) == 0
     ]
     discard_families = [item["family"] for item in ranked_families if int(item["branch_reached_count"]) == 0]
+    generated_family_reached_branch = any(
+        int(item["branch_reached_count"]) > 0 for item in ranked_families
+    )
+    generated_family_reached_blocked_side = any(
+        int(item["blocked_side_reached_count"]) > 0 for item in ranked_families
+    )
     return {
         "best_family": best_family,
+        "generated_family_reached_branch": generated_family_reached_branch,
+        "generated_family_reached_blocked_side": generated_family_reached_blocked_side,
+        "seed_contract_reproduction_success": generated_family_reached_blocked_side,
         "stable_branch_families": stable_branch_families,
         "dead_families": dead_families,
         "keep_families": keep_families,
@@ -1238,6 +1260,9 @@ def render_family_summary_text(family_summary: dict) -> str:
     ranked_families = family_summary.get("ranked_families", [])
     lines = [
         f"best_family: {family_summary.get('best_family') or 'N/A'}",
+        f"generated_family_reached_branch: {family_summary.get('generated_family_reached_branch', False)}",
+        f"generated_family_reached_blocked_side: {family_summary.get('generated_family_reached_blocked_side', False)}",
+        f"seed_contract_reproduction_success: {family_summary.get('seed_contract_reproduction_success', False)}",
         f"stable_branch_families: {', '.join(family_summary.get('stable_branch_families', [])) or 'none'}",
         f"dead_families: {', '.join(family_summary.get('dead_families', [])) or 'none'}",
         f"keep_families: {', '.join(family_summary.get('keep_families', [])) or 'none'}",
@@ -1476,6 +1501,7 @@ def compute_coverage_delta(baseline: dict, post_merge: dict) -> dict:
         return {
             "success": False,
             "error": "Cannot compute delta because baseline or post-merge coverage failed.",
+            "coverage_novelty_success": False,
         }
 
     baseline_branch = int(baseline.get("branch_hit_count", 0))
@@ -1488,6 +1514,7 @@ def compute_coverage_delta(baseline: dict, post_merge: dict) -> dict:
         "blocked_side_hit_count_delta": post_blocked - baseline_blocked,
         "newly_reached_branch_line": (baseline_branch == 0 and post_branch > 0),
         "newly_reached_blocked_side_line": (baseline_blocked == 0 and post_blocked > 0),
+        "coverage_novelty_success": (baseline_blocked == 0 and post_blocked > 0),
     }
 
 
@@ -1549,6 +1576,10 @@ def diagnose_iteration(
     blocked_reached = bool(post_merge_evaluation.get("blocked_side_line_reached"))
     baseline_blocked_reached = bool(baseline_evaluation.get("blocked_side_line_reached"))
     newly_blocked_reached = bool(coverage_delta.get("newly_reached_blocked_side_line"))
+    coverage_novelty_success = bool(coverage_delta.get("coverage_novelty_success"))
+    generated_family_reached_branch = bool(family_summary.get("generated_family_reached_branch"))
+    generated_family_reached_blocked_side = bool(family_summary.get("generated_family_reached_blocked_side"))
+    seed_contract_reproduction_success = bool(family_summary.get("seed_contract_reproduction_success"))
     stable_branch_families = family_summary.get("stable_branch_families", [])
     dead_families = family_summary.get("dead_families", [])
     keep_families = family_summary.get("keep_families", [])
@@ -1607,6 +1638,10 @@ def diagnose_iteration(
         "blocked_side_line_reached": blocked_reached,
         "baseline_blocked_side_line_reached": baseline_blocked_reached,
         "newly_reached_blocked_side_line": newly_blocked_reached,
+        "coverage_novelty_success": coverage_novelty_success,
+        "generated_family_reached_branch": generated_family_reached_branch,
+        "generated_family_reached_blocked_side": generated_family_reached_blocked_side,
+        "seed_contract_reproduction_success": seed_contract_reproduction_success,
         "iteration_status": iteration_status,
         "best_family": family_summary.get("best_family", ""),
         "stable_branch_families": stable_branch_families,
@@ -1641,6 +1676,10 @@ def summarize_evaluation(
         f"Status reason: {status_reason}",
         f"Coverage progress this iteration: {iteration_status == 'coverage_progress' or iteration_status == 'solved'}",
         f"Family progress this iteration: {iteration_status == 'family_progress'}",
+        f"Coverage novelty success: {diagnosis.get('coverage_novelty_success', False)}",
+        f"Generated family reached branch: {diagnosis.get('generated_family_reached_branch', False)}",
+        f"Generated family reached blocked side: {diagnosis.get('generated_family_reached_blocked_side', False)}",
+        f"Seed contract reproduction success: {diagnosis.get('seed_contract_reproduction_success', False)}",
         f"Diagnosis: {diagnosis.get('diagnosis_code', 'unknown')}",
         f"Recommended next action: {diagnosis.get('recommended_next_action', 'N/A')}",
         f"SymCC candidate: {diagnosis.get('symcc_candidate', False)}",
@@ -1996,6 +2035,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             coverage_delta = {
                 "success": False,
                 "error": f"Generator validation failed: {validation_error_kind or 'unknown'}",
+                "coverage_novelty_success": False,
             }
             family_summary = summarize_family_performance(family_counts, representative_results)
             family_summary_text = render_family_summary_text(family_summary)
@@ -2078,6 +2118,10 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "evaluation": post_merge_evaluation,
             "evaluation_summary": evaluation_summary,
             "success": iteration_status == "solved",
+            "coverage_novelty_success": bool(diagnosis.get("coverage_novelty_success")),
+            "generated_family_reached_branch": bool(diagnosis.get("generated_family_reached_branch")),
+            "generated_family_reached_blocked_side": bool(diagnosis.get("generated_family_reached_blocked_side")),
+            "seed_contract_reproduction_success": bool(diagnosis.get("seed_contract_reproduction_success")),
             "iteration_status": iteration_status,
             "status_reason": status_reason,
             "diagnosis": diagnosis,
@@ -2153,6 +2197,18 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     invalid_iteration_count = sum(
         1 for item in iterations if item.get("iteration_status") in {"invalid_generator", "evaluation_failed"}
     )
+    coverage_novelty_success_count = sum(
+        1 for item in iterations if item.get("coverage_novelty_success")
+    )
+    generated_family_reached_branch_count = sum(
+        1 for item in iterations if item.get("generated_family_reached_branch")
+    )
+    generated_family_reached_blocked_side_count = sum(
+        1 for item in iterations if item.get("generated_family_reached_blocked_side")
+    )
+    seed_contract_reproduction_success_count = sum(
+        1 for item in iterations if item.get("seed_contract_reproduction_success")
+    )
     diagnosis_counts: dict[str, int] = {}
     symcc_candidate_iteration_count = 0
     for item in iterations:
@@ -2210,7 +2266,6 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         "pipeline_methods": ["llm_seed_generator"],
         "used_llm_seed_generator": True,
         "used_symcc": False,
-        "used_klee": False,
         "iterations_run": len(iterations),
         "progress_iteration_count": coverage_progress_iteration_count + family_progress_iteration_count,
         "coverage_progress_iteration_count": coverage_progress_iteration_count,
@@ -2219,6 +2274,14 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         "invalid_iteration_count": invalid_iteration_count,
         "symcc_candidate_iteration_count": symcc_candidate_iteration_count,
         "no_branch_signal_count": no_branch_signal_count,
+        "coverage_novelty_success": coverage_novelty_success_count > 0,
+        "coverage_novelty_success_count": coverage_novelty_success_count,
+        "generated_family_reached_branch": generated_family_reached_branch_count > 0,
+        "generated_family_reached_branch_count": generated_family_reached_branch_count,
+        "generated_family_reached_blocked_side": generated_family_reached_blocked_side_count > 0,
+        "generated_family_reached_blocked_side_count": generated_family_reached_blocked_side_count,
+        "seed_contract_reproduction_success": seed_contract_reproduction_success_count > 0,
+        "seed_contract_reproduction_success_count": seed_contract_reproduction_success_count,
         "diagnosis_counts": diagnosis_counts,
         "max_iterations": effective_max_iterations,
         "fuzz_seconds_per_iteration": args.fuzz_seconds,

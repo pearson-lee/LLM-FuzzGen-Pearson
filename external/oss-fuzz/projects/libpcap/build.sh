@@ -116,6 +116,7 @@ if [ "$SYMCC_LIBRARY_ENABLED" = "1" ]; then
   # libsymcc-rt.so (built with simple backend) links Z3; install the shared
   # library so cmake's compiler/feature tests can link against -lsymcc-rt.
   apt-get install -y libz3-4 -q 2>/dev/null || true
+  export LD_LIBRARY_PATH="/symcc-bin:/symcc-libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 cmake ..
 make

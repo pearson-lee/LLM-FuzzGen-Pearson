@@ -29,7 +29,14 @@ This is a blocker-branch-oriented feedback loop, not general seed generation for
 
 # Important Principle
 
-Prefer generating **native input files** for the library over simulating the internals of the harness.
+Generate bytes as consumed by the **existing fuzz target**.
+
+Prefer native subformats only inside the blocker-relevant API argument slice. If the fuzz target wraps, splits,
+prefixes, writes to a temporary file, null-terminates, or otherwise transforms `Data` before calling the library API,
+the generator MUST reproduce that outer harness layout.
+
+Do not choose an unrelated input format merely because another API in the fuzz target also consumes `Data`.
+The runtime blocker segment determines the API anchor.
 
 However, unlike a normal seed-generation task, your output must be a **Python generator program** that:
 
@@ -132,15 +139,71 @@ Structured view:
 ## Format-specific generator guidance
 {format_strategy_notes}
 
+# Step 0: Blocker Input Contract
+
+Before designing any seed family or writing generator code, you MUST first infer the blocker input contract.
+This contract is the source of truth for the generator.
+
+The runtime blocker segment is used to anchor:
+
+1. The library API call that leads to the blocker.
+2. The argument of that API that is derived from fuzzer `Data`.
+
+The internal runtime call chain is only the observed route for the current seed. Do not assume the same internal
+semantic route will reach the blocked side. If the observed route reaches the branch but not the blocked side,
+find a semantic route under the same API anchor that can satisfy the predicate.
+
+If the blocker is reached through a parser, grammar, decoder, state machine, visitor, virtual dispatch,
+opcode switch, field-tag dispatch, or handler table, the contract must identify the exact input representation
+category that selects the target route. Examples of representation categories include token kind, grammar
+production, AST node kind, opcode, message type, field number plus wire type, chunk or marker type, header name,
+command name, enum value, consume-call position, or handler key.
+
+Do not use an input form merely because it is semantically similar to the desired value. When multiple surface
+forms express the same concept, choose only the form whose parser/decoder/dispatcher route is proven to call the
+target function and reach the blocked predicate.
+
+If multiple input forms may express the same semantic concept but belong to different representation categories,
+do not merge them into one family. Put each representation category in a separate seed family with a stable name
+that identifies the category. The primary family should use the category with the strongest source evidence. If the
+source evidence is missing or ambiguous, say `unknown` in the contract and make exploratory families explicit rather
+than presenting guesses as confirmed facts.
+
+You MUST include the following five contract items in `analysis_summary`, using these exact prefixes:
+
+1. `[0A API Anchor]` Name the fuzz target call site that eventually reaches the blocker. Identify the
+   blocker-relevant API argument.
+2. `[0B Input Layout]` Describe how `Data[0..Size]` maps to that API argument. If `Data` is sliced, split,
+   length-prefixed, null-terminated, written to a file, or consumed through `FuzzedDataProvider`, give the
+   byte-range formula. If the whole `Data` buffer is passed verbatim, say so explicitly.
+3. `[0C Predicate Setter]` Describe the input-level trigger that sets the blocked predicate to the required value.
+   Do not only name an internal setter function. Name the syntax, bytes, field value, consume call, opcode,
+   token/production kind, field tag, marker, command, or handler key needed to select the target route. If several
+   representation categories are plausible, list them separately and state which one is source-supported for the
+   target route.
+4. `[0D Reader Path]` Describe the caller path that reads the required value at the blocked predicate. State
+   whether this is the same as the observed runtime path or a different semantic route.
+5. `[0E Survival Check]` Describe whether the value can survive from setter to reader. Check for reset, overwrite,
+   macro side effect, early return, longjmp, cleanup, parser ordering, state pop, and lifecycle constraints.
+
+Only after completing this contract should you design seed families. Every seed family must place the
+blocker-relevant content at the byte location described by `[0B Input Layout]`, trigger `[0C Predicate Setter]`,
+and reach `[0D Reader Path]`.
+
 # What To Infer
 
 From the code and blocker location, infer:
 
-1. What native input structure reaches this code. Prefer the inferred format above unless the code strongly contradicts it.
-2. Which input features are most likely to control the blocked branch.
-3. Which boundary values, malformed forms, or encoding variants should be systematically generated.
-4. How to organize those hypotheses into maintainable Python code instead of one-off samples.
-5. Which seed families should exist so later iterations can keep, discard, or refine them without renaming everything.
+1. The exact fuzz-target input layout that materializes the blocker-relevant API argument. The inferred native
+   format above is only a hint for the inner API argument, not necessarily for the entire `Data` buffer.
+2. The input-level syntax, bytes, fields, or semantic values that trigger the predicate setter.
+3. If a parser/decoder/dispatcher is involved, the exact representation category that selects the target function
+   rather than a semantically similar route.
+4. The reader path that reaches the blocked predicate after the setter fires.
+5. Whether the required value survives from setter to reader.
+6. Which boundary values, malformed forms, or encoding variants should be systematically generated.
+7. How to organize those hypotheses into maintainable Python code instead of one-off samples.
+8. Which seed families should exist so later iterations can keep, discard, or refine them without renaming everything.
 
 # Quality Bar
 
@@ -170,6 +233,16 @@ The JSON object must have exactly these keys:
 - `generator_code`: string
 - `sample_seeds`: array of strings
 
+The first five entries of `analysis_summary` MUST be the Step 0 contract entries, in this exact order:
+
+1. `[0A API Anchor] ...`
+2. `[0B Input Layout] ...`
+3. `[0C Predicate Setter] ...`
+4. `[0D Reader Path] ...`
+5. `[0E Survival Check] ...`
+
+If any contract item is unknown, say `unknown` and explain what context is missing. Do not silently guess.
+
 # Additional Constraints
 
 - `generator_code` must be valid Python 3.
@@ -180,6 +253,22 @@ The JSON object must have exactly these keys:
 - Prefer deterministic systematic variants over probabilistic sampling: use range enumeration, interesting-value lists, bitflip variants, and Cartesian combinations of relevant fields. Each family should explore a meaningful range of the hypothesis space, not a single hardcoded point. For example, if a field controls a branch, enumerate all semantically distinct values for that field rather than picking one guess.
 - Inside `build_seeds()`, return tuples `(filename, payload)` where `filename` preserves the stable family tag.
 - Design families so some target structure reachability and some target blocker-boundary refinement, but every family must still be blocker-oriented.
+- Do not generate seeds for an API path that is not on the runtime blocker segment unless the Step 0 contract explains
+  why that path reaches the same blocked predicate.
+- Do not treat a setter as sufficient. A seed family must also reach a reader path where the predicate reads the
+  required value.
+- Do not treat corpus-level branch reach as proof that generated seeds reached the branch. Seed families must be
+  designed so their own representative seeds can reach the branch.
+- If the blocker-relevant argument is a slice of `Data`, every generated seed must place the intended content exactly
+  in that slice.
+- If route selection depends on parsing, decoding, dispatch, or state-machine transitions, generated seeds must use
+  the exact representation category that selects the blocker route. Do not substitute another representation that is
+  only semantically equivalent.
+- If the required route depends on tokenization, field typing, opcode/message selection, header/command naming,
+  or consume-call order, encode that choice explicitly in helper names, comments, and family names.
+- Do not mix distinct route-selection categories in one family. For example, if two encodings, tokens, opcodes,
+  field tags, command names, or handler keys may dispatch differently, create separate families and label the route
+  evidence for each family.
 
 # Final Reminder
 

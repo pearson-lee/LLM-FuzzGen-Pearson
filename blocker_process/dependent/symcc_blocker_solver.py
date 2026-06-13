@@ -126,6 +126,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-sec", type=int, default=30, help="Timeout for each target execution.")
     parser.add_argument("--wall-clock-budget-sec", type=int, default=0, help="Total wall-clock budget for SymCC exploration in seconds. 0 means no limit.")
     parser.add_argument("--ossfuzz-supplement-corpus-dir", default=None, help="OSS-Fuzz corpus dir to scan for branch-reaching binary seeds when initial corpus is sparse (<4 seeds).")
+    parser.add_argument("--export-solved-seed-dir", default=None, help="Directory to receive the best blocked-side-reaching seed after a successful original-target solve.")
     parser.add_argument("--symcc", default=str(DEFAULT_SYMCC), help=f"Path to symcc. Default: {DEFAULT_SYMCC}")
     parser.add_argument("--sympp", default=str(DEFAULT_SYMPP), help=f"Path to sym++. Default: {DEFAULT_SYMPP}")
     parser.add_argument("--clang", default="clang", help="Path to clang for the coverage build.")
@@ -381,6 +382,31 @@ def add_seed_to_corpus(seed_path: Path, corpus_dir: Path, known_hashes: set[str]
     dest = corpus_dir / seed_name(seed_hash, seed_path)
     shutil.copy2(seed_path, dest)
     return dest
+
+
+def export_solved_seed(seed_path: Path, export_dir: Path) -> dict:
+    export_dir.mkdir(parents=True, exist_ok=True)
+    existing_by_hash = {sha256_file(path): path for path in sorted(export_dir.iterdir()) if path.is_file()}
+    seed_hash = sha256_file(seed_path)
+    dest = export_dir / seed_name(seed_hash, seed_path)
+    if seed_hash in existing_by_hash:
+        return {
+            "exported": False,
+            "duplicate": True,
+            "seed_path": str(seed_path),
+            "export_dir": str(export_dir),
+            "dest_path": str(existing_by_hash[seed_hash]),
+            "sha256": seed_hash,
+        }
+    shutil.copy2(seed_path, dest)
+    return {
+        "exported": True,
+        "duplicate": False,
+        "seed_path": str(seed_path),
+        "export_dir": str(export_dir),
+        "dest_path": str(dest),
+        "sha256": seed_hash,
+    }
 
 
 def write_replay_driver(work_dir: Path, driver_language: str) -> Path:
@@ -980,7 +1006,9 @@ def main() -> int:
     if args.build_context_file:
         loaded_context = BuildContext.from_json_file(Path(args.build_context_file).resolve())
         args.branch_source = loaded_context.branch_source
-        if loaded_context.target_source:
+        if loaded_context.mode == "generated_harness" and loaded_context.harness_source:
+            args.fuzz_target = loaded_context.harness_source
+        elif loaded_context.target_source:
             args.fuzz_target = loaded_context.target_source
     initial_seeds = collect_seed_paths(args.seed, args.seed_dir)
     if not initial_seeds:
@@ -1098,6 +1126,12 @@ def main() -> int:
             f"{best.branch_hit_count_raw} at line {args.branch_line}, "
             f"blocked side coverage: {best.blocked_side_hit_count_raw} at line {args.blocked_side_line}"
         )
+        if args.export_solved_seed_dir:
+            export_info = export_solved_seed(best.seed, Path(args.export_solved_seed_dir).resolve())
+            if export_info["exported"]:
+                print(f"Exported solved seed to OSS-Fuzz corpus: {export_info['dest_path']}")
+            elif export_info["duplicate"]:
+                print(f"Solved seed already exists in OSS-Fuzz corpus: {export_info['dest_path']}")
         if newly_reached:
             print("Status: SymCC discovered at least one new seed that reaches the blocked-side line.")
         else:

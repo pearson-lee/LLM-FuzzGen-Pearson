@@ -77,6 +77,7 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "llm_seed_handoff_selection_reason": result.get("llm_seed_handoff_selection_reason"),
         "llm_seed_progress_iteration_count": result.get("llm_seed_progress_iteration_count"),
         "message": result.get("message"),
+        "generated_harness_retention": result.get("generated_harness_retention"),
         "stage_statuses": stage_statuses,
         "stages": stages,
     }
@@ -284,6 +285,107 @@ def run_libfuzzer_focused_pass(
     }
 
 
+def _resolve_symcc_debug_root(args: argparse.Namespace) -> Path:
+    experiments_root = REPO_ROOT / "experiments"
+    output_root = Path(args.output_root).resolve() if getattr(args, "output_root", None) else None
+    if output_root is not None:
+        try:
+            relative = output_root.relative_to(experiments_root.resolve())
+            if relative.parts:
+                return experiments_root / relative.parts[0] / "symcc"
+        except ValueError:
+            pass
+    return experiments_root / "symcc"
+
+
+def _copy_debug_file(path_value: object, destination: Path, label: str) -> str | None:
+    if not path_value:
+        return None
+    source = Path(str(path_value))
+    if not source.is_file():
+        return None
+    label_dir = destination / label
+    label_dir.mkdir(parents=True, exist_ok=True)
+    target = label_dir / source.name
+    shutil.copy2(source, target)
+    return str(target)
+
+
+def archive_generated_harness_for_debug(
+    args: argparse.Namespace,
+    parsed_harness: dict,
+    symcc_harness_stage: dict | None,
+    reason: str,
+) -> dict:
+    target_name = str(parsed_harness.get("native_build_target_name") or "").strip()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_name = sanitize_name(
+        f"{args.project_name}_{args.function_name}_{args.branch_line_number}_{target_name or 'generated_harness'}_{timestamp}"
+    )
+    archive_dir = _resolve_symcc_debug_root(args) / archive_name
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    copied_files = {
+        "generated_harness": _copy_debug_file(parsed_harness.get("harness_path"), archive_dir, "source"),
+        "oss_fuzz_target": _copy_debug_file(parsed_harness.get("native_build_target_path"), archive_dir, "oss_fuzz_target"),
+        "prompt": _copy_debug_file(parsed_harness.get("prompt_path"), archive_dir, "llm"),
+        "response": _copy_debug_file(parsed_harness.get("response_path"), archive_dir, "llm"),
+        "parsed": _copy_debug_file(parsed_harness.get("parsed_path"), archive_dir, "llm"),
+    }
+    harness_path = Path(str(parsed_harness.get("harness_path") or ""))
+    if harness_path.is_file():
+        copied_files["build_context"] = _copy_debug_file(harness_path.parent / "build_context.json", archive_dir, "source")
+        copied_files["native_build_check"] = _copy_debug_file(harness_path.parent / "native_build_check.txt", archive_dir, "source")
+
+    metadata = {
+        "reason": reason,
+        "project_name": args.project_name,
+        "function_name": args.function_name,
+        "branch_line_number": int(args.branch_line_number),
+        "blocked_side_line_number": int(args.blocked_side_line_number),
+        "native_build_target_name": target_name or None,
+        "parsed_harness": parsed_harness,
+        "symcc_harness_stage": symcc_harness_stage or {},
+        "copied_files": copied_files,
+    }
+    write_json(archive_dir / "metadata.json", metadata)
+    return {
+        "debug_archive_dir": str(archive_dir),
+        "copied_files": copied_files,
+    }
+
+
+def quarantine_unsolved_generated_harness(
+    args: argparse.Namespace,
+    parsed_harness: dict | None,
+    symcc_harness_stage: dict | None,
+    reason: str,
+) -> dict:
+    if not isinstance(parsed_harness, dict):
+        return {
+            "retained": False,
+            "quarantined": False,
+            "reason": reason,
+            "error": "No generated harness metadata available.",
+        }
+
+    archive_info = archive_generated_harness_for_debug(args, parsed_harness, symcc_harness_stage, reason)
+    target_name = str(parsed_harness.get("native_build_target_name") or "").strip()
+    removed = False
+    if target_name:
+        OSSFuzz().remove_target(args.project_name, target_name)
+        removed = True
+
+    return {
+        "retained": False,
+        "quarantined": True,
+        "reason": reason,
+        "target_name": target_name or None,
+        "oss_fuzz_target_removed": removed,
+        **archive_info,
+    }
+
+
 def build_symcc_cmd(
     args: argparse.Namespace,
     blocker_json_path: Path,
@@ -378,6 +480,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         "output_dir": str(output_dir),
         "seed_inputs": seeds,
         "symcc_seed_inputs": list(seeds),
+        "generated_harness_retention": None,
         "stages": {},
     }
 
@@ -520,9 +623,23 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["success"] = True
         result["success_stage"] = "symcc_generated_harness"
         result["attempt_result"] = "success"
+        result["generated_harness_retention"] = {
+            "retained": True,
+            "quarantined": False,
+            "reason": "blocked_side_line_reached",
+            "target_name": simplified_target_name,
+            "oss_fuzz_target_path": parsed_symcc_harness.get("native_build_target_path"),
+            "harness_path": parsed_symcc_harness.get("harness_path"),
+        }
         return result
 
     result["failure_stage"] = "symcc_generated_harness"
+    result["generated_harness_retention"] = quarantine_unsolved_generated_harness(
+        args=args,
+        parsed_harness=parsed_symcc_harness,
+        symcc_harness_stage=result["stages"].get("symcc_generated_harness"),
+        reason="symcc_generated_harness_did_not_reach_blocked_side",
+    )
     result["message"] = "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback."
     result["attempt_result"] = infer_attempt_result(result)
     return result

@@ -131,6 +131,53 @@ def load_project_config(project_name: str) -> dict:
     return {}
 
 
+def _config_list(value: object) -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    return [str(value)]
+
+
+def _resolve_config_path(raw_path: str, project_name: str | None) -> Path:
+    build_out = REPO_ROOT / "external" / "oss-fuzz" / "build" / "out"
+    expanded = (
+        raw_path
+        .replace("{repo_root}", str(REPO_ROOT))
+        .replace("{build_out}", str(build_out))
+    )
+    if project_name:
+        expanded = expanded.replace("{project}", project_name)
+
+    path = Path(expanded)
+    if path.is_absolute():
+        return path
+    return REPO_ROOT / path
+
+
+def apply_project_config_overrides(args: argparse.Namespace, project_config: dict) -> argparse.Namespace:
+    if not project_config:
+        return args
+
+    project_name = getattr(args, "project_name", None)
+    for include_dir in _config_list(project_config.get("extra_include_dirs")):
+        resolved = str(_resolve_config_path(include_dir, project_name))
+        if resolved not in args.include_dir:
+            args.include_dir.append(resolved)
+
+    for key, attr in (
+        ("extra_cflags", "cflags"),
+        ("extra_cxxflags", "cxxflags"),
+        ("extra_ldflags", "ldflags"),
+    ):
+        extras = _config_list(project_config.get(key))
+        if extras:
+            current = getattr(args, attr) or ""
+            setattr(args, attr, " ".join(part for part in [current, *extras] if part).strip())
+
+    return args
+
+
 # Phase 1 allowlist: only projects where symcc_library has been validated.
 _SYMCC_LIBRARY_PROJECTS = {"libpcap"}
 
@@ -309,12 +356,9 @@ def symcc_cmd(
         args.llvm_profdata or "llvm-profdata",
         "--llvm-cov",
         args.llvm_cov or "llvm-cov",
-        "--cflags",
-        args.cflags,
-        "--cxxflags",
-        args.cxxflags,
-        "--ldflags",
-        args.ldflags,
+        f"--cflags={args.cflags}",
+        f"--cxxflags={args.cxxflags}",
+        f"--ldflags={args.ldflags}",
     ]
     if coverage_binary is not None:
         cmd.extend(["--coverage-binary", str(coverage_binary)])
@@ -337,12 +381,21 @@ def symcc_cmd(
         supplement_dir = oss_fuzz.build_corpus_dir / args.project_name / args.target_name
         if supplement_dir.is_dir():
             cmd.extend(["--ossfuzz-supplement-corpus-dir", str(supplement_dir)])
+        try:
+            build_context = BuildContext.from_json_file(build_context_path)
+        except Exception:
+            build_context = None
+        if build_context is not None and build_context.mode == "original_target":
+            export_dir = oss_fuzz.build_corpus_dir / args.project_name / args.target_name
+            cmd.extend(["--export-solved-seed-dir", str(export_dir)])
     return cmd
 
 
 def main() -> int:
     args = apply_blocker_payload(parse_args())
     args = maybe_auto_resolve_fuzz_target(args)
+    project_config = load_project_config(args.project_name) if args.project_name else {}
+    args = apply_project_config_overrides(args, project_config)
 
     missing = []
     if not getattr(args, "fuzz_target", None):
@@ -419,7 +472,6 @@ def main() -> int:
     if args.project_name and args.target_name:
         oss_fuzz = OSSFuzz()
         # T9: native archive mode is config-driven via external/oss-fuzz/projects/{project}/symcc_config.json
-        project_config = load_project_config(args.project_name)
         if project_config.get("native_archive", False):
             native_prepare_info["attempted"] = True
             native_archive_flavor = project_config.get("native_archive_build_flavor", "symcc_native")
@@ -492,6 +544,14 @@ def main() -> int:
                 )
             else:
                 symcc_lib_flavor = project_config.get("symcc_library_build_flavor", "symcc_library")
+                # libsymcc-rt.so depends on libz3.so.4 at link time; if apt-get
+                # inside the container can't install it, mount symcc/lib/ as
+                # /symcc-libs (a separate mountpoint, not inside the read-only
+                # /symcc-bin) so LD_LIBRARY_PATH=/symcc-libs resolves it.
+                libz3_dir = REPO_ROOT / "symcc" / "lib"
+                extra_vols = [f"{symcc_bin_host}:/symcc-bin:ro"]
+                if (libz3_dir / "libz3.so.4").is_file():
+                    extra_vols.append(f"{libz3_dir}:/symcc-libs:ro")
                 symcc_lib_build_result = oss_fuzz.build_fuzzers(
                     args.project_name,
                     sanitizer="none",
@@ -499,7 +559,7 @@ def main() -> int:
                         "LLM_FUZZGEN_BUILD_FLAVOR": symcc_lib_flavor,
                         "LLM_FUZZGEN_BUILD_SYMCC_LIBRARY": "1",
                     },
-                    extra_volumes=[f"{symcc_bin_host}:/symcc-bin:ro"],
+                    extra_volumes=extra_vols,
                     variant=symcc_variant,
                 )
                 if symcc_lib_build_result.success:
@@ -612,9 +672,17 @@ def main() -> int:
     failure_kind: str | None = None
     if symcc_result.returncode != 0:
         stdout_lower = symcc_result.stdout.lower()
-        if "no such file or directory" in stdout_lower or "file not found" in stdout_lower:
+        if "cannot find -l" in stdout_lower:
+            failure_kind = "missing_link_library"
+        elif "undefined reference to" in stdout_lower:
+            failure_kind = "missing_link_symbol"
+        elif "link failed" in stdout_lower:
+            failure_kind = "build_failure"
+        elif "file not found" in stdout_lower:
             failure_kind = "build_context_missing_header"
-        elif "compile failed" in stdout_lower or "link failed" in stdout_lower:
+        elif "no such file or directory" in stdout_lower and "fatal error:" in stdout_lower:
+            failure_kind = "build_context_missing_header"
+        elif "compile failed" in stdout_lower:
             failure_kind = "build_failure"
         elif "no seed reached the blocked-side line" in stdout_lower:
             failure_kind = "coverage_no_blocked_side"

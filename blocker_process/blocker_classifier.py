@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz
 from blocker_process.coverage_utils import get_line_execution_count
+from blocker_process.blocker_triage import run_triage_for_classifier
 import config.config as config
 
 try:
@@ -622,8 +623,6 @@ def _infer_pipeline_methods(dependency_result: str, pipeline_output: dict | None
             # Keep space for future richer dependent pipeline integrations.
             if parsed_output.get("used_symcc"):
                 methods.append("symcc")
-            if parsed_output.get("used_klee"):
-                methods.append("klee")
         return methods
 
     if dependency_result == "Input Independent":
@@ -743,11 +742,23 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     Retrieves the line coverage report for a specific function within a given fuzz target.
     It automatically translates the demangled function name to its mangled regex.
     """
+    oss_fuzz = OSSFuzz()
+    report_file = oss_fuzz.build_out_dir / project_name / "textcov_reports" / f"{fuzzer_name}.linecovreport"
+    if report_file.exists():
+        try:
+            report = report_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            logging.warning("Failed to read cached line coverage report %s: %s", report_file, exc)
+        else:
+            if report.strip():
+                logging.info("Using cached line coverage report: %s", report_file)
+                return report
+            logging.info("Cached line coverage report is empty: %s", report_file)
+
     if not introspector_available():
         logging.info("Skipping function coverage lookup because Introspector is unavailable.")
         return ""
     introspector = get_introspector()
-    oss_fuzz = OSSFuzz()
     
     # 1. Look up the mangled function name (raw_function_name)
     func_name_list = introspector.get_all_functions(project_name)
@@ -942,6 +953,54 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
                 skip_dependent_pipeline = True
                 skip_independent_pipeline = False
 
+            triage_enabled = bool(getattr(args, "enable_triage", False)) and not bool(
+                getattr(args, "skip_triage", False)
+            )
+            if triage_enabled:
+                logging.info("--> Running blocker triage before solver dispatch")
+                triage_result = run_triage_for_classifier(args, result, dependency_result, reason)
+                output["triage_result"] = triage_result
+                triage_action = triage_result.get("solver_action")
+                triage_decision = triage_result.get("first_layer_decision")
+                triage_status = triage_result.get("triage_status", "completed")
+                if triage_status == "triage_error":
+                    logging.warning(
+                        "--> Triage failed after %s LLM attempt(s); failing open to the %s solver: %s",
+                        triage_result.get("llm_attempt_count"),
+                        dependency_result,
+                        triage_result.get("triage_error_reason"),
+                    )
+                elif triage_action != "run_solver":
+                    logging.info(
+                        "--> Solver skipped by triage: decision=%s action=%s label=%s",
+                        triage_decision,
+                        triage_action,
+                        triage_result.get("refined_triage_label"),
+                    )
+                    attempt_result = "triage_skipped" if triage_action == "skip_solver" else "triage_manual_review"
+                    output["success"] = False
+                    output["pipeline_skipped"] = True
+                    output["pipeline_skip_reason"] = "triage_" + str(triage_action or "manual_review")
+                    output["pipeline_returncode"] = 0
+                    output["pipeline_methods"] = []
+                    output["attempt_result"] = attempt_result
+                    output["pipeline_output"] = {
+                        "returncode": 0,
+                        "stdout": "",
+                        "stderr": "",
+                        "parsed_output": {
+                            "success": False,
+                            "attempt_result": attempt_result,
+                            "failure_stage": "triage",
+                            "output_dir": triage_result.get("triage_output_dir"),
+                            "summary_path": triage_result.get("triage_parsed_path"),
+                            "triage_decision": triage_decision,
+                            "triage_label": triage_result.get("refined_triage_label"),
+                            "solver_action": triage_action,
+                        },
+                    }
+                    return output
+
             if dependency_result == "Input Dependent":
                 if skip_dependent_pipeline:
                     logging.info("--> Input Dependent pipeline skipped by configuration.")
@@ -1029,6 +1088,30 @@ def main():
         action="store_true",
         default=False,
         help="Classify input-independent blockers but do not run the input-independent solver pipeline.",
+    )
+    parser.add_argument(
+        "--enable-triage",
+        action="store_true",
+        default=False,
+        help="Run C/C++ blocker solvability triage as a hard gate before solver dispatch.",
+    )
+    parser.add_argument(
+        "--skip-triage",
+        action="store_true",
+        default=False,
+        help="Disable blocker triage even if a wrapper enabled it.",
+    )
+    parser.add_argument(
+        "--triage-emit-prompts-only",
+        action="store_true",
+        default=False,
+        help="Write triage prompt artifacts but do not call the LLM; triage is Inconclusive and does not gate the solver.",
+    )
+    parser.add_argument(
+        "--triage-source-context-lines",
+        type=int,
+        default=25,
+        help="Number of source lines around the branch and blocked side for triage evidence.",
     )
     parser.add_argument(
         "--blocker-pipeline-mode",

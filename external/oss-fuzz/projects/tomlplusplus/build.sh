@@ -14,6 +14,14 @@ if [ "$SANITIZER" == "introspector" ]; then
   export CXXFLAGS=$(echo "$CXXFLAGS" | sed 's/gold/lld/g')
 fi
 #######################
+BUILD_FLAVOR="${LLM_FUZZGEN_BUILD_FLAVOR:-default}"
+SYMCC_REPLAY_ENABLED="${LLM_FUZZGEN_BUILD_SYMCC_REPLAY:-0}"
+
+if [ "$BUILD_FLAVOR" = "symcc_replay" ]; then
+  SYMCC_REPLAY_ENABLED=1
+fi
+
+echo "[llm-fuzzgen] SANITIZER=$SANITIZER BUILD_FLAVOR=$BUILD_FLAVOR" >&2
 
 cd $SRC/tomlplusplus
 mkdir -p build
@@ -24,16 +32,102 @@ mkdir -p corpus
 find $SRC/tomlplusplus -name "*.toml" -exec cp {} corpus \;
 zip -q -j $OUT/toml_fuzzer_seed_corpus.zip corpus/*
 
+SYMCC_REPLAY_DIR="$OUT/symcc_replay"
+
+REPLAY_DRIVER_SOURCE="$SRC/tomlplusplus_build_replay_driver.cc"
+cat > "$REPLAY_DRIVER_SOURCE" <<'EOF'
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size);
+
+static bool ReadAllBytes(FILE* input, std::vector<uint8_t>* data) {
+  if (!input || !data) {
+    return false;
+  }
+
+  constexpr size_t kChunkSize = 4096;
+  std::vector<uint8_t> buffer;
+  uint8_t chunk[kChunkSize];
+
+  for (;;) {
+    size_t count = fread(chunk, 1, sizeof(chunk), input);
+    if (count > 0) {
+      buffer.insert(buffer.end(), chunk, chunk + count);
+    }
+    if (count < sizeof(chunk)) {
+      if (feof(input)) {
+        break;
+      }
+      return false;
+    }
+  }
+
+  data->swap(buffer);
+  return true;
+}
+
+int main(int argc, char** argv) {
+  FILE* input = stdin;
+  std::vector<uint8_t> data;
+
+  if (argc > 2) {
+    fprintf(stderr, "usage: %s [seed-file]\n", argv[0]);
+    return 1;
+  }
+
+  if (argc == 2) {
+    input = fopen(argv[1], "rb");
+    if (!input) {
+      perror("fopen");
+      return 1;
+    }
+  }
+
+  if (!ReadAllBytes(input, &data)) {
+    fprintf(stderr, "failed to read input\n");
+    if (argc == 2) {
+      fclose(input);
+    }
+    return 1;
+  }
+
+  if (argc == 2) {
+    fclose(input);
+  }
+
+  return LLVMFuzzerTestOneInput(data.data(), data.size());
+}
+EOF
+
+compile_llm_target() {
+  local target="$1"
+  local target_basename="$2"
+  local target_obj="${target_basename}.o"
+  local replay_obj="${target_basename}_replay_driver.o"
+
+  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++17 -DNDEBUG \
+    -I$SRC/tomlplusplus/include \
+    -c "$target" -o "$target_obj"
+  $CXX $CXXFLAGS "$target_obj" -o "$OUT/$target_basename" $LIB_FUZZING_ENGINE
+
+  if [ "$SYMCC_REPLAY_ENABLED" = "1" ]; then
+    mkdir -p "$SYMCC_REPLAY_DIR"
+    $CXX $CXXFLAGS -std=c++17 -DNDEBUG -I$SRC/tomlplusplus/include \
+      -c "$REPLAY_DRIVER_SOURCE" -o "$replay_obj"
+    $CXX $CXXFLAGS "$replay_obj" "$target_obj" \
+      -o "$SYMCC_REPLAY_DIR/${target_basename}_replay"
+  fi
+}
+
 ##### LLM-FuzzGen #####
 # Compile llm_fuzzgen*.cc, llm_fuzzgen*.cpp, llm_fuzzgen*.c
 find "$SRC" -maxdepth 1 -type f \( -name "llm_fuzzgen*.c" -o -name "llm_fuzzgen*.cc" -o -name "llm_fuzzgen*.cpp" \) -print | while read -r target; do
   target_basename=$(basename "${target%.*}")
 
-  #### compile the fuzz target (for tomlplusplus)
-  $CXX $CXXFLAGS -D_FUZZ_TARGET_NAME="\"$target_basename\"" -std=c++17 -DNDEBUG \
-    -I$SRC/tomlplusplus/include \
-    "$target" -o "$OUT/${target_basename}" \
-    $LIB_FUZZING_ENGINE
+  compile_llm_target "$target" "$target_basename"
   ####
 
   if [ -f "$SRC/llm_fuzzgen.dict" ] && [ ! -f "$SRC/${target_basename}.options" ]; then
