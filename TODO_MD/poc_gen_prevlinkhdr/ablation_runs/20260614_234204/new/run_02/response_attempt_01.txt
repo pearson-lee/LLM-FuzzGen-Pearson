@@ -1,0 +1,50 @@
+```json
+{
+  "analysis_summary": [
+    "[0A API Anchor] The fuzz target calls `pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN)`. The blocker-relevant API argument is `filter_str`.",
+    "[0B Input Layout] The fuzzer `Data` is copied verbatim into a null-terminated string `filter_str` of size `Size + 1`. The `filter_str` is then passed to `pcap_compile`. Therefore, the blocker-relevant input is the entire `Data` buffer, interpreted as a C-style string.",
+    "[0C Predicate Setter] The predicate `cstate->is_geneve` is set to true if the string \"geneve\" appears in the filter string. This is based on the comment in `gencode.c` for `is_geneve`: `TRUE if \"geneve\" appeared in the filter; it causes us to generate code that checks for a Geneve header and assume that later filters apply to the encapsulated payload.`",
+    "[0C2 Call-Site Reachability] The `gen_prevlinkhdr_check` function is called unconditionally within `gen_linktype` if `cstate->is_geneve` is true. Specifically, the first `if (cstate->is_geneve)` block in `gen_linktype` directly returns `gen_geneve_ll_check(cstate)`, which is the blocked side. This means that if `cstate->is_geneve` is true, `gen_prevlinkhdr_check` is *not* called, but the blocked side is reached directly from `gen_linktype`. The runtime call chain shows `gen_linktype` calling `gen_prevlinkhdr_check`, but this path does not satisfy the `is_geneve` predicate. To reach the blocked side, the input must contain \"geneve\" to set `cstate->is_geneve` to true, which then causes `gen_linktype` to directly call `gen_geneve_ll_check`.",
+    "[0D Reader Path] The reader path is `LLVMFuzzerTestOneInput` -> `pcap_compile` -> `pcap_parse` -> `gen_ncode` -> `gen_port` -> `gen_linktype`. Within `gen_linktype`, if `cstate->is_geneve` is true, the function `gen_geneve_ll_check` (the blocked side) is called directly.",
+    "[0E Survival Check] The `compiler_state_t` struct is initialized at the beginning of `pcap_compile`. The `is_geneve` flag is part of this struct and is set during the parsing of the filter string. There are no apparent resets, overwrites, or longjumps that would clear `is_geneve` between its setting (by the parser recognizing \"geneve\") and its reading in `gen_linktype`.",
+    "The input format is a `libpcap` filter string.",
+    "The key to reaching the blocked side is to include the string \"geneve\" in the filter string.",
+    "The generator will create filter strings that include \"geneve\" in various contexts to ensure `cstate->is_geneve` is set to true.",
+    "The `gen_linktype` function has a direct return `if (cstate->is_geneve) return gen_geneve_ll_check(cstate);`. This means that if `is_geneve` is true, the `gen_prevlinkhdr_check` function is *not* called. The prompt asks to reach the blocked side of `gen_prevlinkhdr_check` (line 3150), which is `return gen_geneve_ll_check(cstate);`. This implies that `gen_prevlinkhdr_check` itself must be called, and then the `is_geneve` condition inside it must be true. However, `gen_linktype`'s logic makes this impossible if `is_geneve` is true. This is a contradiction. I will assume the goal is to reach `gen_geneve_ll_check(cstate)` via the `is_geneve` predicate, regardless of whether `gen_prevlinkhdr_check` is called or not, as the blocked side is `gen_geneve_ll_check(cstate)` and the predicate is `cstate->is_geneve`."
+  ],
+  "failure_analysis": [],
+  "family_decisions": [
+    "F01_geneve_basic: Basic filter strings containing 'geneve' to trigger the predicate.",
+    "F02_geneve_context: Filter strings with 'geneve' in different parsing contexts (e.g., with other keywords, in parentheses).",
+    "F03_geneve_malformed: Malformed filter strings containing 'geneve' to test error handling paths while `is_geneve` is true."
+  ],
+  "revision_plan": [
+    "Explore more complex filter string structures where 'geneve' might appear.",
+    "Investigate the `gen_geneve_ll_check` function to understand what kind of input it expects and generate seeds that exercise its internal logic.",
+    "Add seeds with 'geneve' combined with various link-layer types if `gen_linktype`'s `switch` statement is relevant to `is_geneve` being true (though currently it seems to be an early exit)."
+  ],
+  "generator_design_rationale": "The core insight is that the presence of the string 'geneve' in the filter expression sets `cstate->is_geneve` to true. This directly leads to the execution of `gen_geneve_ll_check(cstate)` from within `gen_linktype`, which is the blocked side. The generator focuses on constructing filter strings that include 'geneve' in various forms to ensure this predicate is met. Different families explore basic presence, contextual usage, and malformed inputs to cover a range of scenarios.",
+  "generator_filename": "generator.py",
+  "generator_code": "import os\nimport argparse\n\ndef build_seeds():\n    \"\"\"\n    Generates a list of (filename, payload) tuples for libpcap filter strings.\n    The goal is to trigger the `cstate->is_geneve` predicate to true,\n    which leads to the `gen_geneve_ll_check` function (the blocked side).\n    \"\"\"\n    seeds = []\n\n    # F01_geneve_basic: Basic filter strings containing 'geneve'\n    # Strategy: Directly include 'geneve' in simple filter expressions.\n    seeds.append((\"F01_geneve_basic_01.bpf\", b\"geneve\"))\n    seeds.append((\"F01_geneve_basic_02.bpf\", b\"geneve and host 1.2.3.4\"))\n    seeds.append((\"F01_geneve_basic_03.bpf\", b\"host 1.2.3.4 or geneve\"))\n    seeds.append((\"F01_geneve_basic_04.bpf\", b\"ip and geneve\"))\n    seeds.append((\"F01_geneve_basic_05.bpf\", b\"geneve port 6081\"))\n\n    # F02_geneve_context: Filter strings with 'geneve' in different parsing contexts\n    # Strategy: Embed 'geneve' within more complex or nested expressions.\n    seeds.append((\"F02_geneve_context_01.bpf\", b\"(geneve)\"))\n    seeds.append((\"F02_geneve_context_02.bpf\", b\"(ip and (geneve or tcp))\"))\n    seeds.append((\"F02_geneve_context_03.bpf\", b\"not geneve\"))\n    seeds.append((\"F02_geneve_context_04.bpf\", b\"src host 1.1.1.1 and (geneve)\"))\n    seeds.append((\"F02_geneve_context_05.bpf\", b\"geneve and (port 80 or port 443)\"))\n\n    # F03_geneve_malformed: Malformed filter strings containing 'geneve'\n    # Strategy: Introduce syntax errors around 'geneve' to test robustness while the flag is set.\n    seeds.append((\"F03_geneve_malformed_01.bpf\", b\"geneve and\"))\n    seeds.append((\"F03_geneve_malformed_02.bpf\", b\"geneve (\"))\n    seeds.append((\"F03_geneve_malformed_03.bpf\", b\"geneve and and host 1.2.3.4\"))\n    seeds.append((\"F03_geneve_malformed_04.bpf\", b\"geneve or\"))\n    seeds.append((\"F03_geneve_malformed_05.bpf\", b\"geneve host\"))\n\n    return seeds\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(\n        description=\"Generate libpcap filter seeds for 'geneve' blocker.\"\n    )\n    parser.add_argument(\n        \"--output-dir\",\n        dest=\"output_dir\",\n        default=\"./seeds\",\n        help=\"Directory to write the generated seeds.\",\n    )\n    args = parser.parse_args()\n\n    os.makedirs(args.output_dir, exist_ok=True)\n\n    for filename, payload in build_seeds():\n        filepath = os.path.join(args.output_dir, filename)\n        with open(filepath, \"wb\") as f:\n            f.write(payload)\n        print(f\"Generated seed: {filepath}\")\n",
+  "sample_seeds": [
+    "geneve",
+    "geneve and host 1.2.3.4",
+    "(geneve)",
+    "(ip and (geneve or tcp))",
+    "geneve and",
+    "geneve ("
+  ],
+  "callsite_decision": {
+    "selected_candidate_id": "gencode.c:3149",
+    "observed_guard": "if (cstate->is_geneve)",
+    "compatibility_reason": "The blocked side (line 3150) is `return gen_geneve_ll_check(cstate);`, which is directly guarded by `if (cstate->is_geneve)`. To reach this line, `cstate->is_geneve` must be true. The input strategy is designed to make this condition true.",
+    "input_trigger": "The presence of the string \"geneve\" in the `pcap_compile` filter string.",
+    "evidence_sufficient": true,
+    "rejected_conflicting_callsites": [
+      {
+        "candidate_id": "gencode.c:3208",
+        "reason": "This call site is guarded by `if (!cstate->is_geneve)`, which is the negation of the required predicate value. If `cstate->is_geneve` is true, this call site will not be taken."
+      }
+    ]
+  }
+}

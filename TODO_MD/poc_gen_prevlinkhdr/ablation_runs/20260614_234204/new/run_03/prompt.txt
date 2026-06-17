@@ -1,0 +1,1887 @@
+# Role
+
+You are an expert fuzzing engineer. Your task is to produce a **maintainable Python seed generator** for a single blocker in an existing fuzz target.
+
+Do not just emit a few ad-hoc seeds. Emit code that can keep generating and evolving blocker-oriented seeds over time.
+
+# Goal
+
+Create a Python 3 generator that produces native-format seeds which are likely to:
+
+1. Reach the blocker branch line.
+2. Then cross the blocked side.
+
+This is a blocker-branch-oriented feedback loop, not general seed generation for broad coverage.
+
+# Target Blocker
+
+- Project: `libpcap`
+- Language: `c`
+- Fuzz target name: `llm_fuzzgen0626013047`
+- Fuzz target source path: `llm_fuzzgen0626013047.c`
+- Target function name: `gen_prevlinkhdr_check`
+- Target function signature: `struct block *gen_prevlinkhdr_check(compiler_state_t *cstate)`
+- Candidate headers: `N/A`
+- Source file: `gencode.c`
+- API source path: `gencode.c`
+- Branch line: `3149`
+- Blocked side line: `3150`
+
+# Important Principle
+
+Generate bytes as consumed by the **existing fuzz target**.
+
+Prefer native subformats only inside the blocker-relevant API argument slice. If the fuzz target wraps, splits,
+prefixes, writes to a temporary file, null-terminates, or otherwise transforms `Data` before calling the library API,
+the generator MUST reproduce that outer harness layout.
+
+Do not choose an unrelated input format merely because another API in the fuzz target also consumes `Data`.
+The runtime blocker segment determines the API anchor.
+
+However, unlike a normal seed-generation task, your output must be a **Python generator program** that:
+
+1. Encodes the blocker-specific insight in code.
+2. Produces multiple closely related seed variants.
+3. Is easy for a human to extend and maintain.
+4. Uses only the Python standard library.
+5. Is deterministic.
+
+# Required Generator Interface
+
+The generator code must be a complete standalone Python 3 script with this behavior:
+
+1. It defines a function `build_seeds()` that returns `list[tuple[str, bytes]]`.
+2. It supports `python generator.py --output-dir DIR`.
+3. When executed, it writes one file per seed into `DIR`.
+4. It contains concise comments that explain the blocker strategy.
+5. It does not require third-party packages.
+
+# Context
+
+## Existing fuzz target code
+```cpp
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+
+/*
+ * Include the main internal pcap header. This is often necessary for
+ * fuzzing, as it provides access to all internal type definitions and
+ * function prototypes that may not be in the public headers.
+ */
+#include "/src/libpcap/pcap-int.h"
+
+/*
+ * A simple callback function for pcap_dispatch and pcap_loop.
+ * It doesn't need to do anything for this fuzzer.
+ */
+static void dummy_callback(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes) {
+    /* Do nothing */
+    (void)user;
+    (void)h;
+    (void)bytes;
+}
+
+#ifdef __cplusplus
+extern "C"
+#endif
+/* The main fuzzing entry point */
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    /*
+     * We need at least enough data for a filter string, a bpf_insn,
+     * and a pcap_pkthdr. This is a rough heuristic.
+     */
+    if (Size < sizeof(struct bpf_insn) + sizeof(struct pcap_pkthdr) + 1) {
+        return 0;
+    }
+
+    /*
+     * Create a "dead" pcap handle. This is essential for fuzzing because it
+     * allows us to call pcap_compile and other functions without needing a
+     * live network interface, which wouldn't be available in a typical
+     * fuzzing environment.
+     */
+    pcap_t *p = pcap_open_dead(DLT_EN10MB, 65535);
+    if (p == NULL) {
+        /* This should not happen with pcap_open_dead, but check just in case */
+        return 0;
+    }
+
+    /*
+     * Fuzz Target 1: bpf_validate()
+     * This function checks a raw BPF program for validity.
+     * The second argument to bpf_validate is the number of instructions,
+     * not the size in bytes.
+     */
+    const struct bpf_insn *prog_insns = (const struct bpf_insn *)Data;
+    int prog_len = Size / sizeof(struct bpf_insn);
+    if (prog_len > 0) {
+        bpf_validate(prog_insns, prog_len);
+    }
+
+    /*
+     * Fuzz Target 2: pcap_compile()
+     * This function compiles a user-supplied filter string into a BPF program.
+     * The filter language is complex and a great candidate for fuzzing.
+     * We create a null-terminated string from the input data.
+     */
+    char *filter_str = (char *)malloc(Size + 1);
+    if (filter_str == NULL) {
+        pcap_close(p);
+        return 0;
+    }
+    memcpy(filter_str, Data, Size);
+    filter_str[Size] = '\0';
+
+    struct bpf_program fcode;
+    /* Attempt to compile the filter string */
+    if (pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN) == 0) {
+        /*
+         * Fuzz Target 3: pcap_offline_filter()
+         * If compilation was successful, we can now test the filter against a
+         * packet. We'll construct a packet header and use the rest of the
+         * input data as the packet itself.
+         */
+        if (Size > sizeof(struct pcap_pkthdr)) {
+            struct pcap_pkthdr pkthdr;
+            memcpy(&pkthdr, Data, sizeof(struct pcap_pkthdr));
+            const u_char *pktdata = Data + sizeof(struct pcap_pkthdr);
+            pkthdr.caplen = pkthdr.len = Size - sizeof(struct pcap_pkthdr);
+            pcap_offline_filter(&fcode, &pkthdr, pktdata);
+        }
+
+        /*
+         * Fuzz Target 4: pcap_setfilter()
+         * Test setting the compiled filter on the handle.
+         */
+        pcap_setfilter(p, &fcode);
+
+        /*
+         * Fuzz Target 5: pcap_dispatch()
+         * Although we don't have a live capture, calling dispatch can still
+         * exercise some logic with the installed filter.
+         */
+        pcap_dispatch(p, 1, dummy_callback, NULL);
+
+        /*
+         * IMPORTANT: Free the memory allocated by pcap_compile to avoid leaks.
+         */
+        pcap_freecode(&fcode);
+    }
+
+    /* Clean up the allocated string and the pcap handle */
+    free(filter_str);
+    pcap_close(p);
+
+    return 0;
+}
+```
+
+## Related header code
+```cpp
+/*
+ * Internal details for libpcap on DOS.
+ * 32-bit targets: djgpp, Pharlap or DOS4GW.
+ */
+
+#ifndef __PCAP_DOS_H
+#define __PCAP_DOS_H
+
+#ifdef __DJGPP__
+#include <pc.h>    /* simple non-conio kbhit */
+#else
+#include <conio.h>
+#endif
+
+typedef int            BOOL;
+typedef unsigned char  BYTE;
+typedef unsigned short WORD;
+typedef unsigned long  DWORD;
+typedef BYTE           ETHER[6];
+
+#define ETH_ALEN       sizeof(ETHER)   /* Ether address length */
+#define ETH_HLEN       (2*ETH_ALEN+2)  /* Ether header length  */
+#define ETH_MTU        1500
+#define ETH_MIN        60
+#define ETH_MAX        (ETH_MTU+ETH_HLEN)
+
+#ifndef TRUE
+  #define TRUE   1
+  #define FALSE  0
+#endif
+
+#define PHARLAP  1
+#define DJGPP    2
+#define DOS4GW   4
+
+#ifdef __DJGPP__
+  #undef  DOSX
+  #define DOSX DJGPP
+#endif
+
+#ifdef __WATCOMC__
+  #undef  DOSX
+  #define DOSX DOS4GW
+#endif
+
+#ifdef __HIGHC__
+  #include <pharlap.h>
+  #undef  DOSX
+  #define DOSX PHARLAP
+  #define inline
+#else
+  typedef unsigned int UINT;
+#endif
+
+
+#if defined(__GNUC__) || defined(__HIGHC__)
+  typedef unsigned long long  uint64;
+  typedef unsigned long long  QWORD;
+#endif
+
+#if defined(__WATCOMC__)
+  typedef unsigned __int64  uint64;
+  typedef unsigned __int64  QWORD;
+#endif
+
+#define ARGSUSED(x)  (void) x
+
+#if defined (__SMALL__) || defined(__LARGE__)
+  #define DOSX 0
+
+#elif !defined(DOSX)
+  #error DOSX not defined; 1 = PharLap, 2 = djgpp, 4 = DOS4GW
+#endif
+
+#ifdef __HIGHC__
+#define min(a,b) _min(a,b)
+#define max(a,b) _max(a,b)
+#endif
+
+#ifndef min
+#define min(a,b) ((a) < (b) ? (a) : (b))
+#endif
+
+#ifndef max
+#define max(a,b) ((a) < (b) ? (b) : (a))
+#endif
+
+#if !defined(_U_) && defined(__GNUC__)
+#define _U_  __attribute__((unused))
+#endif
+
+#ifndef _U_
+#define _U_
+#endif
+
+#if defined(USE_32BIT_DRIVERS)
+  #include "msdos/pm_drvr/lock.h"
+
+  #ifndef RECEIVE_QUEUE_SIZE
+  #define RECEIVE_QUEUE_SIZE  60
+  #endif
+
+  #ifndef RECEIVE_BUF_SIZE
+  #define RECEIVE_BUF_SIZE   (ETH_MAX+20)
+  #endif
+
+  extern struct device el2_dev     LOCKED_VAR;  /* 3Com EtherLink II */
+  extern struct device el3_dev     LOCKED_VAR;  /*      EtherLink III */
+  extern struct device tc59_dev    LOCKED_VAR;  /* 3Com Vortex Card (?) */
+  extern struct device tc515_dev   LOCKED_VAR;
+  extern struct device tc90x_dev   LOCKED_VAR;
+  extern struct device tc90bcx_dev LOCKED_VAR;
+  extern struct device wd_dev      LOCKED_VAR;
+  extern struct device ne_dev      LOCKED_VAR;
+  extern struct device acct_dev    LOCKED_VAR;
+  extern struct device cs89_dev    LOCKED_VAR;
+  extern struct device rtl8139_dev LOCKED_VAR;
+
+  struct rx_ringbuf {
+         volatile int in_index;   /* queue index head */
+         int          out_index;  /* queue index tail */
+         int          elem_size;  /* size of each element */
+         int          num_elem;   /* number of elements */
+         char        *buf_start;  /* start of buffer pool */
+       };
+
+  struct rx_elem {
+         DWORD size;              /* size copied to this element */
+         BYTE  data[ETH_MAX+10];  /* add some margin. data[0] should be */
+       };                         /* dword aligned */
+
+  extern BYTE *get_rxbuf     (int len) LOCKED_FUNC;
+  extern int   peek_rxbuf    (BYTE **buf);
+  extern int   release_rxbuf (BYTE  *buf);
+
+#else
+  #define LOCKED_VAR
+  #define LOCKED_FUNC
+
+  struct device {
+         const char *name;
+         const char *long_name;
+         DWORD  base_addr;      /* device I/O address       */
+         int    irq;            /* device IRQ number        */
+         int    dma;            /* DMA channel              */
+         DWORD  mem_start;      /* shared mem start         */
+         DWORD  mem_end;        /* shared mem end           */
+         DWORD  rmem_start;     /* shmem "recv" start       */
+         DWORD  rmem_end;       /* shared "recv" end        */
+
+         struct device *next;   /* next device in list      */
+
+         /* interface service routines */
+         int   (*probe)(struct device *dev);
+         int   (*open) (struct device *dev);
+         void  (*close)(struct device *dev);
+         int   (*xmit) (struct device *dev, const void *buf, int len);
+         void *(*get_stats)(struct device *dev);
+         void  (*set_multicast_list)(struct device *dev);
+
+         /* driver-to-pcap receive buffer routines */
+         int   (*copy_rx_buf) (BYTE *buf, int max); /* rx-copy (pktdrvr only) */
+         BYTE *(*get_rx_buf) (int len);             /* rx-buf fetch/enqueue */
+         int   (*peek_rx_buf) (BYTE **buf);         /* rx-non-copy at queue */
+         int   (*release_rx_buf) (BYTE *buf);       /* release after peek */
+
+         WORD   flags;          /* Low-level status flags. */
+         void  *priv;           /* private data */
+       };
+
+  /*
+   * Network device statistics
+   */
+  typedef struct net_device_stats {
+          DWORD  rx_packets;            /* total packets received       */
+          DWORD  tx_packets;            /* total packets transmitted    */
+          DWORD  rx_bytes;              /* total bytes received         */
+          DWORD  tx_bytes;              /* total bytes transmitted      */
+          DWORD  rx_errors;             /* bad packets received         */
+          DWORD  tx_errors;             /* packet transmit problems     */
+          DWORD  rx_dropped;            /* no space in Rx buffers       */
+          DWORD  tx_dropped;            /* no space available for Tx    */
+          DWORD  multicast;             /* multicast packets received   */
+
+          /* detailed rx_errors: */
+          DWORD  rx_length_errors;
+          DWORD  rx_over_errors;        /* recv'r overrun error         */
+          DWORD  rx_osize_errors;       /* recv'r over-size error       */
+          DWORD  rx_crc_errors;         /* recv'd pkt with crc error    */
+          DWORD  rx_frame_errors;       /* recv'd frame alignment error */
+          DWORD  rx_fifo_errors;        /* recv'r fifo overrun          */
+          DWORD  rx_missed_errors;      /* recv'r missed packet         */
+
+          /* detailed tx_errors */
+          DWORD  tx_aborted_errors;
+          DWORD  tx_carrier_errors;
+          DWORD  tx_fifo_errors;
+          DWORD  tx_heartbeat_errors;
+          DWORD  tx_window_errors;
+          DWORD  tx_collisions;
+          DWORD  tx_jabbers;
+        } NET_STATS;
+#endif
+
+extern struct device       *active_dev  LOCKED_VAR;
+extern const struct device *dev_base    LOCKED_VAR;
+extern struct device       *probed_dev;
+
+extern int pcap_pkt_debug;
+
+extern void _w32_os_yield (void); /* Watt-32's misc.c */
+
+#ifdef NDEBUG
+  #define PCAP_ASSERT(x) ((void)0)
+
+#else
+  void pcap_assert (const char *what, const char *file, unsigned line);
+
+  #define PCAP_ASSERT(x) do { \
+                           if (!(x)) \
+                              pcap_assert (#x, __FILE__, __LINE__); \
+                         } while (0)
+#endif
+
+#endif  /* __PCAP_DOS_H */
+```
+
+## Source file excerpt
+```cpp
+/*
+ * Copyright (c) 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998
+ *	The Regents of the University of California.  All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that: (1) source code distributions
+ * retain the above copyright notice and this paragraph in its entirety, (2)
+ * distributions including binary code include the above copyright notice and
+ * this paragraph in its entirety in the documentation or other materials
+ * provided with the distribution, and (3) all advertising materials mentioning
+ * features or use of this software display the following acknowledgement:
+ * ``This product includes software developed by the University of California,
+ * Lawrence Berkeley Laboratory and its contributors.'' Neither the name of
+ * the University nor the names of its contributors may be used to endorse
+ * or promote products derived from this software without specific prior
+ * written permission.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
+#ifdef _WIN32
+  #include <ws2tcpip.h>
+#else
+  #include <sys/socket.h>
+
+  #ifdef __NetBSD__
+    #include <sys/param.h>
+  #endif
+
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+#endif /* _WIN32 */
+
+#include <stdlib.h>
+#include <string.h>
+#include <memory.h>
+#include <setjmp.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#ifdef MSDOS
+#include "pcap-dos.h"
+#endif
+
+#include "pcap-int.h"
+
+#include "extract.h"
+
+#include "ethertype.h"
+#include "nlpid.h"
+#include "llc.h"
+#include "gencode.h"
+#include "ieee80211.h"
+#include "atmuni31.h"
+#include "sunatmpos.h"
+#include "pflog.h"
+#include "ppp.h"
+#include "pcap/sll.h"
+#include "pcap/ipnet.h"
+#include "arcnet.h"
+#include "diag-control.h"
+
+#include "scanner.h"
+
+#if defined(linux)
+#include <linux/types.h>
+#include <linux/if_packet.h>
+#include <linux/filter.h>
+#endif
+
+#ifndef offsetof
+#define offsetof(s, e) ((size_t)&((s *)0)->e)
+#endif
+
+#ifdef _WIN32
+  #ifdef INET6
+    #if defined(__MINGW32__) && defined(DEFINE_ADDITIONAL_IPV6_STUFF)
+/* IPv6 address */
+struct in6_addr
+  {
+    union
+      {
+	uint8_t		u6_addr8[16];
+	uint16_t	u6_addr16[8];
+	uint32_t	u6_addr32[4];
+      } in6_u;
+#define s6_addr			in6_u.u6_addr8
+#define s6_addr16		in6_u.u6_addr16
+#define s6_addr32		in6_u.u6_addr32
+#define s6_addr64		in6_u.u6_addr64
+  };
+
+typedef unsigned short	sa_family_t;
+
+#define	__SOCKADDR_COMMON(sa_prefix) \
+  sa_family_t sa_prefix##family
+
+/* Ditto, for IPv6.  */
+struct sockaddr_in6
+  {
+    __SOCKADDR_COMMON (sin6_);
+    uint16_t sin6_port;		/* Transport layer port # */
+    uint32_t sin6_flowinfo;	/* IPv6 flow information */
+    struct in6_addr sin6_addr;	/* IPv6 address */
+  };
+
+      #ifndef EAI_ADDRFAMILY
+struct addrinfo {
+	int	ai_flags;	/* AI_PASSIVE, AI_CANONNAME */
+	int	ai_family;	/* PF_xxx */
+	int	ai_socktype;	/* SOCK_xxx */
+	int	ai_protocol;	/* 0 or IPPROTO_xxx for IPv4 and IPv6 */
+	size_t	ai_addrlen;	/* length of ai_addr */
+	char	*ai_canonname;	/* canonical name for hostname */
+	struct sockaddr *ai_addr;	/* binary address */
+	struct addrinfo *ai_next;	/* next structure in linked list */
+};
+      #endif /* EAI_ADDRFAMILY */
+    #endif /* defined(__MINGW32__) && defined(DEFINE_ADDITIONAL_IPV6_STUFF) */
+  #endif /* INET6 */
+#else /* _WIN32 */
+  #include <netdb.h>	/* for "struct addrinfo" */
+#endif /* _WIN32 */
+#include <pcap/namedb.h>
+
+#include "nametoaddr.h"
+
+#define ETHERMTU	1500
+
+#ifndef IPPROTO_HOPOPTS
+#define IPPROTO_HOPOPTS 0
+#endif
+#ifndef IPPROTO_ROUTING
+#define IPPROTO_ROUTING 43
+#endif
+#ifndef IPPROTO_FRAGMENT
+#define IPPROTO_FRAGMENT 44
+#endif
+#ifndef IPPROTO_DSTOPTS
+#define IPPROTO_DSTOPTS 60
+#endif
+#ifndef IPPROTO_SCTP
+#define IPPROTO_SCTP 132
+#endif
+
+#define GENEVE_PORT 6081
+
+#ifdef HAVE_OS_PROTO_H
+#include "os-proto.h"
+#endif
+
+#define JMP(c) ((c)|BPF_JMP|BPF_K)
+
+/*
+ * "Push" the current value of the link-layer header type and link-layer
+ * header offset onto a "stack", and set a new value.  (It's not a
+ * full-blown stack; we keep only the top two items.)
+ */
+#define PUSH_LINKHDR(cs, new_linktype, new_is_variable, new_constant_part, new_reg) \
+{ \
+	(cs)->prevlinktype = (cs)->linktype; \
+	(cs)->off_prevlinkhdr = (cs)->off_linkhdr; \
+	(cs)->linktype = (new_linktype); \
+	(cs)->off_linkhdr.is_variable = (new_is_variable); \
+	(cs)->off_linkhdr.constant_part = (new_constant_part); \
+	(cs)->off_linkhdr.reg = (new_reg); \
+	(cs)->is_geneve = 0; \
+}
+
+/*
+ * Offset "not set" value.
+ */
+#define OFFSET_NOT_SET	0xffffffffU
+
+/*
+ * Absolute offsets, which are offsets from the beginning of the raw
+ * packet data, are, in the general case, the sum of a variable value
+ * and a constant value; the variable value may be absent, in which
+ * case the offset is only the constant value, and the constant value
+ * may be zero, in which case the offset is only the variable value.
+ *
+ * bpf_abs_offset is a structure containing all that information:
+ *
+ *   is_variable is 1 if there's a variable part.
+ *
+ *   constant_part is the constant part of the value, possibly zero;
+ *
+ *   if is_variable is 1, reg is the register number for a register
+ *   containing the variable value if the register has been assigned,
+ *   and -1 otherwise.
+ */
+typedef struct {
+	int	is_variable;
+	u_int	constant_part;
+	int	reg;
+} bpf_abs_offset;
+
+/*
+ * Value passed to gen_load_a() to indicate what the offset argument
+ * is relative to the beginning of.
+ */
+enum e_offrel {
+	OR_PACKET,		/* full packet data */
+	OR_LINKHDR,		/* link-layer header */
+	OR_PREVLINKHDR,		/* previous link-layer header */
+	OR_LLC,			/* 802.2 LLC header */
+	OR_PREVMPLSHDR,		/* previous MPLS header */
+	OR_LINKTYPE,		/* link-layer type */
+	OR_LINKPL,		/* link-layer payload */
+	OR_LINKPL_NOSNAP,	/* link-layer payload, with no SNAP header at the link layer */
+	OR_TRAN_IPV4,		/* transport-layer header, with IPv4 network layer */
+	OR_TRAN_IPV6		/* transport-layer header, with IPv6 network layer */
+};
+
+/*
+ * We divy out chunks of memory rather than call malloc each time so
+ * we don't have to worry about leaking memory.  It's probably
+ * not a big deal if all this memory was wasted but if this ever
+ * goes into a library that would probably not be a good idea.
+ *
+ * XXX - this *is* in a library....
+ */
+#define NCHUNKS 16
+#define CHUNK0SIZE 1024
+struct chunk {
+	size_t n_left;
+	void *m;
+};
+
+/* Code generator state */
+
+struct _compiler_state {
+	jmp_buf top_ctx;
+	pcap_t *bpf_pcap;
+	int error_set;
+
+	struct icode ic;
+
+	int snaplen;
+
+	int linktype;
+	int prevlinktype;
+	int outermostlinktype;
+
+	bpf_u_int32 netmask;
+	int no_optimize;
+
+	/* Hack for handling VLAN and MPLS stacks. */
+	u_int label_stack_depth;
+	u_int vlan_stack_depth;
+
+	/* XXX */
+	u_int pcap_fddipad;
+
+	/*
+	 * As errors are handled by a longjmp, anything allocated must
+	 * be freed in the longjmp handler, so it must be reachable
+	 * from that handler.
+	 *
+	 * One thing that's allocated is the result of pcap_nametoaddrinfo();
+	 * it must be freed with freeaddrinfo().  This variable points to
+	 * any addrinfo structure that would need to be freed.
+	 */
+	struct addrinfo *ai;
+
+	/*
+	 * Another thing that's allocated is the result of pcap_ether_aton();
+	 * it must be freed with free().  This variable points to any
+	 * address that would need to be freed.
+	 */
+	u_char *e;
+
+	/*
+	 * Various code constructs need to know the layout of the packet.
+	 * These values give the necessary offsets from the beginning
+	 * of the packet data.
+	 */
+
+	/*
+	 * Absolute offset of the beginning of the link-layer header.
+	 */
+	bpf_abs_offset off_linkhdr;
+
+	/*
+	 * If we're checking a link-layer header for a packet encapsulated
+	 * in another protocol layer, this is the equivalent information
+	 * for the previous layers' link-layer header from the beginning
+	 * of the raw packet data.
+	 */
+	bpf_abs_offset off_prevlinkhdr;
+
+	/*
+	 * This is the equivalent information for the outermost layers'
+	 * link-layer header.
+	 */
+	bpf_abs_offset off_outermostlinkhdr;
+
+	/*
+	 * Absolute offset of the beginning of the link-layer payload.
+	 */
+	bpf_abs_offset off_linkpl;
+
+	/*
+	 * "off_linktype" is the offset to information in the link-layer
+	 * header giving the packet type. This is an absolute offset
+	 * from the beginning of the packet.
+	 *
+	 * For Ethernet, it's the offset of the Ethernet type field; this
+	 * means that it must have a value that skips VLAN tags.
+	 *
+	 * For link-layer types that always use 802.2 headers, it's the
+	 * offset of the LLC header; this means that it must have a value
+	 * that skips VLAN tags.
+	 *
+	 * For PPP, it's the offset of the PPP type field.
+	 *
+	 * For Cisco HDLC, it's the offset of the CHDLC type field.
+	 *
+	 * For BSD loopback, it's the offset of the AF_ value.
+	 *
+	 * For Linux cooked sockets, it's the offset of the type field.
+	 *
+	 * off_linktype.constant_part is set to OFFSET_NOT_SET for no
+	 * encapsulation, in which case, IP is assumed.
+	 */
+	bpf_abs_offset off_linktype;
+
+	/*
+	 * TRUE if the link layer includes an ATM pseudo-header.
+	 */
+	int is_atm;
+
+	/*
+	 * TRUE if "geneve" appeared in the filter; it causes us to
+	 * generate code that checks for a Geneve header and assume
+	 * that later filters apply to the encapsulated payload.
+	 */
+	int is_geneve;
+
+	/*
+	 * TRUE if we need variable length part of VLAN offset
+	 */
+	int is_vlan_vloffset;
+
+	/*
+	 * These are offsets for the ATM pseudo-header.
+	 */
+	u_int off_vpi;
+	u_int off_vci;
+	u_int off_proto;
+
+	/*
+	 * These are offsets for the MTP2 fields.
+	 */
+	u_int off_li;
+	u_int off_li_hsl;
+
+	/*
+	 * These are offsets for the MTP3 fields.
+	 */
+	u_int off_sio;
+	u_int off_opc;
+	u_int off_dpc;
+	u_int off_sls;
+
+	/*
+	 * This is the offset of the first byte after the ATM pseudo_header,
+	 * or -1 if there is no ATM pseudo-header.
+	 */
+	u_int off_payload;
+
+	/*
+	 * These are offsets to the beginning of the network-layer header.
+	 * They are relative to the beginning of the link-layer payload
+	 * (i.e., they don't include off_linkhdr.constant_part or
+	 * off_linkpl.constant_part).
+	 *
+	 * If the link layer never uses 802.2 LLC:
+	 *
+	 *	"off_nl" and "off_nl_nosnap" are the same.
+	 *
+	 * If the link layer always uses 802.2 LLC:
+	 *
+	 *	"off_nl" is the offset if there's a SNAP header following
+	 *	the 802.2 header;
+	 *
+	 *	"off_nl_nosnap" is the offset if there's no SNAP header.
+	 *
+	 * If the link layer is Ethernet:
+	 *
+	 *	"off_nl" is the offset if the packet is an Ethernet II packet
+	 *	(we assume no 802.3+802.2+SNAP);
+	 *
+	 *	"off_nl_nosnap" is the offset if the packet is an 802.3 packet
+	 *	with an 802.2 header following it.
+	 */
+	u_int off_nl;
+	u_int off_nl_nosnap;
+
+	/*
+	 * Here we handle simple allocation of the scratch registers.
+	 * If too many registers are alloc'd, the allocator punts.
+	 */
+	int regused[BPF_MEMWORDS];
+	int curreg;
+
+	/*
+	 * Memory chunks.
+	 */
+	struct chunk chunks[NCHUNKS];
+	int cur_chunk;
+};
+
+/*
+ * For use by routines outside this file.
+ */
+/* VARARGS */
+void
+bpf_set_error(compiler_state_t *cstate, const char *fmt, ...)
+{
+	va_list ap;
+
+	/*
+	 * If we've already set an error, don't override it.
+	 * The lexical analyzer reports some errors by setting
+	 * the error and then returning a LEX_ERROR token, which
+	 * is not recognized by any grammar rule, and thus forces
+	 * the parse to stop.  We don't want the error reported
+	 * by the lexical analyzer to be overwritten by the syntax
+	 * error.
+	 */
+	if (!cstate->error_set) {
+		va_start(ap, fmt);
+		(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+		    fmt, ap);
+		va_end(ap);
+		cstate->error_set = 1;
+	}
+}
+
+/*
+ * For use *ONLY* in routines in this file.
+ */
+static void PCAP_NORETURN bpf_error(compiler_state_t *, const char *, ...)
+    PCAP_PRINTFLIKE(2, 3);
+
+/* VARARGS */
+static void PCAP_NORETURN
+bpf_error(compiler_state_t *cstate, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+	    fmt, ap);
+	va_end(ap);
+	longjmp(cstate->top_ctx, 1);
+	/*NOTREACHED*/
+#ifdef _AIX
+	PCAP_UNREACHABLE
+#endif /* _AIX */
+}
+
+static int init_linktype(compiler_state_t *, pcap_t *);
+
+static void init_regs(compiler_state_t *);
+static int alloc_reg(compiler_state_t *);
+static void free_reg(compiler_state_t *, int);
+
+static void initchunks(compiler_state_t *cstate);
+static void *newchunk_nolongjmp(compiler_state_t *cstate, size_t);
+static void *newchunk(compiler_state_t *cstate, size_t);
+static void freechunks(compiler_state_t *cstate);
+static inline struct block *new_block(compiler_state_t *cstate, int);
+static inline struct slist *new_stmt(compiler_state_t *cstate, int);
+static struct block *gen_retblk(compiler_state_t *cstate, int);
+static inline void syntax(compiler_state_t *cstate);
+
+static void backpatch(struct block *, struct block *);
+static void merge(struct block *, struct block *);
+static struct block *gen_cmp(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32);
+static struct block *gen_cmp_gt(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32);
+static struct block *gen_cmp_ge(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32);
+static struct block *gen_cmp_lt(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32);
+static struct block *gen_cmp_le(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32);
+static struct block *gen_mcmp(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32, bpf_u_int32);
+static struct block *gen_bcmp(compiler_state_t *, enum e_offrel, u_int,
+    u_int, const u_char *);
+static struct block *gen_ncmp(compiler_state_t *, enum e_offrel, u_int,
+    u_int, bpf_u_int32, int, int, bpf_u_int32);
+static struct slist *gen_load_absoffsetrel(compiler_state_t *, bpf_abs_offset *,
+    u_int, u_int);
+static struct slist *gen_load_a(compiler_state_t *, enum e_offrel, u_int,
+    u_int);
+static struct slist *gen_loadx_iphdrlen(compiler_state_t *);
+static struct block *gen_uncond(compiler_state_t *, int);
+static inline struct block *gen_true(compiler_state_t *);
+static inline struct block *gen_false(compiler_state_t *);
+static struct block *gen_ether_linktype(compiler_state_t *, bpf_u_int32);
+static struct block *gen_ipnet_linktype(compiler_state_t *, bpf_u_int32);
+static struct block *gen_linux_sll_linktype(compiler_state_t *, bpf_u_int32);
+static struct slist *gen_load_pflog_llprefixlen(compiler_state_t *);
+static struct slist *gen_load_prism_llprefixlen(compiler_state_t *);
+static struct slist *gen_load_avs_llprefixlen(compiler_state_t *);
+static struct slist *gen_load_radiotap_llprefixlen(compiler_state_t *);
+static struct slist *gen_load_ppi_llprefixlen(compiler_state_t *);
+static void insert_compute_vloffsets(compiler_state_t *, struct block *);
+static struct slist *gen_abs_offset_varpart(compiler_state_t *,
+    bpf_abs_offset *);
+static bpf_u_int32 ethertype_to_ppptype(bpf_u_int32);
+static struct block *gen_linktype(compiler_state_t *, bpf_u_int32);
+static struct block *gen_snap(compiler_state_t *, bpf_u_int32, bpf_u_int32);
+static struct block *gen_llc_linktype(compiler_state_t *, bpf_u_int32);
+static struct block *gen_hostop(compiler_state_t *, bpf_u_int32, bpf_u_int32,
+    int, bpf_u_int32, u_int, u_int);
+#ifdef INET6
+static struct block *gen_hostop6(compiler_state_t *, struct in6_addr *,
+    struct in6_addr *, int, bpf_u_int32, u_int, u_int);
+#endif
+static struct block *gen_ahostop(compiler_state_t *, const u_char *, int);
+static struct block *gen_ehostop(compiler_state_t *, const u_char *, int);
+static struct block *gen_fhostop(compiler_state_t *, const u_char *, int);
+static struct block *gen_thostop(compiler_state_t *, const u_char *, int);
+static struct block *gen_wlanhostop(compiler_state_t *, const u_char *, int);
+static struct block *gen_ipfchostop(compiler_state_t *, const u_char *, int);
+static struct block *gen_dnhostop(compiler_state_t *, bpf_u_int32, int);
+static struct block *gen_mpls_linktyp
+
+... [truncated 246893 characters] ...
+```
+
+## Target function source
+```cpp
+3129: 		break;
+3130: 
+3131: 	case LLCSAP_IPX:
+3132: 		ll_proto = PPP_IPX;
+3133: 		break;
+3134: 	}
+3135: 	return (ll_proto);
+3136: }
+3137: 
+3138: /*
+3139:  * Generate any tests that, for encapsulation of a link-layer packet
+3140:  * inside another protocol stack, need to be done to check for those
+3141:  * link-layer packets (and that haven't already been done by a check
+3142:  * for that encapsulation).
+3143:  */
+3144: static struct block *
+3145: gen_prevlinkhdr_check(compiler_state_t *cstate)
+3146: {
+3147: 	struct block *b0;
+3148: 
+3149: 	if (cstate->is_geneve)
+3150: 		return gen_geneve_ll_check(cstate);
+3151: 
+3152: 	switch (cstate->prevlinktype) {
+3153: 
+3154: 	case DLT_SUNATM:
+3155: 		/*
+3156: 		 * This is LANE-encapsulated Ethernet; check that the LANE
+3157: 		 * packet doesn't begin with an LE Control marker, i.e.
+3158: 		 * that it's data, not a control message.
+3159: 		 *
+3160: 		 * (We've already generated a test for LANE.)
+3161: 		 */
+3162: 		b0 = gen_cmp(cstate, OR_PREVLINKHDR, SUNATM_PKT_BEGIN_POS, BPF_H, 0xFF00);
+3163: 		gen_not(b0);
+3164: 		return b0;
+3165: 
+3166: 	default:
+3167: 		/*
+3168: 		 * No such tests are necessary.
+3169: 		 */
+3170: 		return NULL;
+```
+
+## Source window around the branch line
+```cpp
+3143:  */
+3144: static struct block *
+3145: gen_prevlinkhdr_check(compiler_state_t *cstate)
+3146: {
+3147: 	struct block *b0;
+3148: 
+3149: 	if (cstate->is_geneve)
+3150: 		return gen_geneve_ll_check(cstate);
+3151: 
+3152: 	switch (cstate->prevlinktype) {
+3153: 
+3154: 	case DLT_SUNATM:
+3155: 		/*
+```
+
+## Source window around the blocked side
+```cpp
+3144: static struct block *
+3145: gen_prevlinkhdr_check(compiler_state_t *cstate)
+3146: {
+3147: 	struct block *b0;
+3148: 
+3149: 	if (cstate->is_geneve)
+3150: 		return gen_geneve_ll_check(cstate);
+3151: 
+3152: 	switch (cstate->prevlinktype) {
+3153: 
+3154: 	case DLT_SUNATM:
+3155: 		/*
+3156: 		 * This is LANE-encapsulated Ethernet; check that the LANE
+```
+
+## Branch predicate description
+Reach branch line 3149 where the blocker predicate is evaluated, then drive execution into blocked-side line 3150. Branch line snippet: if (cstate->is_geneve). Blocked-side snippet: return gen_geneve_ll_check(cstate);.
+
+## Runtime blocker segment
+This is dynamic evidence from a real execution path that reached the blocker.
+```text
+This is dynamic evidence from a real execution path that reached the blocker.
+```text
+Runtime functions from entry to blocker (Root -> Target, deduplicated):
+  #0 LLVMFuzzerTestOneInput at /src/llm_fuzzgen0626013047.c:77
+  #1 pcap_compile at /src/libpcap/gencode.c:803
+  #2 pcap_parse at /src/libpcap/build/grammar.y:442
+  #3 gen_ncode at /src/libpcap/gencode.c:7102
+  #4 gen_port at /src/libpcap/gencode.c:5718
+  #5 gen_linktype at /src/libpcap/gencode.c:3208
+  #6 gen_prevlinkhdr_check at /src/libpcap/gencode.c:3149
+```
+
+## Runtime blocker segment source codes
+```text
+// Function: pcap_compile
+// Runtime location: /src/libpcap/gencode.c:803
+pcap_compile(pcap_t *p, struct bpf_program *program,
+	     const char *buf, int optimize, bpf_u_int32 mask)
+{
+#ifdef _WIN32
+	static int done = 0;
+#endif
+	compiler_state_t cstate;
+	const char * volatile xbuf = buf;
+	yyscan_t scanner = NULL;
+	volatile YY_BUFFER_STATE in_buffer = NULL;
+	u_int len;
+	int  rc;
+
+	/*
+	 * If this pcap_t hasn't been activated, it doesn't have a
+	 * link-layer type, so we can't use it.
+	 */
+	if (!p->activated) {
+		snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+		    "not-yet-activated pcap_t passed to pcap_compile");
+		return (PCAP_ERROR);
+	}
+
+#ifdef _WIN32
+	if (!done)
+		pcap_wsockinit();
+	done = 1;
+#endif
+
+#ifdef ENABLE_REMOTE
+	/*
+	 * If the device on which we're capturing need to be notified
+	 * that a new filter is being compiled, do so.
+	 *
+	 * This allows them to save a copy of it, in case, for example,
+	 * they're implementing a form of remote packet capture, and
+	 * want the remote machine to filter out the packets in which
+	 * it's sending the packets it's captured.
+	 *
+	 * XXX - the fact that we happen to be compiling a filter
+	 * doesn't necessarily mean we'll be installing it as the
+	 * filter for this pcap_t; we might be running it from userland
+	 * on captured packets to do packet classification.  We really
+	 * need a better way of handling this, but this is all that
+	 * the WinPcap remote capture code did.
+	 */
+	if (p->save_current_filter_op != NULL)
+		(p->save_current_filter_op)(p, buf);
+#endif
+
+	initchunks(&cstate);
+	cstate.no_optimize = 0;
+#ifdef INET6
+	cstate.ai = NULL;
+#endif
+	cstate.e = NULL;
+	cstate.ic.root = NULL;
+	cstate.ic.cur_mark = 0;
+	cstate.bpf_pcap = p;
+	cstate.error_set = 0;
+	init_regs(&cstate);
+
+	cstate.netmask = mask;
+
+	cstate.snaplen = pcap_snapshot(p);
+	if (cstate.snaplen == 0) {
+		snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+			 "snaplen of 0 rejects all packets");
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+
+	if (pcap_lex_init(&scanner) != 0)
+		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "can't initialize scanner");
+	in_buffer = pcap__scan_string(xbuf ? xbuf : "", scanner);
+
+	/*
+	 * Associate the compiler state with the lexical analyzer
+	 * state.
+	 */
+	pcap_set_extra(&cstate, scanner);
+
+	if (init_linktype(&cstate, p) == -1) {
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+	if (pcap_parse(scanner, &cstate) != 0) {
+#ifdef INET6
+		if (cstate.ai != NULL)
+			freeaddrinfo(cstate.ai);
+#endif
+		if (cstate.e != NULL)
+			free(cstate.e);
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+
+	if (cstate.ic.root == NULL) {
+		/*
+		 * Catch errors reported by gen_retblk().
+		 */
+		if (setjmp(cstate.top_ctx)) {
+			rc = PCAP_ERROR;
+			goto quit;
+		}
+		cstate.ic.root = gen_retblk(&cstate, cstate.snaplen);
+	}
+
+	if (optimize && !cstate.no_optimize) {
+		if (bpf_optimize(&cstate.ic, p->errbuf) == -1) {
+			/* Failure */
+			rc = PCAP_ERROR;
+			goto quit;
+		}
+		if (cstate.ic.root == NULL ||
+		    (cstate.ic.root->s.code == (BPF_RET|BPF_K) && cstate.ic.root->s.k == 0)) {
+			(void)snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+			    "expression rejects all packets");
+			rc = PCAP_ERROR;
+			goto quit;
+		}
+	}
+	program->bf_insns = icode_to_fcode(&cstate.ic,
+	    cstate.ic.root, &len, p->errbuf);
+	if (program->bf_insns == NULL) {
+		/* Failure */
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+	program->bf_len = len;
+
+	rc = 0;  /* We're all okay */
+
+quit:
+	/*
+	 * Clean up everything for the lexical analyzer.
+	 */
+	if (in_buffer != NULL)
+		pcap__delete_buffer(in_buffer, scanner);
+	if (scanner != NULL)
+		pcap_lex_destroy(scanner);
+
+	/*
+	 * Clean up our own allocated memory.
+	 */
+	freechunks(&cstate);
+
+	return (rc);
+}
+
+
+// Function: pcap_parse
+// Runtime location: /src/libpcap/build/grammar.y:442
+yyparse (void *yyscanner, compiler_state_t *cstate)
+{
+/* The lookahead symbol.  */
+int yychar;
+
+
+/* The semantic value of the lookahead symbol.  */
+/* Default value used for initialization, for pacifying older GCCs
+   or non-GCC compilers.  */
+YY_INITIAL_VALUE (static YYSTYPE yyval_default;)
+YYSTYPE yylval YY_INITIAL_VALUE (= yyval_default);
+
+    /* Number of syntax errors so far.  */
+    int yynerrs;
+
+    yy_state_fast_t yystate;
+    /* Number of tokens to shift before error messages enabled.  */
+    int yyerrstatus;
+
+    /* The stacks and their tools:
+       'yyss': related to states.
+       'yyvs': related to semantic values.
+
+       Refer to the stacks through separate pointers, to allow yyoverflow
+       to reallocate them elsewhere.  */
+
+    /* The state stack.  */
+    yy_state_t yyssa[YYINITDEPTH];
+    yy_state_t *yyss;
+    yy_state_t *yyssp;
+
+    /* The semantic value stack.  */
+    YYSTYPE yyvsa[YYINITDEPTH];
+    YYSTYPE *yyvs;
+    YYSTYPE *yyvsp;
+
+    YYPTRDIFF_T yystacksize;
+
+  int yyn;
+  int yyresult;
+  /* Lookahead token as an internal (translated) token number.  */
+  int yytoken = 0;
+  /* The variables used to return semantic value and location from the
+     action routines.  */
+  YYSTYPE yyval;
+
+#if YYERROR_VERBOSE
+  /* Buffer for error messages, and its allocated size.  */
+  char yymsgbuf[128];
+  char *yymsg = yymsgbuf;
+  YYPTRDIFF_T yymsg_alloc = sizeof yymsgbuf;
+#endif
+
+#define YYPOPSTACK(N)   (yyvsp -= (N), yyssp -= (N))
+
+  /* The number of symbols on the RHS of the reduced rule.
+     Keep to zero when no symbol should be popped.  */
+  int yylen = 0;
+
+  yyssp = yyss = yyssa;
+  yyvsp = yyvs = yyvsa;
+  yystacksize = YYINITDEPTH;
+
+  YYDPRINTF ((stderr, "Starting parse\n"));
+
+  yystate = 0;
+  yyerrstatus = 0;
+  yynerrs = 0;
+  yychar = YYEMPTY; /* Cause a token to be read.  */
+  goto yysetstate;
+
+
+/*------------------------------------------------------------.
+| yynewstate -- push a new state, which is found in yystate.  |
+`------------------------------------------------------------*/
+yynewstate:
+  /* In all cases, when you get here, the value and location stacks
+     have just been pushed.  So pushing a state here evens the stacks.  */
+  yyssp++;
+
+
+/*--------------------------------------------------------------------.
+| yysetstate -- set current state (the top of the stack) to yystate.  |
+`--------------------------------------------------------------------*/
+yysetstate:
+  YYDPRINTF ((stderr, "Entering state %d\n", yystate));
+  YY_ASSERT (0 <= yystate && yystate < YYNSTATES);
+  YY_IGNORE_USELESS_CAST_BEGIN
+  *yyssp = YY_CAST (yy_state_t, yystate);
+  YY_IGNORE_USELESS_CAST_END
+
+  if (yyss + yystacksize - 1 <= yyssp)
+#if !defined yyoverflow && !defined YYSTACK_RELOCATE
+    goto yyexhaustedlab;
+#else
+    {
+      /* Get the current used size of the three stacks, in elements.  */
+      YYPTRDIFF_T yysize = yyssp - yyss + 1;
+```
+
+## CFG call chain
+```text
+Call chain (Root -> Target):
+-> depth=0 demangled=LLVMFuzzerTestOneInput file=/src/llm_fuzzgen0626013047.c line=-1
+  -> depth=1 demangled=pcap_compile file=/src/libpcap/gencode.c line=77
+    -> depth=2 demangled=pcap_parse file=/src/libpcap/build/grammar.c line=803
+      -> depth=3 demangled=gen_ncode file=/src/libpcap/gencode.c line=442
+        -> depth=4 demangled=gen_host file=/src/libpcap/gencode.c line=7066
+          -> depth=5 demangled=gen_host file=/src/libpcap/gencode.c line=4969
+            -> depth=6 demangled=gen_host file=/src/libpcap/gencode.c line=4975
+              -> depth=7 demangled=gen_host file=/src/libpcap/gencode.c line=4977
+                -> depth=8 demangled=gen_hostop file=/src/libpcap/gencode.c line=4986
+                  -> depth=9 demangled=gen_hostop file=/src/libpcap/gencode.c line=4036
+                    -> depth=10 demangled=gen_hostop file=/src/libpcap/gencode.c line=4037
+                      -> depth=11 demangled=gen_hostop file=/src/libpcap/gencode.c line=4043
+                        -> depth=12 demangled=gen_hostop file=/src/libpcap/gencode.c line=4044
+                          -> depth=13 demangled=gen_linktype file=/src/libpcap/gencode.c line=4076
+                            -> depth=14 demangled=gen_prevlinkhdr_check file=/src/libpcap/gencode.c line=3208
+```
+
+## CFG source codes
+```text
+pcap_compile(pcap_t *p, struct bpf_program *program,
+	     const char *buf, int optimize, bpf_u_int32 mask)
+{
+#ifdef _WIN32
+	static int done = 0;
+#endif
+	compiler_state_t cstate;
+	const char * volatile xbuf = buf;
+	yyscan_t scanner = NULL;
+	volatile YY_BUFFER_STATE in_buffer = NULL;
+	u_int len;
+	int  rc;
+
+	/*
+	 * If this pcap_t hasn't been activated, it doesn't have a
+	 * link-layer type, so we can't use it.
+	 */
+	if (!p->activated) {
+		snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+		    "not-yet-activated pcap_t passed to pcap_compile");
+		return (PCAP_ERROR);
+	}
+
+#ifdef _WIN32
+	if (!done)
+		pcap_wsockinit();
+	done = 1;
+#endif
+
+#ifdef ENABLE_REMOTE
+	/*
+	 * If the device on which we're capturing need to be notified
+	 * that a new filter is being compiled, do so.
+	 *
+	 * This allows them to save a copy of it, in case, for example,
+	 * they're implementing a form of remote packet capture, and
+	 * want the remote machine to filter out the packets in which
+	 * it's sending the packets it's captured.
+	 *
+	 * XXX - the fact that we happen to be compiling a filter
+	 * doesn't necessarily mean we'll be installing it as the
+	 * filter for this pcap_t; we might be running it from userland
+	 * on captured packets to do packet classification.  We really
+	 * need a better way of handling this, but this is all that
+	 * the WinPcap remote capture code did.
+	 */
+	if (p->save_current_filter_op != NULL)
+		(p->save_current_filter_op)(p, buf);
+#endif
+
+	initchunks(&cstate);
+	cstate.no_optimize = 0;
+#ifdef INET6
+	cstate.ai = NULL;
+#endif
+	cstate.e = NULL;
+	cstate.ic.root = NULL;
+	cstate.ic.cur_mark = 0;
+	cstate.bpf_pcap = p;
+	cstate.error_set = 0;
+	init_regs(&cstate);
+
+	cstate.netmask = mask;
+
+	cstate.snaplen = pcap_snapshot(p);
+	if (cstate.snaplen == 0) {
+		snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+			 "snaplen of 0 rejects all packets");
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+
+	if (pcap_lex_init(&scanner) != 0)
+		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+		    errno, "can't initialize scanner");
+	in_buffer = pcap__scan_string(xbuf ? xbuf : "", scanner);
+
+	/*
+	 * Associate the compiler state with the lexical analyzer
+	 * state.
+	 */
+	pcap_set_extra(&cstate, scanner);
+
+	if (init_linktype(&cstate, p) == -1) {
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+	if (pcap_parse(scanner, &cstate) != 0) {
+#ifdef INET6
+		if (cstate.ai != NULL)
+			freeaddrinfo(cstate.ai);
+#endif
+		if (cstate.e != NULL)
+			free(cstate.e);
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+
+	if (cstate.ic.root == NULL) {
+		/*
+		 * Catch errors reported by gen_retblk().
+		 */
+		if (setjmp(cstate.top_ctx)) {
+			rc = PCAP_ERROR;
+			goto quit;
+		}
+		cstate.ic.root = gen_retblk(&cstate, cstate.snaplen);
+	}
+
+	if (optimize && !cstate.no_optimize) {
+		if (bpf_optimize(&cstate.ic, p->errbuf) == -1) {
+			/* Failure */
+			rc = PCAP_ERROR;
+			goto quit;
+		}
+		if (cstate.ic.root == NULL ||
+		    (cstate.ic.root->s.code == (BPF_RET|BPF_K) && cstate.ic.root->s.k == 0)) {
+			(void)snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+			    "expression rejects all packets");
+			rc = PCAP_ERROR;
+			goto quit;
+		}
+	}
+	program->bf_insns = icode_to_fcode(&cstate.ic,
+	    cstate.ic.root, &len, p->errbuf);
+	if (program->bf_insns == NULL) {
+		/* Failure */
+		rc = PCAP_ERROR;
+		goto quit;
+	}
+	program->bf_len = len;
+
+	rc = 0;  /* We're all okay */
+
+quit:
+	/*
+	 * Clean up everything for the lexical analyzer.
+	 */
+	if (in_buffer != NULL)
+		pcap__delete_buffer(in_buffer, scanner);
+	if (scanner != NULL)
+		pcap_lex_destroy(scanner);
+
+	/*
+	 * Clean up our own allocated memory.
+	 */
+	freechunks(&cstate);
+
+	return (rc);
+}
+
+
+yyparse (void *yyscanner, compiler_state_t *cstate)
+{
+/* The lookahead symbol.  */
+int yychar;
+
+
+/* The semantic value of the lookahead symbol.  */
+/* Default value used for initialization, for pacifying older GCCs
+   or non-GCC compilers.  */
+YY_INITIAL_VALUE (static YYSTYPE yyval_default;)
+YYSTYPE yylval YY_INITIAL_VALUE (= yyval_default);
+
+    /* Number of syntax errors so far.  */
+    int yynerrs;
+
+    yy_state_fast_t yystate;
+    /* Number of tokens to shift before error messages enabled.  */
+    int yyerrstatus;
+
+    /* The stacks and their tools:
+       'yyss': related to states.
+       'yyvs': related to semantic values.
+
+       Refer to the stacks through separate pointers, to allow yyoverflow
+       to reallocate them elsewhere.  */
+
+    /* The state stack.  */
+    yy_state_t yyssa[YYINITDEPTH];
+    yy_state_t *yyss;
+    yy_state_t *yyssp;
+
+    /* The semantic value stack.  */
+    YYSTYPE yyvsa[YYINITDEPTH];
+    YYSTYPE *yyvs;
+    YYSTYPE *yyvsp;
+
+    YYPTRDIFF_T yystacksize;
+
+  int yyn;
+  int yyresult;
+  /* Lookahead token as an internal (translated) token number.  */
+  int yytoken = 0;
+  /* The variables used to return semantic value and location from the
+     action routines.  */
+  YYSTYPE yyval;
+
+#if YYERROR_VERBOSE
+  /* Buffer for error messages, and its allocated size.  */
+  char yymsgbuf[128];
+  char *yymsg = yymsgbuf;
+  YYPTRDIFF_T yymsg_alloc = sizeof yymsgbuf;
+#endif
+
+#define YYPOPSTACK(N)   (yyvsp -= (N), yyssp -= (N))
+
+  /* The number of symbols on the RHS of the reduced rule.
+     Keep to zero when no symbol should be popped.  */
+  int yylen = 0;
+
+  yyssp = yyss = yyssa;
+  yyvsp = yyvs = yyvsa;
+  yystacksize = YYINITDEPTH;
+
+  YYDPRINTF ((stderr, "Starting parse\n"));
+
+  yystate = 0;
+  yyerrstatus = 0;
+  yynerrs = 0;
+  yychar = YYEMPTY; /* Cause a token to be read.  */
+  goto yysetstate;
+
+
+/*------------------------------------------------------------.
+| yynewstate -- push a new state, which is found in yystate.  |
+`------------------------------------------------------------*/
+yynewstate:
+  /* In all cases, when you get here, the value and location stacks
+     have just been pushed.  So pushing a state here evens the stacks.  */
+  yyssp++;
+
+
+/*--------------------------------------------------------------------.
+| yysetstate -- set current state (the top of the stack) to yystate.  |
+`--------------------------------------------------------------------*/
+yysetstate:
+  YYDPRINTF ((stderr, "Entering state %d\n", yystate));
+  YY_ASSERT (0 <= yystate && yystate < YYNSTATES);
+  YY_IGNORE_USELESS_CAST_BEGIN
+  *yyssp = YY_CAST (yy_state_t, yystate);
+  YY_IGNORE_USELESS_CAST_END
+
+  if (yyss + yystacksize - 1 <= yyssp)
+#if !defined yyoverflow && !defined YYSTACK_RELOCATE
+    goto yyexhaustedlab;
+#else
+    {
+      /* Get the current used size of the three stacks, in elements.  */
+      YYPTRDIFF_T yysize = yyssp - yyss + 1;
+```
+
+## Blocker function call sites
+Candidate direct call sites of the blocker function, each with a local source window.
+The pipeline has already filtered call sites proven `inactive` under the current build configuration;
+they may appear only in an audit-only filtered list and are not selectable. `active` means positive
+target-build evidence exists. `unknown` means presence in the target build is not proven, so do not
+silently treat it as active or infer compiler behavior yourself.
+The observed runtime route may use a call site whose guard is INCOMPATIBLE with the required
+predicate value (e.g. guarded by the negation of the predicate), in which case the blocked
+side cannot be reached from it. Examine every candidate, then choose a call site whose guard
+is compatible with `[0C Predicate Setter]`. `path_status` only says how the call site was
+discovered, not whether the blocked side is reachable. `local_context` may be incomplete (an
+enclosing guard could be farther up); if it is insufficient to decide, say `unknown` rather
+than assuming the call is unconditional.
+```text
+Discovered 6 of 6 textual direct call site(s) of the blocker function.
+Selectable candidates: 5 (active=0, unknown=5). Filtered inactive candidates: 1.
+path_status = how the call site was discovered (runtime_observed | present_in_target_calltree | textual_only); it does NOT imply the blocked side is reachable from it. build_status=active has positive target-build evidence; build_status=unknown has not been proven present or absent. Never assume unknown means active. local_context may be INCOMPLETE (an enclosing guard could be farther up). Pick a call site whose guard is compatible with the required predicate value; if a call site's guard is the negation of the predicate it cannot reach the blocked side. If the local context is insufficient to decide, say unknown.
+
+### gencode.c:3208  [textual_only]  caller=gen_linktype  build_status=unknown
+Build reason: No positive target-build evidence confirms this textual call site is compiled.
+     3198: 		return gen_mpls_linktype(cstate, ll_proto);
+     3199: 
+     3200: 	switch (cstate->linktype) {
+     3201: 
+     3202: 	case DLT_EN10MB:
+     3203: 	case DLT_NETANALYZER:
+     3204: 	case DLT_NETANALYZER_TRANSPARENT:
+     3205: 		/* Geneve has an EtherType regardless of whether there is an
+     3206: 		 * L2 header. */
+     3207: 		if (!cstate->is_geneve)
+>>   3208: 			b0 = gen_prevlinkhdr_check(cstate);
+     3209: 		else
+     3210: 			b0 = NULL;
+
+### gencode.c:6713  [textual_only]  caller=gen_scode  build_status=unknown
+Build reason: No positive target-build evidence confirms this textual call site is compiled.
+     6703: 		if (proto == Q_LINK) {
+     6704: 			switch (cstate->linktype) {
+     6705: 
+     6706: 			case DLT_EN10MB:
+     6707: 			case DLT_NETANALYZER:
+     6708: 			case DLT_NETANALYZER_TRANSPARENT:
+     6709: 				eaddr = pcap_ether_hostton(name);
+     6710: 				if (eaddr == NULL)
+     6711: 					bpf_error(cstate,
+     6712: 					    "unknown ether host '%s'", name);
+>>   6713: 				tmp = gen_prevlinkhdr_check(cstate);
+     6714: 				b = gen_ehostop(cstate, eaddr, dir);
+     6715: 				if (tmp != NULL)
+
+### gencode.c:7238  [textual_only]  caller=gen_ecode  build_status=unknown
+Build reason: No positive target-build evidence confirms this textual call site is compiled.
+     7228: 		return (NULL);
+     7229: 
+     7230: 	if ((q.addr == Q_HOST || q.addr == Q_DEFAULT) && q.proto == Q_LINK) {
+     7231: 		cstate->e = pcap_ether_aton(s);
+     7232: 		if (cstate->e == NULL)
+     7233: 			bpf_error(cstate, "malloc");
+     7234: 		switch (cstate->linktype) {
+     7235: 		case DLT_EN10MB:
+     7236: 		case DLT_NETANALYZER:
+     7237: 		case DLT_NETANALYZER_TRANSPARENT:
+>>   7238: 			tmp = gen_prevlinkhdr_check(cstate);
+     7239: 			b = gen_ehostop(cstate, cstate->e, (int)q.dir);
+     7240: 			if (tmp != NULL)
+
+### gencode.c:7973  [textual_only]  caller=gen_broadcast  build_status=unknown
+Build reason: No positive target-build evidence confirms this textual call site is compiled.
+     7963: 
+     7964: 	case Q_DEFAULT:
+     7965: 	case Q_LINK:
+     7966: 		switch (cstate->linktype) {
+     7967: 		case DLT_ARCNET:
+     7968: 		case DLT_ARCNET_LINUX:
+     7969: 			return gen_ahostop(cstate, abroadcast, Q_DST);
+     7970: 		case DLT_EN10MB:
+     7971: 		case DLT_NETANALYZER:
+     7972: 		case DLT_NETANALYZER_TRANSPARENT:
+>>   7973: 			b1 = gen_prevlinkhdr_check(cstate);
+     7974: 			b0 = gen_ehostop(cstate, ebroadcast, Q_DST);
+     7975: 			if (b1 != NULL)
+
+### gencode.c:8059  [textual_only]  caller=gen_multicast  build_status=unknown
+Build reason: No positive target-build evidence confirms this textual call site is compiled.
+     8049: 	case Q_DEFAULT:
+     8050: 	case Q_LINK:
+     8051: 		switch (cstate->linktype) {
+     8052: 		case DLT_ARCNET:
+     8053: 		case DLT_ARCNET_LINUX:
+     8054: 			/* all ARCnet multicasts use the same address */
+     8055: 			return gen_ahostop(cstate, abroadcast, Q_DST);
+     8056: 		case DLT_EN10MB:
+     8057: 		case DLT_NETANALYZER:
+     8058: 		case DLT_NETANALYZER_TRANSPARENT:
+>>   8059: 			b1 = gen_prevlinkhdr_check(cstate);
+     8060: 			/* ether[0] & 1 != 0 */
+     8061: 			b0 = gen_mac_multicast(cstate, 0);
+
+## Filtered inactive call sites (not selectable)
+These entries are retained only as audit evidence. Do not select them.
+
+- gencode.c:5267: An enclosing preprocessor branch is false under the collected build configuration.
+  Conditions: #ifndef INET6
+  Evidence: src/libpcap/build/config.h:269: #define INET6 1
+```
+
+## Triggering input hint
+- Path or source: `N/A`
+```text
+N/A
+```
+
+## Inferred native input format
+- Family: `unknown`
+- MIME hint: `N/A`
+- Text format: `true`
+- Preferred extensions: `bpf`
+- Encoding: `ascii`
+- Container style: `N/A`
+- Structural features: `N/A`
+- Confidence: `low`
+
+Reasoning:
+N/A
+
+Structured view:
+```json
+{}
+```
+
+## Format-specific generator guidance
+- Vary section presence, repeated keys, whitespace, comments, and numeric/string boundary cases.
+- Prefer concise config files with a clear blocker-related field.
+
+# Step 0: Blocker Input Contract
+
+Before designing any seed family or writing generator code, you MUST first infer the blocker input contract.
+This contract is the source of truth for the generator.
+
+The runtime blocker segment is used to anchor:
+
+1. The library API call that leads to the blocker.
+2. The argument of that API that is derived from fuzzer `Data`.
+
+The internal runtime call chain is only the observed route for the current seed. Do not assume the same internal
+semantic route will reach the blocked side. If the observed route reaches the branch but not the blocked side,
+find a semantic route under the same API anchor that can satisfy the predicate.
+
+If the blocker is reached through a parser, grammar, decoder, state machine, visitor, virtual dispatch,
+opcode switch, field-tag dispatch, or handler table, the contract must identify the exact input representation
+category that selects the target route. Examples of representation categories include token kind, grammar
+production, AST node kind, opcode, message type, field number plus wire type, chunk or marker type, header name,
+command name, enum value, consume-call position, or handler key.
+
+Do not use an input form merely because it is semantically similar to the desired value. When multiple surface
+forms express the same concept, choose only the form whose parser/decoder/dispatcher route is proven to call the
+target function and reach the blocked predicate.
+
+If multiple input forms may express the same semantic concept but belong to different representation categories,
+do not merge them into one family. Put each representation category in a separate seed family with a stable name
+that identifies the category. The primary family should use the category with the strongest source evidence. If the
+source evidence is missing or ambiguous, say `unknown` in the contract and make exploratory families explicit rather
+than presenting guesses as confirmed facts.
+
+You MUST include the following six contract items in `analysis_summary`, using these exact prefixes:
+
+1. `[0A API Anchor]` Name the fuzz target call site that eventually reaches the blocker. Identify the
+   blocker-relevant API argument.
+2. `[0B Input Layout]` Describe how `Data[0..Size]` maps to that API argument. If `Data` is sliced, split,
+   length-prefixed, null-terminated, written to a file, or consumed through `FuzzedDataProvider`, give the
+   byte-range formula. If the whole `Data` buffer is passed verbatim, say so explicitly.
+3. `[0C Predicate Setter]` Describe the input-level trigger that sets the blocked predicate to the required value.
+   Do not only name an internal setter function. Name the syntax, bytes, field value, consume call, opcode,
+   token/production kind, field tag, marker, command, or handler key needed to select the target route. If several
+   representation categories are plausible, list them separately and state which one is source-supported for the
+   target route.
+4. `[0C2 Call-Site Reachability]` Setting the predicate value does NOT by itself guarantee the function that reads
+   the predicate is even called. For every function on the path from the API anchor to the blocked-side predicate
+   that is *conditionally called*, name the *independent input feature* required to make that call execute. This
+   caller-trigger condition may be orthogonal to `[0C]`: one input feature may select an optional encapsulation,
+   sub-operation, qualifier, or dispatch branch that reaches the call site, while a different feature sets the
+   predicate. Use the call chain and the call-site source to name each independent caller-trigger at the input
+   level (the syntax, token, field, qualifier, opcode, command, or option that causes the call). Use the
+   `## Blocker function call sites` section. Build status is deterministic evidence supplied by the pipeline:
+   do not infer or override it. Never select a filtered `inactive` call site. Prefer an `active` call site when its
+   guard is semantically compatible. An `unknown` call site remains a hypothesis, not proof that the code exists in
+   the target build; select it only when the output explicitly keeps `evidence_sufficient=false`. For selectable
+   call sites, examine each guard, REJECT any whose guard is the negation of (or otherwise conflicts with) the
+   required predicate value, and select a compatible one. Record the decision in the `callsite_decision` output
+   field. If the blocker function is called unconditionally once the API is invoked, state that explicitly. If the
+   listed call-site contexts are insufficient to decide, say `unknown` rather than assuming the function is reached.
+5. `[0D Reader Path]` Describe the caller path that reads the required value at the blocked predicate. State
+   whether this is the same as the observed runtime path or a different semantic route.
+6. `[0E Survival Check]` Describe whether the value can survive from setter to reader. Check for reset, overwrite,
+   macro side effect, early return, longjmp, cleanup, parser ordering, state pop, and lifecycle constraints.
+
+Only after completing this contract should you design seed families. Every seed family must place the
+blocker-relevant content at the byte location described by `[0B Input Layout]`, satisfy every independent
+caller-trigger named in `[0C2 Call-Site Reachability]`, trigger `[0C Predicate Setter]`, and reach
+`[0D Reader Path]`.
+
+# What To Infer
+
+From the code and blocker location, infer:
+
+1. The exact fuzz-target input layout that materializes the blocker-relevant API argument. The inferred native
+   format above is only a hint for the inner API argument, not necessarily for the entire `Data` buffer.
+2. The input-level syntax, bytes, fields, or semantic values that trigger the predicate setter.
+3. If a parser/decoder/dispatcher is involved, the exact representation category that selects the target function
+   rather than a semantically similar route.
+4. The reader path that reaches the blocked predicate after the setter fires.
+5. Whether the required value survives from setter to reader.
+6. Which boundary values, malformed forms, or encoding variants should be systematically generated.
+7. How to organize those hypotheses into maintainable Python code instead of one-off samples.
+8. Which seed families should exist so later iterations can keep, discard, or refine them without renaming everything.
+
+# Quality Bar
+
+The generator should:
+
+- Focus on **high-signal blocker-specific variants**, not generic random fuzz.
+- Prefer small, readable seeds.
+- Include a small family of boundary cases near the blocker condition.
+- Produce both likely-valid and strategically malformed inputs when useful.
+- Encode the blocker reasoning explicitly in comments and helper functions.
+- Generated filenames must carry a stable family tag so later iterations can measure family-level usefulness.
+- Use names like `F01_structured_base_01.ext`, `F02_boundary_flags_01.ext`.
+- Keep family tags stable across future revisions. Do not generate anonymous names like `seed_01.bin`.
+
+# Output Format
+
+Return **only** a single JSON object. No markdown fences. No extra commentary.
+
+The JSON object must have exactly these keys:
+
+- `analysis_summary`: array of short strings
+- `failure_analysis`: array of short strings
+- `family_decisions`: array of short strings
+- `revision_plan`: array of short strings
+- `generator_design_rationale`: string
+- `generator_filename`: string
+- `generator_code`: string
+- `sample_seeds`: array of strings
+- `callsite_decision`: object documenting the chosen blocker call site (structure below)
+
+The first six entries of `analysis_summary` MUST be the Step 0 contract entries, in this exact order:
+
+1. `[0A API Anchor] ...`
+2. `[0B Input Layout] ...`
+3. `[0C Predicate Setter] ...`
+4. `[0C2 Call-Site Reachability] ...`
+5. `[0D Reader Path] ...`
+6. `[0E Survival Check] ...`
+
+If any contract item is unknown, say `unknown` and explain what context is missing. Do not silently guess.
+
+The `callsite_decision` object must have these fields (derived from the `## Blocker function call sites` section):
+
+- `selected_candidate_id`: the chosen call site id (e.g. `gencode.c:7238`), or `unknown`.
+- `observed_guard`: the guard condition at that call site as seen in its local context.
+- `compatibility_reason`: why that guard is compatible with the required `[0C Predicate Setter]` value.
+- `input_trigger`: the input-level feature/syntax that causes that call site to execute.
+- `evidence_sufficient`: boolean; `false` if the listed local context was insufficient to decide (then do
+  NOT assume the call is unconditional). It must also be `false` when selecting a call site whose
+  `build_status` is `unknown`.
+- `rejected_conflicting_callsites`: array of `{candidate_id, reason}` for the observed/current route and any call
+  site whose guard clearly conflicts with the predicate (need not be exhaustive).
+
+# Additional Constraints
+
+- `generator_code` must be valid Python 3.
+- `sample_seeds` must be representative outputs of the generator.
+- Keep the generator compact and readable.
+- If the inferred target format is text-based, emit text seeds in that native format. If binary is needed, generate bytes in Python code.
+- The generated filenames inside `build_seeds()` should use the preferred extension when practical.
+- Prefer deterministic systematic variants over probabilistic sampling: use range enumeration, interesting-value lists, bitflip variants, and Cartesian combinations of relevant fields. Each family should explore a meaningful range of the hypothesis space, not a single hardcoded point. For example, if a field controls a branch, enumerate all semantically distinct values for that field rather than picking one guess.
+- Inside `build_seeds()`, return tuples `(filename, payload)` where `filename` preserves the stable family tag.
+- Design families so some target structure reachability and some target blocker-boundary refinement, but every family must still be blocker-oriented.
+- Do not generate seeds for an API path that is not on the runtime blocker segment unless the Step 0 contract explains
+  why that path reaches the same blocked predicate.
+- Do not treat a setter as sufficient. A seed family must also reach a reader path where the predicate reads the
+  required value.
+- A predicate setter is necessary but not sufficient for reachability. If the function that contains the blocked
+  predicate is only called under a separate input condition (see `[0C2 Call-Site Reachability]`), every seed family
+  MUST combine ALL independent caller-trigger features together with the predicate setter in the same input. The
+  caller-trigger and the setter may be orthogonal input features; a seed that sets the predicate but omits a
+  required caller-trigger will not reach the predicate at all. Do not drop a caller-trigger feature merely because
+  it looks unrelated to the predicate value.
+- Do not treat corpus-level branch reach as proof that generated seeds reached the branch. Seed families must be
+  designed so their own representative seeds can reach the branch.
+- If the blocker-relevant argument is a slice of `Data`, every generated seed must place the intended content exactly
+  in that slice.
+- If route selection depends on parsing, decoding, dispatch, or state-machine transitions, generated seeds must use
+  the exact representation category that selects the blocker route. Do not substitute another representation that is
+  only semantically equivalent.
+- If the required route depends on tokenization, field typing, opcode/message selection, header/command naming,
+  or consume-call order, encode that choice explicitly in helper names, comments, and family names.
+- Do not mix distinct route-selection categories in one family. For example, if two encodings, tokens, opcodes,
+  field tags, command names, or handler keys may dispatch differently, create separate families and label the route
+  evidence for each family.
+
+# Final Reminder
+
+The main deliverable is not the seeds themselves. The main deliverable is a **maintainable blocker-aware generator** that a fuzzing pipeline can keep and evolve.

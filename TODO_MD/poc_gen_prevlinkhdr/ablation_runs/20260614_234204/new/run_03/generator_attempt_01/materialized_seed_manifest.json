@@ -1,0 +1,47 @@
+[
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F01_geneve_link_base_01.bpf",
+    "relative_path": "F01_geneve_link_base_01.bpf",
+    "size_bytes": 39
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F02_geneve_link_variant_01.bpf",
+    "relative_path": "F02_geneve_link_variant_01.bpf",
+    "size_bytes": 42
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F02_geneve_link_variant_02.bpf",
+    "relative_path": "F02_geneve_link_variant_02.bpf",
+    "size_bytes": 42
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F02_geneve_link_variant_03.bpf",
+    "relative_path": "F02_geneve_link_variant_03.bpf",
+    "size_bytes": 38
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F02_geneve_link_variant_04.bpf",
+    "relative_path": "F02_geneve_link_variant_04.bpf",
+    "size_bytes": 25
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F02_geneve_link_variant_05.bpf",
+    "relative_path": "F02_geneve_link_variant_05.bpf",
+    "size_bytes": 25
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F03_geneve_simple_01.bpf",
+    "relative_path": "F03_geneve_simple_01.bpf",
+    "size_bytes": 6
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F03_geneve_simple_02.bpf",
+    "relative_path": "F03_geneve_simple_02.bpf",
+    "size_bytes": 12
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_03/generator_attempt_01/materialized_by_generator/F03_geneve_simple_03.bpf",
+    "relative_path": "F03_geneve_simple_03.bpf",
+    "size_bytes": 22
+  }
+]

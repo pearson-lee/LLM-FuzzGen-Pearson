@@ -1,0 +1,23 @@
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: The blocked branch is `if (cstate->is_geneve)` at line 3149. To reach the blocked side at line 3150 (`return gen_geneve_ll_check(cstate);`), the condition `cstate->is_geneve` must evaluate to `true` (non-zero).",
+    "[1b. Enclosing-block reachability]: The branch `if (cstate->is_geneve)` is directly within the `gen_prevlinkhdr_check` function. There are no other enclosing `if`, `for`, or `while` conditions that would prevent line 3150 from being executed if `cstate->is_geneve` is true. The function `gen_prevlinkhdr_check` itself is called, as indicated by the branch hit count of 163000.",
+    "[2. Required blocked-side condition]: The `cstate->is_geneve` member of the `compiler_state_t` struct must be set to a non-zero value (true).",
+    "[2b. Producer-path proof]: The fuzzer's input `filter_str` is passed to `pcap_compile`. `pcap_compile` then calls `pcap_parse`. According to the classifier's trace, if the `filter_str` contains the keyword 'geneve', `pcap_parse` will call the `gen_geneve` function. The `gen_geneve` function is responsible for setting `cstate->is_geneve = 1;`. Since `cstate` is passed by reference (`compiler_state_t *cstate`) throughout the compilation process, this change persists and is available when `gen_prevlinkhdr_check` is called. This constitutes a proven path for setting the required condition.",
+    "[3. Practical feasibility]: Setting `cstate->is_geneve` to `true` requires including the string 'geneve' in the fuzzer's input `filter_str`. This is a simple and practical modification to the input, well within typical fuzzing budgets and capabilities.",
+    "[4. Classifier conflict check]: The classifier's analysis is consistent with the source code and runtime evidence. There is no conflict.",
+    "[5. Triage decision]: The blocker is generation-solvable because a legal input can directly control the predicate variable `cstate->is_geneve`."
+  ],
+  "required_condition": "`cstate->is_geneve` must be true (non-zero).",
+  "producer_path_status": "proven",
+  "practical_feasibility": "practical",
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "The solver should generate a `filter_str` input that includes the keyword 'geneve' to trigger the `gen_geneve` function, which sets `cstate->is_geneve` to true.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```

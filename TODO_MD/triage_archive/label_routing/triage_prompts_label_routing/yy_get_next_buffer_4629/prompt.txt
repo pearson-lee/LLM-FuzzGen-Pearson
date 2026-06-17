@@ -1,0 +1,565 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0625183237
+- Function: yy_get_next_buffer
+- Branch line: 4629
+- Branch code: `if ( YY_CURRENT_BUFFER_LVALUE->yy_fill_buffer == 0 )`
+- Blocked-side line: 4651
+- Blocked-side code: `number_to_move = (int) (yyg->yy_c_buf_p - yyg->yytext_ptr - 1);`
+- Branch hit count: 40900
+- Blocked-side hit count: 0
+- Pipeline failure stage: symcc_generated_harness
+- Pipeline methods attempted: llm_seed_generator, symcc_probe_original_target, libfuzzer_focused_pass, symcc_generated_harness
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+    4604: 			"fatal flex scanner internal error--no action found" );
+    4605: 	} /* end of action switch */
+    4606: 		} /* end of scanning one token */
+    4607: 	} /* end of user's declarations */
+    4608: } /* end of yylex */
+    4609: 
+    4610: /* yy_get_next_buffer - try to read in a new buffer
+    4611:  *
+    4612:  * Returns a code representing an action:
+    4613:  *	EOB_ACT_LAST_MATCH -
+    4614:  *	EOB_ACT_CONTINUE_SCAN - continue scanning from current position
+    4615:  *	EOB_ACT_END_OF_FILE - end of file
+    4616:  */
+    4617: static int yy_get_next_buffer (yyscan_t yyscanner)
+    4618: {
+    4619:     struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
+    4620: 	char *dest = YY_CURRENT_BUFFER_LVALUE->yy_ch_buf;
+    4621: 	char *source = yyg->yytext_ptr;
+    4622: 	int number_to_move, i;
+    4623: 	int ret_val;
+    4624: 
+    4625: 	if ( yyg->yy_c_buf_p > &YY_CURRENT_BUFFER_LVALUE->yy_ch_buf[yyg->yy_n_chars + 1] )
+    4626: 		YY_FATAL_ERROR(
+    4627: 		"fatal flex scanner internal error--end of buffer missed" );
+    4628: 
+>>  4629: 	if ( YY_CURRENT_BUFFER_LVALUE->yy_fill_buffer == 0 )
+    4630: 		{ /* Don't try to fill the buffer, so this is an EOF. */
+    4631: 		if ( yyg->yy_c_buf_p - yyg->yytext_ptr - YY_MORE_ADJ == 1 )
+    4632: 			{
+    4633: 			/* We matched a single character, the EOB, so
+    4634: 			 * treat this as a final EOF.
+    4635: 			 */
+    4636: 			return EOB_ACT_END_OF_FILE;
+    4637: 			}
+    4638: 
+    4639: 		else
+    4640: 			{
+    4641: 			/* We matched some text prior to the EOB, first
+    4642: 			 * process it.
+    4643: 			 */
+    4644: 			return EOB_ACT_LAST_MATCH;
+    4645: 			}
+    4646: 		}
+    4647: 
+    4648: 	/* Try to read more data. */
+    4649: 
+    4650: 	/* First move last chars to start of buffer. */
+>>  4651: 	number_to_move = (int) (yyg->yy_c_buf_p - yyg->yytext_ptr - 1);
+    4652: 
+    4653: 	for ( i = 0; i < number_to_move; ++i )
+    4654: 		*(dest++) = *(source++);
+    4655: 
+    4656: 	if ( YY_CURRENT_BUFFER_LVALUE->yy_buffer_status == YY_BUFFER_EOF_PENDING )
+    4657: 		/* don't do the read, it's not guaranteed to return an EOF,
+    4658: 		 * just force an EOF
+    4659: 		 */
+    4660: 		YY_CURRENT_BUFFER_LVALUE->yy_n_chars = yyg->yy_n_chars = 0;
+    4661: 
+    4662: 	else
+    4663: 		{
+    4664: 			int num_to_read =
+    4665: 			YY_CURRENT_BUFFER_LVALUE->yy_buf_size - number_to_move - 1;
+    4666: 
+    4667: 		while ( num_to_read <= 0 )
+    4668: 			{ /* Not enough room in the buffer - grow it. */
+    4669: 
+    4670: 			/* just a shorter name for the current buffer */
+    4671: 			YY_BUFFER_STATE b = YY_CURRENT_BUFFER_LVALUE;
+    4672: 
+    4673: 			int yy_c_buf_p_offset =
+    4674: 				(int) (yyg->yy_c_buf_p - b->yy_ch_buf);
+    4675: 
+    4676: 			if ( b->yy_is_our_buffer )
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `yy_fill_buffer` near line 496
+     490:     int yy_bs_lineno; /**< The line count. */
+     491:     int yy_bs_column; /**< The column count. */
+     492: 
+     493: 	/* Whether to try to fill the input buffer when we reach the
+     494: 	 * end of it.
+     495: 	 */
+>>   496: 	int yy_fill_buffer;
+     497: 
+     498: 	int yy_buffer_status;
+     499: 
+     500: #define YY_BUFFER_NEW 0
+     501: #define YY_BUFFER_NORMAL 1
+     502: 	/* When an EOF's been seen but there's still some text to process
+
+// Related snippet 2: identifier `yy_fill_buffer` near line 5020
+    5014: 	int oerrno = errno;
+    5015:     struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
+    5016: 
+    5017: 	yy_flush_buffer( b , yyscanner);
+    5018: 
+    5019: 	b->yy_input_file = file;
+>>  5020: 	b->yy_fill_buffer = 1;
+    5021: 
+    5022:     /* If b is the current buffer, then yy_init_buffer was _probably_
+    5023:      * called from yyrestart() or through yy_get_next_buffer.
+    5024:      * In that case, we don't want to reset the lineno or column.
+    5025:      */
+    5026:     if (b != YY_CURRENT_BUFFER){
+
+// Related snippet 3: identifier `yy_fill_buffer` near line 5192
+    5186: 	b->yy_buf_pos = b->yy_ch_buf = base;
+    5187: 	b->yy_is_our_buffer = 0;
+    5188: 	b->yy_input_file = NULL;
+    5189: 	b->yy_n_chars = b->yy_buf_size;
+    5190: 	b->yy_is_interactive = 0;
+    5191: 	b->yy_at_bol = 1;
+>>  5192: 	b->yy_fill_buffer = 0;
+    5193: 	b->yy_buffer_status = YY_BUFFER_NEW;
+    5194: 
+    5195: 	yy_switch_to_buffer( b , yyscanner );
+    5196: 
+    5197: 	return b;
+    5198: }
+
+// Related snippet 4: identifier `YY_CURRENT_BUFFER_LVALUE` near line 529
+     523: #define YY_CURRENT_BUFFER ( yyg->yy_buffer_stack \
+     524:                           ? yyg->yy_buffer_stack[yyg->yy_buffer_stack_top] \
+     525:                           : NULL)
+     526: /* Same as previous macro, but useful when we know that the buffer stack is not
+     527:  * NULL or when we need an lvalue. For internal use only.
+     528:  */
+>>   529: #define YY_CURRENT_BUFFER_LVALUE yyg->yy_buffer_stack[yyg->yy_buffer_stack_top]
+     530: 
+     531: void yyrestart ( FILE *input_file , yyscan_t yyscanner );
+     532: void yy_switch_to_buffer ( YY_BUFFER_STATE new_buffer , yyscan_t yyscanner );
+     533: YY_BUFFER_STATE yy_create_buffer ( FILE *file, int size , yyscan_t yyscanner );
+     534: void yy_delete_buffer ( YY_BUFFER_STATE b , yyscan_t yyscanner );
+     535: void yy_flush_buffer ( YY_BUFFER_STATE b , yyscan_t yyscanner );
+
+// Related snippet 5: identifier `YY_CURRENT_BUFFER_LVALUE` near line 382
+     376:    are macros in the reentrant scanner. */
+     377: #define yyin yyg->yyin_r
+     378: #define yyout yyg->yyout_r
+     379: #define yyextra yyg->yyextra_r
+     380: #define yyleng yyg->yyleng_r
+     381: #define yytext yyg->yytext_r
+>>   382: #define yylineno (YY_CURRENT_BUFFER_LVALUE->yy_bs_lineno)
+     383: #define yycolumn (YY_CURRENT_BUFFER_LVALUE->yy_bs_column)
+     384: #define yy_flex_debug yyg->yy_flex_debug_r
+     385: 
+     386: /* Enter a start condition.  This macro really ought to take a parameter,
+     387:  * but we do it the disgusting crufty way forced on us by the ()-less
+     388:  * definition of BEGIN.
+
+// Related snippet 6: identifier `number_to_move` near line 4622
+    4616:  */
+    4617: static int yy_get_next_buffer (yyscan_t yyscanner)
+    4618: {
+    4619:     struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
+    4620: 	char *dest = YY_CURRENT_BUFFER_LVALUE->yy_ch_buf;
+    4621: 	char *source = yyg->yytext_ptr;
+>>  4622: 	int number_to_move, i;
+    4623: 	int ret_val;
+    4624: 
+    4625: 	if ( yyg->yy_c_buf_p > &YY_CURRENT_BUFFER_LVALUE->yy_ch_buf[yyg->yy_n_chars + 1] )
+    4626: 		YY_FATAL_ERROR(
+    4627: 		"fatal flex scanner internal error--end of buffer missed" );
+    4628: 
+
+// Related snippet 7: identifier `number_to_move` near line 4653
+    4647: 
+    4648: 	/* Try to read more data. */
+    4649: 
+    4650: 	/* First move last chars to start of buffer. */
+    4651: 	number_to_move = (int) (yyg->yy_c_buf_p - yyg->yytext_ptr - 1);
+    4652: 
+>>  4653: 	for ( i = 0; i < number_to_move; ++i )
+    4654: 		*(dest++) = *(source++);
+    4655: 
+    4656: 	if ( YY_CURRENT_BUFFER_LVALUE->yy_buffer_status == YY_BUFFER_EOF_PENDING )
+    4657: 		/* don't do the read, it's not guaranteed to return an EOF,
+    4658: 		 * just force an EOF
+    4659: 		 */
+
+// Related snippet 8: identifier `yy_c_buf_p` near line 446
+     440: 		{ \
+     441: 		/* Undo effects of setting up yytext. */ \
+     442:         int yyless_macro_arg = (n); \
+     443:         YY_LESS_LINENO(yyless_macro_arg);\
+     444: 		*yy_cp = yyg->yy_hold_char; \
+     445: 		YY_RESTORE_YY_MORE_OFFSET \
+>>   446: 		yyg->yy_c_buf_p = yy_cp = yy_bp + yyless_macro_arg - YY_MORE_ADJ; \
+     447: 		YY_DO_BEFORE_ACTION; /* set up yytext again */ \
+     448: 		} \
+     449: 	while ( 0 )
+     450: #define unput(c) yyunput( c, yyg->yytext_ptr , yyscanner )
+     451: 
+     452: #ifndef YY_STRUCT_YY_BUFFER_STATE
+
+// Related snippet 9: identifier `yy_c_buf_p` near line 596
+     590:  */
+     591: #define YY_DO_BEFORE_ACTION \
+     592: 	yyg->yytext_ptr = yy_bp; \
+     593: 	yyleng = (int) (yy_cp - yy_bp); \
+     594: 	yyg->yy_hold_char = *yy_cp; \
+     595: 	*yy_cp = '\0'; \
+>>   596: 	yyg->yy_c_buf_p = yy_cp;
+     597: #define YY_NUM_RULES 188
+     598: #define YY_END_OF_BUFFER 189
+     599: /* This struct is not used in this scanner,
+     600:    but its presence is necessary. */
+     601: struct yy_trans_info
+     602: 	{
+
+// Related snippet 10: identifier `yy_c_buf_p` near line 3218
+    3212:     size_t yy_buffer_stack_top; /**< index of top of stack. */
+    3213:     size_t yy_buffer_stack_max; /**< capacity of stack. */
+    3214:     YY_BUFFER_STATE * yy_buffer_stack; /**< Stack as an array. */
+    3215:     char yy_hold_char;
+    3216:     int yy_n_chars;
+    3217:     int yyleng_r;
+>>  3218:     char *yy_c_buf_p;
+    3219:     int yy_init;
+    3220:     int yy_start;
+    3221:     int yy_did_buffer_switch_on_eof;
+    3222:     int yy_start_stack_ptr;
+    3223:     int yy_start_stack_depth;
+    3224:     int *yy_start_stack;
+
+// Related snippet 11: identifier `yytext_ptr` near line 581
+     575: #define pcap_wrap(yyscanner) (/*CONSTCOND*/1)
+     576: #define YY_SKIP_YYWRAP
+     577: typedef flex_uint8_t YY_CHAR;
+     578: 
+     579: typedef int yy_state_type;
+     580: 
+>>   581: #define yytext_ptr yytext_r
+     582: 
+     583: static yy_state_type yy_get_previous_state ( yyscan_t yyscanner );
+     584: static yy_state_type yy_try_NUL_trans ( yy_state_type current_state  , yyscan_t yyscanner);
+     585: static int yy_get_next_buffer ( yyscan_t yyscanner );
+     586: static void yynoreturn yy_fatal_error ( const char* msg , yyscan_t yyscanner );
+     587:
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_dependent",
+  "project_name": "libpcap",
+  "function_name": "yy_get_next_buffer",
+  "branch_line_number": 4629,
+  "blocked_side_line_number": 4651,
+  "reference_target_name": "llm_fuzzgen0625183237",
+  "success": false,
+  "attempt_result": "failed",
+  "success_stage": null,
+  "failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "message": "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback.",
+  "llm_seed_final_status": "not_solved_by_generator",
+  "llm_seed_generator_terminal_reason": "stalled_at_branch",
+  "llm_seed_handoff_selection_reason": "No branch-reaching candidate seeds were selected from generator families.",
+  "baseline": {},
+  "stage_statuses": {
+    "llm_seed_generator": {
+      "success": false,
+      "returncode": null,
+      "final_status": "not_solved_by_generator",
+      "message": null
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    }
+  },
+  "stages": {
+    "llm_seed_generator": {
+      "success": false,
+      "final_status": "not_solved_by_generator",
+      "generator_terminal_reason": "stalled_at_branch",
+      "diagnosis_counts": {
+        "reaches_branch_but_condition_not_satisfied": 2
+      },
+      "iterations_run": 2,
+      "progress_iteration_count": 0,
+      "stalled_iteration_count": 2,
+      "invalid_iteration_count": 0,
+      "best_iteration": {
+        "iteration": 1,
+        "validation_ok": true,
+        "validation_error_kind": "",
+        "generated_seed_count": 14,
+        "family_counts": {
+          "F01_basic_filters": 5,
+          "F02_long_filters": 2,
+          "F03_malformed_filters": 5,
+          "F04_empty_and_whitespace": 2
+        }
+      }
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "validation_status": "passed"
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "seed_count_before": 1,
+      "seed_count_after": 1410,
+      "new_seeds": 1409,
+      "error": ""
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Dependent
+- Classifier reason: The blocked predicate `YY_CURRENT_BUFFER_LVALUE->yy_fill_buffer == 0` is directly controlled by the fuzzer's input. The `filter_string`, which is derived from fuzzer input, is used to initialize the lexer's buffer. If the `filter_string` is non-empty, `yy_fill_buffer` will be non-zero, causing the condition to be false and allowing execution to reach the blocked side at line `4651`. The fuzzer can easily provide a non-empty `filter_string`.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The blocked predicate is at line `4629`: `if ( YY_CURRENT_BUFFER_LVALUE->yy_fill_buffer == 0 )`. The variable controlling the branch is `YY_CURRENT_BUFFER_LVALUE->yy_fill_buffer`, which expands to `yyg->yy_current_buffer->yy_fill_buffer`. The branch hit count is `40.9k`, indicating this condition is frequently evaluated.
+
+[1.5. Blocked Side Direction]: The unreachable code is at line `4651`: `number_to_move = (int) (yyg->yy_c_buf_p - yyg->yytext_ptr - 1);`. This line is executed when the `if` condition at line `4629` evaluates to `FALSE`. Therefore, to reach the blocked side, the required predicate value/state is `yyg->yy_current_buffer->yy_fill_buffer != 0`.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` at `/src/llm_fuzzgen0625183237.c:115`: `if (pcap_compile(p, &fcode, filter_string, 1, PCAP_NETMASK_UNKNOWN) == 0) {`.
+
+[2.5. Materialization Check]: The `filter_string` is constructed from fuzzer input `Data` and `Size`. This `filter_string` is passed to `pcap_compile`, which then calls `pcap_parse`, which in turn calls `pcap_lex`. Inside `pcap_lex`, the `pcap__scan_string` function is called with `filter_string` to initialize the lexer's buffer. The `yy_fill_buffer` member of this buffer state is directly influenced by whether the `filter_string` contains data. Thus, the fuzz target directly materializes and uses the relevant input-derived data to affect the blocked predicate.
+
+[3A. Setter / Transition Evidence]: The `yy_fill_buffer` member of `YY_CURRENT_BUFFER_LVALUE` (which is `yyg->yy_current_buffer`) is initialized and managed by the Flex-generated scanner code. Specifically, in `pcap_compile`, the line `in_buffer = pcap__scan_string(xbuf ? xbuf : "", scanner);` initializes the lexer's input buffer. The `xbuf` variable is the `filter_string` derived from fuzzer input. The comment at line `4630` in `yy_get_next_buffer` (`/* Don't try to fill the buffer, so this is an EOF. */`) indicates that `yy_fill_buffer == 0` signifies an end-of-file condition for the current buffer. If `filter_string` is an empty string (which the fuzzer can produce by setting `filter_string_size` to 0), `pcap__scan_string` would likely set `yy_fill_buffer` to 0. Conversely, if `filter_string` contains data, `yy_fill_buffer` would be set to a non-zero value, indicating there is data to be processed. The fuzzer controls `filter_string_size` via `Size - 1 - pcap_data_size`. It is possible for `filter_string_size` to be greater than 0, thus providing a non-empty `filter_string`. No DATA STARVATION DETECTED: the fuzzer can control the `filter_string_size` to be non-zero.
+
+[3B. Survival / Feasibility Check]: If the fuzzer provides a non-empty `filter_string`, `pcap__scan_string` will set `yyg->yy_current_buffer->yy_fill_buffer` to a non-zero value. When `yy_get_next_buffer` is called, the condition `YY_CURRENT_BUFFER_LVALUE->yy_fill_buffer == 0` will evaluate to `FALSE`, allowing execution to proceed past the `if` block and reach line `4651`. There are no intervening operations or control flow paths (such as early returns, aborts, or resets) that would prevent this non-zero value from surviving to the blocked predicate check. The path is direct and the state is maintained within the lexer's context.
+
+[4. Rule Application]: Rule 1: Direct Data Flow (Input Dependent). The value of `yy_fill_buffer` is directly determined by the content of the `filter_string`, which is derived from the fuzzer's input `Data`. The fuzzer can provide a non-empty `filter_string` to make `yy_fill_buffer` non-zero, thereby reaching the blocked side.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Before accepting any proposed path to the blocked side, verify that execution
+   actually reaches blocked-side line 4651. When an
+   enclosing `if`, `for`, or `while` condition evaluates to false, ALL lines
+   inside that block's `{}` are skipped — including any nested `if` branches
+   within it. A condition being satisfiable (e.g., `!ptr == true`) does not
+   prove the line is reachable if that line is inside a block whose own guard
+   is not entered. Use the step "[1b. Enclosing-block reachability]" to make
+   this check explicit before proceeding.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For internal parser or scanner state variables managed by generated code or
+   opaque internal transitions, do not infer solvability from generic parser
+   theory alone. Choose `Generated Parser State` or `Structurally Unreachable
+   API Path` unless the provided source shows a visible legal public transition
+   that sets the required state and persists to the blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+   inventing missing data. The pipeline derives routing from the label and keeps
+   solver execution enabled for inconclusive cases.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line 4651. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
+
+Do not output `first_layer_decision` or `solver_action`. The pipeline derives both
+deterministically from `refined_triage_label`.

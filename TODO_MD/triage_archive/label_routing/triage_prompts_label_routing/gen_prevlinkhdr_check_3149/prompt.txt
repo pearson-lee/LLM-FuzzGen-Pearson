@@ -1,0 +1,485 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0626013047
+- Function: gen_prevlinkhdr_check
+- Branch line: 3149
+- Branch code: `if (cstate->is_geneve)`
+- Blocked-side line: 3150
+- Blocked-side code: `return gen_geneve_ll_check(cstate);`
+- Branch hit count: 163000
+- Blocked-side hit count: 0
+- Pipeline failure stage: symcc_generated_harness
+- Pipeline methods attempted: llm_seed_generator, symcc_probe_original_target, libfuzzer_focused_pass, symcc_generated_harness
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+    3124: 		 * I'm assuming the "Bridging PDU"s that go
+    3125: 		 * over PPP are Spanning Tree Protocol
+    3126: 		 * Bridging PDUs.
+    3127: 		 */
+    3128: 		ll_proto = PPP_BRPDU;
+    3129: 		break;
+    3130: 
+    3131: 	case LLCSAP_IPX:
+    3132: 		ll_proto = PPP_IPX;
+    3133: 		break;
+    3134: 	}
+    3135: 	return (ll_proto);
+    3136: }
+    3137: 
+    3138: /*
+    3139:  * Generate any tests that, for encapsulation of a link-layer packet
+    3140:  * inside another protocol stack, need to be done to check for those
+    3141:  * link-layer packets (and that haven't already been done by a check
+    3142:  * for that encapsulation).
+    3143:  */
+    3144: static struct block *
+    3145: gen_prevlinkhdr_check(compiler_state_t *cstate)
+    3146: {
+    3147: 	struct block *b0;
+    3148: 
+>>  3149: 	if (cstate->is_geneve)
+>>  3150: 		return gen_geneve_ll_check(cstate);
+    3151: 
+    3152: 	switch (cstate->prevlinktype) {
+    3153: 
+    3154: 	case DLT_SUNATM:
+    3155: 		/*
+    3156: 		 * This is LANE-encapsulated Ethernet; check that the LANE
+    3157: 		 * packet doesn't begin with an LE Control marker, i.e.
+    3158: 		 * that it's data, not a control message.
+    3159: 		 *
+    3160: 		 * (We've already generated a test for LANE.)
+    3161: 		 */
+    3162: 		b0 = gen_cmp(cstate, OR_PREVLINKHDR, SUNATM_PKT_BEGIN_POS, BPF_H, 0xFF00);
+    3163: 		gen_not(b0);
+    3164: 		return b0;
+    3165: 
+    3166: 	default:
+    3167: 		/*
+    3168: 		 * No such tests are necessary.
+    3169: 		 */
+    3170: 		return NULL;
+    3171: 	}
+    3172: 	/*NOTREACHED*/
+    3173: }
+    3174: 
+    3175: /*
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `is_geneve` near line 172
+     166: 	(cs)->prevlinktype = (cs)->linktype; \
+     167: 	(cs)->off_prevlinkhdr = (cs)->off_linkhdr; \
+     168: 	(cs)->linktype = (new_linktype); \
+     169: 	(cs)->off_linkhdr.is_variable = (new_is_variable); \
+     170: 	(cs)->off_linkhdr.constant_part = (new_constant_part); \
+     171: 	(cs)->off_linkhdr.reg = (new_reg); \
+>>   172: 	(cs)->is_geneve = 0; \
+     173: }
+     174: 
+     175: /*
+     176:  * Offset "not set" value.
+     177:  */
+     178: #define OFFSET_NOT_SET	0xffffffffU
+
+// Related snippet 2: identifier `is_geneve` near line 343
+     337: 
+     338: 	/*
+     339: 	 * TRUE if "geneve" appeared in the filter; it causes us to
+     340: 	 * generate code that checks for a Geneve header and assume
+     341: 	 * that later filters apply to the encapsulated payload.
+     342: 	 */
+>>   343: 	int is_geneve;
+     344: 
+     345: 	/*
+     346: 	 * TRUE if we need variable length part of VLAN offset
+     347: 	 */
+     348: 	int is_vlan_vloffset;
+     349: 
+
+// Related snippet 3: identifier `is_geneve` near line 1179
+    1173: 	cstate->off_proto = OFFSET_NOT_SET;
+    1174: 	cstate->off_payload = OFFSET_NOT_SET;
+    1175: 
+    1176: 	/*
+    1177: 	 * And not Geneve.
+    1178: 	 */
+>>  1179: 	cstate->is_geneve = 0;
+    1180: 
+    1181: 	/*
+    1182: 	 * No variable length VLAN offset by default
+    1183: 	 */
+    1184: 	cstate->is_vlan_vloffset = 0;
+    1185: 
+
+// Related snippet 4: identifier `cstate` near line 424
+     418: 
+     419: /*
+     420:  * For use by routines outside this file.
+     421:  */
+     422: /* VARARGS */
+     423: void
+>>   424: bpf_set_error(compiler_state_t *cstate, const char *fmt, ...)
+     425: {
+     426: 	va_list ap;
+     427: 
+     428: 	/*
+     429: 	 * If we've already set an error, don't override it.
+     430: 	 * The lexical analyzer reports some errors by setting
+
+// Related snippet 5: identifier `cstate` near line 437
+     431: 	 * the error and then returning a LEX_ERROR token, which
+     432: 	 * is not recognized by any grammar rule, and thus forces
+     433: 	 * the parse to stop.  We don't want the error reported
+     434: 	 * by the lexical analyzer to be overwritten by the syntax
+     435: 	 * error.
+     436: 	 */
+>>   437: 	if (!cstate->error_set) {
+     438: 		va_start(ap, fmt);
+     439: 		(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+     440: 		    fmt, ap);
+     441: 		va_end(ap);
+     442: 		cstate->error_set = 1;
+     443: 	}
+
+// Related snippet 6: identifier `gen_geneve_ll_check` near line 576
+     570: static struct block *gen_proto(compiler_state_t *, bpf_u_int32, int, int);
+     571: static struct slist *xfer_to_x(compiler_state_t *, struct arth *);
+     572: static struct slist *xfer_to_a(compiler_state_t *, struct arth *);
+     573: static struct block *gen_mac_multicast(compiler_state_t *, int);
+     574: static struct block *gen_len(compiler_state_t *, int, int);
+     575: static struct block *gen_check_802_11_data_frame(compiler_state_t *);
+>>   576: static struct block *gen_geneve_ll_check(compiler_state_t *cstate);
+     577: 
+     578: static struct block *gen_ppi_dlt_check(compiler_state_t *);
+     579: static struct block *gen_atmfield_code_internal(compiler_state_t *, int,
+     580:     bpf_u_int32, int, int);
+     581: static struct block *gen_atmtype_llc(compiler_state_t *);
+     582: static struct block *gen_msg_abbrev(compiler_state_t *, int type);
+
+// Related snippet 7: identifier `gen_geneve_ll_check` near line 9442
+    9436: 	return b1;
+    9437: }
+    9438: 
+    9439: /* Check that the encapsulated frame has a link layer header
+    9440:  * for Ethernet filters. */
+    9441: static struct block *
+>>  9442: gen_geneve_ll_check(compiler_state_t *cstate)
+    9443: {
+    9444: 	struct block *b0;
+    9445: 	struct slist *s, *s1;
+    9446: 
+    9447: 	/* The easiest way to see if there is a link layer present
+    9448: 	 * is to check if the link layer header and payload are not
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_dependent",
+  "project_name": "libpcap",
+  "function_name": "gen_prevlinkhdr_check",
+  "branch_line_number": 3149,
+  "blocked_side_line_number": 3150,
+  "reference_target_name": "llm_fuzzgen0626013047",
+  "success": false,
+  "attempt_result": "failed",
+  "success_stage": null,
+  "failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "message": "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback.",
+  "llm_seed_final_status": "not_solved_by_generator",
+  "llm_seed_generator_terminal_reason": "family_progress_observed_but_not_solved",
+  "llm_seed_handoff_selection_reason": "No branch-reaching candidate seeds were selected from generator families.",
+  "baseline": {},
+  "stage_statuses": {
+    "llm_seed_generator": {
+      "success": false,
+      "returncode": null,
+      "final_status": "not_solved_by_generator",
+      "message": null
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    }
+  },
+  "stages": {
+    "llm_seed_generator": {
+      "success": false,
+      "final_status": "not_solved_by_generator",
+      "generator_terminal_reason": "family_progress_observed_but_not_solved",
+      "diagnosis_counts": {
+        "reaches_branch_but_condition_not_satisfied": 1,
+        "family_progress_without_coverage_delta": 1
+      },
+      "iterations_run": 2,
+      "progress_iteration_count": 1,
+      "stalled_iteration_count": 1,
+      "invalid_iteration_count": 0,
+      "best_iteration": {
+        "iteration": 1,
+        "validation_ok": true,
+        "validation_error_kind": "",
+        "generated_seed_count": 20,
+        "family_counts": {
+          "F01_geneve_basic": 5,
+          "F02_geneve_combinations": 5,
+          "F03_geneve_malformed": 6,
+          "F04_geneve_case_variants": 4
+        }
+      }
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "validation_status": "passed"
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "seed_count_before": 1,
+      "seed_count_after": 2561,
+      "new_seeds": 2560,
+      "error": ""
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Dependent
+- Classifier reason: The blocked predicate `cstate->is_geneve` is directly controlled by the fuzzer's input. The `filter_str` (derived from fuzzer input) is parsed by `pcap_parse`. If the input contains the 'geneve' keyword, `pcap_parse` will call `gen_geneve`, which sets `cstate->is_geneve` to `true`. This value would then be propagated to `gen_prevlinkhdr_check`, allowing the blocked branch to be taken. The current fuzzer input simply did not contain the necessary data to set this flag to `true`.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The blocked predicate is `cstate->is_geneve` at line 3149. The branch line hit count is 0, which indicates that while `gen_prevlinkhdr_check` was called (as per the runtime stack), the condition `cstate->is_geneve` always evaluated to `false` on the observed execution path, preventing the `if` block from being entered.
+
+[1.5. Blocked Side Direction]: The blocked side, `return gen_geneve_ll_check(cstate);` at line 3150, is reached when the condition `cstate->is_geneve` evaluates to `true`.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` which leads to the blocked predicate. The exact line is: `if (pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN) == 0)`
+
+[2.5. Materialization Check]: The `filter_str` is directly populated from the fuzzer's `Data` buffer. This `filter_str` is then passed to `pcap_compile`, which in turn calls `pcap_parse`. The parsing process, driven by the input `filter_str`, can lead to the execution of functions like `gen_geneve` (as seen in `pcap_parse` case 123), which sets the `cstate->is_geneve` flag. Thus, the relevant state (`cstate->is_geneve`) can be materialized and affected by the fuzzer's input.
+
+[3A. Setter / Transition Evidence]: The `cstate->is_geneve` flag is a member of the `compiler_state_t` struct, which is initialized in `pcap_compile` via `initchunks(&cstate)`. It is highly probable that `is_geneve` is initialized to `0` (false) by default. The function `gen_geneve` (called by `pcap_parse` under grammar rule 123, `expr: 'geneve' opt_len`) explicitly sets `cstate->is_geneve = 1;`. The observed runtime path does not include a call to `gen_geneve`, meaning the fuzzer's input `filter_str` did not contain the necessary tokens to trigger this grammar rule. There is no data starvation; the `filter_str` is a direct copy of the fuzzer input, and no prior `Consume` calls exhaust the relevant data.
+
+[3B. Survival / Feasibility Check]: If the `gen_geneve` function were called (by providing appropriate input to `filter_str`), it would set `cstate->is_geneve` to `true`. The `cstate` struct is passed by reference (`compiler_state_t *cstate`) throughout the call chain from `pcap_compile` down to `gen_prevlinkhdr_check`. Therefore, the value set by `gen_geneve` would persist and be available when `gen_prevlinkhdr_check` evaluates `if (cstate->is_geneve)`. There are no apparent early returns, cleanups, or other mechanisms in the observed path that would reset or invalidate `cstate->is_geneve` between its potential setting in `gen_geneve` and its check in `gen_prevlinkhdr_check`.
+
+[4. Rule Application]: Rule 1: Direct Data Flow. The value of `cstate->is_geneve` is directly controlled by the fuzzer's input. By providing a `filter_str` that includes the 'geneve' keyword, the fuzzer can trigger the `gen_geneve` function, which sets `cstate->is_geneve` to `true`, thereby satisfying the blocked predicate and reaching the blocked side.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Before accepting any proposed path to the blocked side, verify that execution
+   actually reaches blocked-side line 3150. When an
+   enclosing `if`, `for`, or `while` condition evaluates to false, ALL lines
+   inside that block's `{}` are skipped — including any nested `if` branches
+   within it. A condition being satisfiable (e.g., `!ptr == true`) does not
+   prove the line is reachable if that line is inside a block whose own guard
+   is not entered. Use the step "[1b. Enclosing-block reachability]" to make
+   this check explicit before proceeding.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For internal parser or scanner state variables managed by generated code or
+   opaque internal transitions, do not infer solvability from generic parser
+   theory alone. Choose `Generated Parser State` or `Structurally Unreachable
+   API Path` unless the provided source shows a visible legal public transition
+   that sets the required state and persists to the blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+   inventing missing data. The pipeline derives routing from the label and keeps
+   solver execution enabled for inconclusive cases.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line 3150. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
+
+Do not output `first_layer_decision` or `solver_action`. The pipeline derives both
+deterministically from `refined_triage_label`.

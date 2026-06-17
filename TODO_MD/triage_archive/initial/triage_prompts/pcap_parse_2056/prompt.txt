@@ -1,0 +1,341 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0625183237
+- Function: pcap_parse
+- Branch line: 2056
+- Branch code: `if (yyerrstatus)`
+- Blocked-side line: 2057
+- Blocked-side code: `yyerrstatus--;`
+- Branch hit count: 6560000
+- Blocked-side hit count: 0
+- Pipeline failure stage: dedicated_generation
+- Pipeline methods attempted: reference_guided_generation, dedicated_generation
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+    2031:       yychar = yytoken = YYEOF;
+    2032:       YYDPRINTF ((stderr, "Now at end of input.\n"));
+    2033:     }
+    2034:   else
+    2035:     {
+    2036:       yytoken = YYTRANSLATE (yychar);
+    2037:       YY_SYMBOL_PRINT ("Next token is", yytoken, &yylval, &yylloc);
+    2038:     }
+    2039: 
+    2040:   /* If the proper action on seeing token YYTOKEN is to reduce or to
+    2041:      detect an error, take that action.  */
+    2042:   yyn += yytoken;
+    2043:   if (yyn < 0 || YYLAST < yyn || yycheck[yyn] != yytoken)
+    2044:     goto yydefault;
+    2045:   yyn = yytable[yyn];
+    2046:   if (yyn <= 0)
+    2047:     {
+    2048:       if (yytable_value_is_error (yyn))
+    2049:         goto yyerrlab;
+    2050:       yyn = -yyn;
+    2051:       goto yyreduce;
+    2052:     }
+    2053: 
+    2054:   /* Count tokens shifted since error; after three, turn off error
+    2055:      status.  */
+>>  2056:   if (yyerrstatus)
+>>  2057:     yyerrstatus--;
+    2058: 
+    2059:   /* Shift the lookahead token.  */
+    2060:   YY_SYMBOL_PRINT ("Shifting", yytoken, &yylval, &yylloc);
+    2061:   yystate = yyn;
+    2062:   YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
+    2063:   *++yyvsp = yylval;
+    2064:   YY_IGNORE_MAYBE_UNINITIALIZED_END
+    2065: 
+    2066:   /* Discard the shifted token.  */
+    2067:   yychar = YYEMPTY;
+    2068:   goto yynewstate;
+    2069: 
+    2070: 
+    2071: /*-----------------------------------------------------------.
+    2072: | yydefault -- do the default action for the current state.  |
+    2073: `-----------------------------------------------------------*/
+    2074: yydefault:
+    2075:   yyn = yydefact[yystate];
+    2076:   if (yyn == 0)
+    2077:     goto yyerrlab;
+    2078:   goto yyreduce;
+    2079: 
+    2080: 
+    2081: /*-----------------------------.
+    2082: | yyreduce -- do a reduction.  |
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `yyerrstatus` near line 1403
+    1397:        3,     1,     1,     1,     1,     1,     1,     1,     1,     1,
+    1398:        1,     1,     1,     1,     1,     1,     2,     2,     3,     1,
+    1399:        1,     3
+    1400: };
+    1401: 
+    1402: 
+>>  1403: #define yyerrok         (yyerrstatus = 0)
+    1404: #define yyclearin       (yychar = YYEMPTY)
+    1405: #define YYEMPTY         (-2)
+    1406: #define YYEOF           0
+    1407: 
+    1408: #define YYACCEPT        goto yyacceptlab
+    1409: #define YYABORT         goto yyabortlab
+
+// Related snippet 2: identifier `yyerrstatus` near line 1865
+    1859: 
+    1860:     /* Number of syntax errors so far.  */
+    1861:     int yynerrs;
+    1862: 
+    1863:     yy_state_fast_t yystate;
+    1864:     /* Number of tokens to shift before error messages enabled.  */
+>>  1865:     int yyerrstatus;
+    1866: 
+    1867:     /* The stacks and their tools:
+    1868:        'yyss': related to states.
+    1869:        'yyvs': related to semantic values.
+    1870: 
+    1871:        Refer to the stacks through separate pointers, to allow yyoverflow
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_independent",
+  "project_name": "libpcap",
+  "function_name": "pcap_parse",
+  "branch_line_number": 2056,
+  "blocked_side_line_number": 2057,
+  "reference_target_name": "llm_fuzzgen0625183237",
+  "success": false,
+  "attempt_result": "failed",
+  "pipeline_methods": [
+    "reference_guided_generation",
+    "dedicated_generation"
+  ],
+  "message": null,
+  "baseline": {
+    "success": true,
+    "branch_hit_count": 6560000,
+    "branch_hit_count_raw": "6.56M",
+    "blocked_side_hit_count": 0,
+    "blocked_side_hit_count_raw": "0",
+    "branch_line_reached": true,
+    "blocked_side_line_reached": false
+  },
+  "best_iteration": {
+    "iteration": 1,
+    "strategy": "dedicated_generation",
+    "accepted": false,
+    "success": false,
+    "score": 11900000,
+    "evaluation": {
+      "success": true,
+      "branch_hit_count": 11900000,
+      "branch_hit_count_raw": "11.9M",
+      "blocked_side_hit_count": 0,
+      "blocked_side_hit_count_raw": "0",
+      "branch_line_reached": true,
+      "blocked_side_line_reached": false
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Independent
+- Classifier reason: The blocked line `yyerrstatus--;` is part of the error recovery mechanism within `pcap_parse`. While fuzzer input can cause syntax errors, which would set `yyerrstatus` to a non-zero value, the observed runtime behavior indicates that the `pcap_parse` function consistently aborts (returns a non-zero error code to `pcap_compile`) when a syntax error occurs. This immediate abort prevents the execution from re-entering the main parsing loop where `yyerrstatus` would be decremented. Thus, the library's internal error handling logic, rather than the fuzzer input itself, prevents the blocked side from being reached.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The predicate at line 2056 is `if (yyerrstatus)`. The variable `yyerrstatus` is an integer. The branch hit count is 6.56M, indicating that this line is frequently executed. The blocked side `yyerrstatus--;` at line 2057 has a hit count of 0, meaning it is never executed.
+
+[1.5. Blocked Side Direction]: The blocked side `yyerrstatus--;` is reached when the condition `yyerrstatus` evaluates to a non-zero (true) value. Therefore, to reach the blocked side, `yyerrstatus` must be `!= 0`.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` which then calls `pcap_parse`. The relevant call in the fuzz target is: `if (pcap_compile(p, &fcode, filter_string, 1, PCAP_NETMASK_UNKNOWN) == 0)`.
+
+[2.5. Materialization Check]: The `filter_string` argument passed to `pcap_compile` (and subsequently used by `pcap_parse`) is directly constructed from the fuzzer's `Data` buffer. The fuzzer input is fully materialized and used to drive the parsing logic within `pcap_parse`.
+
+[3A. Setter / Transition Evidence]:
+- `yyerrstatus` is initialized to `0` at the beginning of `yyparse`.
+- When a syntax error is detected, execution jumps to `yyerrlab`.
+- In `yyerrlab`, if `yyerrstatus` is `0` (indicating a new error), `yynerrs` is incremented, `yyerror` is called, and then execution `goto yyerrlab1`.
+- In `yyerrlab1`, `yyerrstatus` is explicitly set to `3` (`yyerrstatus = 3;`). This is the setter for the non-zero value required by the blocked predicate.
+- The `if (yyerrstatus)` check at line 2056 is located within the `yybackup` section of `yyparse`. This section is part of the main parsing loop, which is re-entered after shifting a token or attempting error recovery.
+- DATA STARVATION CHECK: The fuzz target does not use `FuzzedDataProvider`, so no data starvation from `ConsumeRemainingBytes` or similar FDP functions is applicable.
+
+[3B. Survival / Feasibility Check]: If a syntax error occurs, `yyerrstatus` is set to `3` in `yyerrlab1`. For the blocked side `yyerrstatus--;` to be hit, the parser must then successfully find a recovery state and re-enter the `yybackup` loop. However, the observed runtime behavior (0 hits on `yyerrstatus--` despite 6.56M hits on `if (yyerrstatus)`) indicates that this does not happen. Instead, if a syntax error occurs and `yyerrstatus` is set to `3`, the parser likely `YYABORT`s (returns `1` from `yyparse`) due to an unrecoverable error (e.g., stack underflow during error recovery) before it can re-enter the `yybackup` loop and decrement `yyerrstatus`. This means the non-zero value of `yyerrstatus` does not 'survive' to the blocked line because the library's error handling logic leads to an immediate exit from `pcap_parse`.
+
+[4. Rule Application]: Rule 3: Observed-Path Invariants. The fuzzer input can cause a syntax error, which sets `yyerrstatus` to a non-zero value. However, the library's internal error recovery mechanism, as observed in the runtime path, consistently leads to an abort from `pcap_parse` (returning a non-zero value to `pcap_compile`) rather than continuing parsing and decrementing `yyerrstatus`. This invariant behavior of the library's error handling prevents the blocked side from being reached, even when the input triggers the initial error state.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Always verify control nesting before accepting a proposed path. If the
+   classifier claims an earlier value such as zero can reach a branch, but the
+   branch is nested inside a guard that excludes that value, source evidence must
+   override the classifier.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For generated Bison/Flex parser/scanner states, do not infer solvability from
+   generic parser behavior alone. Choose `Generated Parser State` or
+   `Structurally Unreachable API Path` unless the provided source shows a visible
+   legal public transition that sets the required state and survives to the
+   blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, return `Inconclusive` and
+   `manual_review` rather than inventing missing data.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "first_layer_decision": "Generation-solvable",
+  "refined_triage_label": "Actionable Target Gap",
+  "solver_action": "run_solver",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `first_layer_decision`: `Generation-solvable`, `Non-generation-solvable`, `Inconclusive`
+- `solver_action`: `run_solver`, `skip_solver`, `manual_review`
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`

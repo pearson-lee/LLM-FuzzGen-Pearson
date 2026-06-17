@@ -1,0 +1,49 @@
+{
+  "analysis_summary": [
+    "[0A API Anchor] The fuzz target calls `pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN)`. The blocker-relevant API argument is `filter_str`.",
+    "[0B Input Layout] The fuzzer `Data` is copied into a null-terminated C string `filter_str` of size `Size + 1`. The content of `Data` from index 0 to `Size-1` forms the filter string.",
+    "[0C Predicate Setter] The `cstate->is_geneve` flag is set to `true` (1) if the string \"geneve\" appears in the filter expression. This occurs when the `pcap_parse` function processes the \"geneve\" keyword, leading to a call to `gen_geneve(cstate)`, which sets `cstate->is_geneve = 1`.",
+    "[0C2 Call-Site Reachability] The observed runtime call site `gencode.c:3208` (caller `gen_linktype`) is incompatible with reaching the blocked side because it calls `gen_prevlinkhdr_check` only if `!cstate->is_geneve`. To reach the blocked side, `cstate->is_geneve` must be true. All other textual call sites for `gen_prevlinkhdr_check` have `build_status=unknown`. We hypothesize that `gencode.c:6713` (caller `gen_scode`) is an active call site. Its local guard `if (proto == Q_LINK)` is compatible with `cstate->is_geneve == true`. The input feature \"link\" in the filter string is required to trigger this call site.",
+    "[0D Reader Path] The reader path is within `gen_prevlinkhdr_check` itself, at line 3149, where it evaluates `if (cstate->is_geneve)`.",
+    "[0E Survival Check] The `is_geneve` flag is a member of the `compiler_state_t` struct, which is passed by pointer (`compiler_state_t *cstate`). Once `cstate->is_geneve` is set to `1` by `gen_geneve`, it remains `1` for the duration of the `pcap_compile` call, as there are no apparent resets or overwrites before `gen_prevlinkhdr_check` is called."
+  ],
+  "failure_analysis": [],
+  "family_decisions": [
+    "F01_geneve_link_base: Provides a foundational seed combining 'geneve' with a 'link' primitive to satisfy both predicate setting and a compatible call-site trigger.",
+    "F02_geneve_link_variations: Explores different link-layer filter variations to ensure the 'link' primitive path is robustly triggered.",
+    "F03_geneve_simple: Provides simpler 'geneve' filters to ensure the 'is_geneve' flag is set, even if the 'link' primitive path is not taken, for broader testing of the 'geneve' parsing."
+  ],
+  "revision_plan": [
+    "If `gencode.c:6713` is found to be inactive or incompatible, investigate other `unknown` call sites for `gen_prevlinkhdr_check`.",
+    "If no compatible call site can be found, re-evaluate if the blocked side is truly reachable under the given constraints.",
+    "Expand `F02_geneve_link_variations` with more diverse link-layer filter types (e.g., 'ether proto', 'ether len').",
+    "Add seeds that test boundary conditions or malformed 'geneve' expressions if the blocker is found to be sensitive to them."
+  ],
+  "generator_design_rationale": "The generator is designed to produce filter strings for `pcap_compile`. The core strategy is to include the keyword 'geneve' in the filter to set `cstate->is_geneve` to true. To ensure `gen_prevlinkhdr_check` is called *after* `is_geneve` is true and *without* conflicting guards, we target a hypothesized compatible call site (`gencode.c:6713`) by including 'link' primitives in the filter. The seeds are organized into families to systematically explore variations around this core strategy, ensuring both the predicate is set and the function is called via a compatible path. The use of standard Python libraries and clear naming conventions supports maintainability.",
+  "generator_filename": "generator.py",
+  "generator_code": "import os\nimport argparse\n\ndef build_seeds():\n    \"\"\"\n    Generates a list of (filename, seed_bytes) tuples for the libpcap fuzz target.\n\n    The goal is to reach line 3149 in gen_prevlinkhdr_check (if (cstate->is_geneve))\n    and then cross into the blocked side at line 3150 (return gen_geneve_ll_check(cstate);).\n\n    Strategy:\n    1.  Set `cstate->is_geneve` to true: This is achieved by including the keyword \"geneve\"\n        in the filter string. The `pcap_parse` function will process \"geneve\", leading\n        to a call to `gen_geneve`, which sets `cstate->is_geneve = 1`.\n    2.  Ensure `gen_prevlinkhdr_check` is called: The observed runtime call site\n        (gencode.c:3208 in gen_linktype) is guarded by `!cstate->is_geneve`, making it\n        incompatible with our goal. We hypothesize that another call site,\n        gencode.c:6713 (in gen_scode), which is guarded by `if (proto == Q_LINK)`,\n        is active and compatible. To trigger this path, the filter string must\n        include a \"link\" primitive (e.g., \"ether host\").\n\n    Seed families:\n    - F01_geneve_link_base: Basic \"geneve\" filter combined with a \"link\" primitive.\n    - F02_geneve_link_variations: Variations of the link primitive.\n    - F03_geneve_simple: Simpler 'geneve' filters to ensure the flag is set.\n    \"\"\"\n    seeds = []\n\n    # F01_geneve_link_base: Basic \"geneve\" filter with a compatible link-layer primitive\n    # This seed aims to satisfy both conditions: set is_geneve and trigger a call\n    # to gen_prevlinkhdr_check via a compatible path.\n    seeds.append(\n        (\n            \"F01_geneve_link_base_01.bpf\",\n            b\"geneve and ether host 00:00:00:00:00:00\"\n        )\n    )\n\n    # F02_geneve_link_variations: Variations of the link primitive\n    # Explore different link-layer filter types that might trigger the same call path.\n    link_host_variants = [\n        \"src host 00:11:22:33:44:55\",\n        \"dst host 00:11:22:33:44:55\",\n        \"host 00:00:00:00:00:00\",\n        \"broadcast\",\n        \"multicast\",\n    ]\n\n    for i, variant in enumerate(link_host_variants):\n        seed_name = f\"F02_geneve_link_variant_{i+1:02d}.bpf\"\n        filter_string = f\"geneve and link {variant}\"\n        seeds.append((seed_name, filter_string.encode('ascii')))\n\n    # F03_geneve_simple: Simple 'geneve' filters\n    # These ensure the 'is_geneve' flag is set, even if the 'link' primitive path\n    # is not the one that ultimately calls gen_prevlinkhdr_check.\n    simple_geneve_filters = [\n        \"geneve\",\n        \"geneve or ip\",\n        \"geneve and tcp port 80\",\n    ]\n\n    for i, filter_str in enumerate(simple_geneve_filters):\n        seed_name = f\"F03_geneve_simple_{i+1:02d}.bpf\"\n        seeds.append((seed_name, filter_str.encode('ascii')))\n\n    return seeds\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(\n        description=\"Generate libpcap filter seeds for gen_prevlinkhdr_check blocker.\"\n    )\n    parser.add_argument(\n        \"--output-dir\",\n        dest=\"output_dir\",\n        default=\".\",\n        help=\"Directory to write generated seeds.\"\n    )\n    args = parser.parse_args()\n\n    os.makedirs(args.output_dir, exist_ok=True)\n\n    for filename, content in build_seeds():\n        filepath = os.path.join(args.output_dir, filename)\n        with open(filepath, \"wb\") as f:\n            f.write(content)\n        print(f\"Generated seed: {filepath}\")",
+  "sample_seeds": [
+    "F01_geneve_link_base_01.bpf",
+    "F02_geneve_link_variant_01.bpf",
+    "F02_geneve_link_variant_02.bpf",
+    "F02_geneve_link_variant_03.bpf",
+    "F02_geneve_link_variant_04.bpf",
+    "F02_geneve_link_variant_05.bpf",
+    "F03_geneve_simple_01.bpf",
+    "F03_geneve_simple_02.bpf",
+    "F03_geneve_simple_03.bpf"
+  ],
+  "callsite_decision": {
+    "selected_candidate_id": "gencode.c:6713",
+    "observed_guard": "if (proto == Q_LINK)",
+    "compatibility_reason": "This guard is orthogonal to `cstate->is_geneve == true` and does not conflict with it. It allows `gen_prevlinkhdr_check` to be called when `cstate->is_geneve` is true.",
+    "input_trigger": "The presence of the keyword \"link\" in the filter expression, combined with a valid link-layer primitive (e.g., \"ether host\").",
+    "evidence_sufficient": false,
+    "rejected_conflicting_callsites": [
+      {
+        "candidate_id": "gencode.c:3208",
+        "reason": "The call is guarded by `if (!cstate->is_geneve)`, which directly conflicts with the requirement that `cstate->is_geneve` must be true to reach the blocked side."
+      }
+    ]
+  }
+}

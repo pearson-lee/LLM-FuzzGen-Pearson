@@ -1,0 +1,481 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0626015405
+- Function: compute_local_ud
+- Branch line: 641
+- Branch code: `else if (atom < N_ATOMS) {`
+- Blocked-side line: 646
+- Blocked-side code: `abort();`
+- Branch hit count: 32700000
+- Blocked-side hit count: 0
+- Pipeline failure stage: symcc_generated_harness
+- Pipeline methods attempted: llm_seed_generator, symcc_probe_original_target, libfuzzer_focused_pass, symcc_generated_harness
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+     616:  * statement in 'b' defines it, i.e. it uses the value left in
+     617:  * that register by a predecessor block of this block.
+     618:  * "Defined" means that a statement in 'b' defines it.
+     619:  * "Killed" means that a statement in 'b' defines it before any
+     620:  * statement in 'b' uses it, i.e. it kills the value left in that
+     621:  * register by a predecessor block of this block.
+     622:  */
+     623: static void
+     624: compute_local_ud(struct block *b)
+     625: {
+     626: 	struct slist *s;
+     627: 	atomset def = 0, use = 0, killed = 0;
+     628: 	int atom;
+     629: 
+     630: 	for (s = b->stmts; s; s = s->next) {
+     631: 		if (s->s.code == NOP)
+     632: 			continue;
+     633: 		atom = atomuse(&s->s);
+     634: 		if (atom >= 0) {
+     635: 			if (atom == AX_ATOM) {
+     636: 				if (!ATOMELEM(def, X_ATOM))
+     637: 					use |= ATOMMASK(X_ATOM);
+     638: 				if (!ATOMELEM(def, A_ATOM))
+     639: 					use |= ATOMMASK(A_ATOM);
+     640: 			}
+>>   641: 			else if (atom < N_ATOMS) {
+     642: 				if (!ATOMELEM(def, atom))
+     643: 					use |= ATOMMASK(atom);
+     644: 			}
+     645: 			else
+>>   646: 				abort();
+     647: 		}
+     648: 		atom = atomdef(&s->s);
+     649: 		if (atom >= 0) {
+     650: 			if (!ATOMELEM(use, atom))
+     651: 				killed |= ATOMMASK(atom);
+     652: 			def |= ATOMMASK(atom);
+     653: 		}
+     654: 	}
+     655: 	if (BPF_CLASS(b->s.code) == BPF_JMP) {
+     656: 		/*
+     657: 		 * XXX - what about RET?
+     658: 		 */
+     659: 		atom = atomuse(&b->s);
+     660: 		if (atom >= 0) {
+     661: 			if (atom == AX_ATOM) {
+     662: 				if (!ATOMELEM(def, X_ATOM))
+     663: 					use |= ATOMMASK(X_ATOM);
+     664: 				if (!ATOMELEM(def, A_ATOM))
+     665: 					use |= ATOMMASK(A_ATOM);
+     666: 			}
+     667: 			else if (atom < N_ATOMS) {
+     668: 				if (!ATOMELEM(def, atom))
+     669: 					use |= ATOMMASK(atom);
+     670: 			}
+     671: 			else
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `atom` near line 628
+     622:  */
+     623: static void
+     624: compute_local_ud(struct block *b)
+     625: {
+     626: 	struct slist *s;
+     627: 	atomset def = 0, use = 0, killed = 0;
+>>   628: 	int atom;
+     629: 
+     630: 	for (s = b->stmts; s; s = s->next) {
+     631: 		if (s->s.code == NOP)
+     632: 			continue;
+     633: 		atom = atomuse(&s->s);
+     634: 		if (atom >= 0) {
+
+// Related snippet 2: identifier `N_ATOMS` near line 207
+     201: 
+     202: /*
+     203:  * This define is used to represent *both* the accumulator and
+     204:  * x register in use-def computations.
+     205:  * Currently, the use-def code assumes only one definition per instruction.
+     206:  */
+>>   207: #define AX_ATOM N_ATOMS
+     208: 
+     209: /*
+     210:  * These data structures are used in a Cocke and Shwarz style
+     211:  * value numbering scheme.  Since the flowgraph is acyclic,
+     212:  * exit values can be propagated from a node's predecessors
+     213:  * provided it is uniquely defined.
+
+// Related snippet 3: identifier `N_ATOMS` near line 667
+     661: 			if (atom == AX_ATOM) {
+     662: 				if (!ATOMELEM(def, X_ATOM))
+     663: 					use |= ATOMMASK(X_ATOM);
+     664: 				if (!ATOMELEM(def, A_ATOM))
+     665: 					use |= ATOMMASK(A_ATOM);
+     666: 			}
+>>   667: 			else if (atom < N_ATOMS) {
+     668: 				if (!ATOMELEM(def, atom))
+     669: 					use |= ATOMMASK(atom);
+     670: 			}
+     671: 			else
+     672: 				abort();
+     673: 		}
+
+// Related snippet 4: identifier `N_ATOMS` near line 1459
+    1453: 
+    1454: static void
+    1455: opt_deadstores(opt_state_t *opt_state, register struct block *b)
+    1456: {
+    1457: 	register struct slist *s;
+    1458: 	register int atom;
+>>  1459: 	struct stmt *last[N_ATOMS];
+    1460: 
+    1461: 	memset((char *)last, 0, sizeof last);
+    1462: 
+    1463: 	for (s = b->stmts; s != 0; s = s->next)
+    1464: 		deadstmt(opt_state, &s->s, last);
+    1465: 	deadstmt(opt_state, &b->s, last);
+
+// Related snippet 5: identifier `abort` near line 141
+     135: 
+     136: 	/*
+     137: 	 * Don't sign-extend mask if long is longer than int.
+     138: 	 * (It's currently not, in MSVC, even on 64-bit platforms, but....)
+     139: 	 */
+     140: 	if (_BitScanForward(&bit, (unsigned int)mask) == 0)
+>>   141: 		abort();	/* mask is zero */
+     142: 	return (u_int)bit;
+     143: }
+     144: #elif defined(MSDOS) && defined(__DJGPP__)
+     145:   /*
+     146:    * MS-DOS with DJGPP, which declares ffs() in <string.h>, which
+     147:    * we've already included.
+
+// Related snippet 6: identifier `abort` near line 576
+     570: 			return AX_ATOM;
+     571: 		return A_ATOM;
+     572: 
+     573: 	case BPF_MISC:
+     574: 		return BPF_MISCOP(c) == BPF_TXA ? X_ATOM : A_ATOM;
+     575: 	}
+>>   576: 	abort();
+     577: 	/* NOTREACHED */
+     578: }
+     579: 
+     580: /*
+     581:  * Return the register number that is defined by 's'.  We assume that
+     582:  * a single stmt cannot define more than one register.  If no register
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_dependent",
+  "project_name": "libpcap",
+  "function_name": "compute_local_ud",
+  "branch_line_number": 641,
+  "blocked_side_line_number": 646,
+  "reference_target_name": "llm_fuzzgen0626015405",
+  "success": false,
+  "attempt_result": "failed",
+  "success_stage": null,
+  "failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "message": "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback.",
+  "llm_seed_final_status": "not_solved_by_generator",
+  "llm_seed_generator_terminal_reason": "stalled_at_branch",
+  "llm_seed_handoff_selection_reason": "No branch-reaching candidate seeds were selected from generator families.",
+  "baseline": {},
+  "stage_statuses": {
+    "llm_seed_generator": {
+      "success": false,
+      "returncode": null,
+      "final_status": "not_solved_by_generator",
+      "message": null
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    }
+  },
+  "stages": {
+    "llm_seed_generator": {
+      "success": false,
+      "final_status": "not_solved_by_generator",
+      "generator_terminal_reason": "stalled_at_branch",
+      "diagnosis_counts": {
+        "reaches_branch_but_condition_not_satisfied": 2
+      },
+      "iterations_run": 2,
+      "progress_iteration_count": 0,
+      "stalled_iteration_count": 2,
+      "invalid_iteration_count": 0,
+      "best_iteration": {
+        "iteration": 1,
+        "validation_ok": true,
+        "validation_error_kind": "",
+        "generated_seed_count": 11,
+        "family_counts": {
+          "F01_alu_x_and_neq": 1,
+          "F02_alu_x_or_eq": 1,
+          "F03_alu_x_xor_eq": 1,
+          "F04_alu_x_add_gt": 1,
+          "F05_alu_x_sub_lt": 1,
+          "F06_jmp_x_gt": 1,
+          "F07_jmp_x_eq": 1,
+          "F08_jmp_x_lt": 1,
+          "F09_jmp_x_ge": 1,
+          "F10_jmp_x_le": 1,
+          "F11_jmp_x_neq": 1
+        }
+      }
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "validation_status": "passed"
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "seed_count_before": 1,
+      "seed_count_after": 1361,
+      "new_seeds": 1360,
+      "error": ""
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Dependent
+- Classifier reason: The blocked predicate `atom < N_ATOMS` at `optimize.c:641` is controlled by the `atom` variable. The `atom` variable is assigned the return value of `atomuse(&s->s)`, which can be `(int)s->k` for certain BPF instruction types (`BPF_LD`, `BPF_LDX` with `BPF_MEM` mode). The `s->k` field is part of the BPF program structure, which is directly generated by parsing the `filter_str`. The `filter_str` is entirely derived from the fuzzer's input `Data`. Therefore, by providing a filter string that generates a BPF instruction with a sufficiently large `s->k` value (e.g., a large memory offset), the fuzzer can make `atom >= N_ATOMS` true, thereby reaching the `abort()` at line `646`. This demonstrates a direct data flow from the fuzzer's input to the blocked predicate.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The blocked predicate is at line `641` in `compute_local_ud`: `else if (atom < N_ATOMS) {`. The branch hit count is `N/A`, indicating the line was executed, but the blocked side was not taken. The variable `atom` is central to this condition.
+
+[1.5. Blocked Side Direction]: The `abort()` at line `646` is reached when the condition `atom < N_ATOMS` at line `641` evaluates to `FALSE`, meaning `atom >= N_ATOMS`. To reach the blocked side, the value of `atom` must be greater than or equal to `N_ATOMS`.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` with a filter string derived from the fuzzer's input. This call initiates the observed runtime path leading to the blocker:
+```c
+    if (pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN) == 0) {
+```
+
+[2.5. Materialization Check]: The `filter_str` is directly populated from the fuzzer's `Data` buffer. This `filter_str` is then parsed by `pcap_compile` to generate a BPF program (`cstate.ic.root`). The `bpf_optimize` function, which eventually calls `compute_local_ud`, operates on this generated BPF program. The `atom` variable within `compute_local_ud` is derived from fields (`s.code`, `s.k`) of the `struct stmt` elements within this BPF program. Thus, the fuzzer input directly influences the values that determine the `atom` variable.
+
+[3A. Setter / Transition Evidence]:
+- The `atom` variable is assigned the return value of `atomuse(&s->s)` or `atomdef(&s->s)` within a loop iterating over `b->stmts` (statements in a basic block of the BPF program).
+- The `atomuse` function (provided in `cfg_source_codes`) determines its return value based on `s->s.code` and `s->s.k`.
+- Specifically, if `BPF_CLASS(s->s.code)` is `BPF_LD` or `BPF_LDX` and `BPF_MODE(s->s.code)` is `BPF_MEM`, `atomuse` returns `(int)s->k`. The `s->k` field is of type `bpf_u_int32`.
+- The `struct stmt` (`s->s`) is part of the `struct slist`, which in turn is part of the `struct block *b` passed to `compute_local_ud`. These structures represent the intermediate code (BPF program) generated by `pcap_parse` from the input `filter_str`.
+- The `N_ATOMS` constant is not defined in the provided snippets but is expected to be a small integer representing the number of special 'atoms' (registers/memory locations) used in the BPF optimization. If `s->k` (an unsigned 32-bit integer) can be a large value (e.g., a large memory offset in a BPF instruction), it can easily exceed `N_ATOMS`.
+- **DATA STARVATION CHECK**: The fuzz target directly copies the fuzzer's `Data` into `filter_str` and null-terminates it. There are no `FuzzedDataProvider` calls or other mechanisms that would deterministically exhaust or trivialize the input data relevant to constructing the `filter_str` or the subsequent BPF program.
+
+[3B. Survival / Feasibility Check]: The `atom` value, derived from `s->k` (an immediate value or memory offset in a BPF instruction), can be directly controlled by the fuzzer's input `filter_str`. A BPF filter expression like `mem[1000000]` would likely result in a `BPF_LD` instruction where `s->k` is `1000000`. If `N_ATOMS` is a small constant (e.g., 2 or 3), then `1000000 >= N_ATOMS` would be true, triggering the `abort()` at line `646`. The `pcap_compile` function is designed to parse and compile arbitrary filter strings, and there are no apparent early returns, resets, or other control flow mechanisms in the observed path that would prevent a sufficiently large `s->k` value from reaching the blocked predicate and triggering the `abort()` under the current fuzz target's logic.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Always verify control nesting before accepting a proposed path. If the
+   classifier claims an earlier value such as zero can reach a branch, but the
+   branch is nested inside a guard that excludes that value, source evidence must
+   override the classifier.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For generated Bison/Flex parser/scanner states, do not infer solvability from
+   generic parser behavior alone. Choose `Generated Parser State` or
+   `Structurally Unreachable API Path` unless the provided source shows a visible
+   legal public transition that sets the required state and survives to the
+   blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, return `Inconclusive` and
+   `manual_review` rather than inventing missing data.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "first_layer_decision": "Generation-solvable",
+  "refined_triage_label": "Actionable Target Gap",
+  "solver_action": "run_solver",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `first_layer_decision`: `Generation-solvable`, `Non-generation-solvable`, `Inconclusive`
+- `solver_action`: `run_solver`, `skip_solver`, `manual_review`
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`

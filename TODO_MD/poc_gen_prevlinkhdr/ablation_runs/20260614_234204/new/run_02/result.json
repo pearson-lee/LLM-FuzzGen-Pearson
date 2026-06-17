@@ -1,0 +1,22 @@
+{
+  "status": "schema_invalid",
+  "attempts_used": 2,
+  "error": "schema_invalid: sample_seeds must not be empty; selecting a build_status=unknown callsite requires evidence_sufficient=false",
+  "schema_errors": [
+    "sample_seeds must not be empty",
+    "selecting a build_status=unknown callsite requires evidence_sufficient=false"
+  ],
+  "selected_candidate_id": "gencode.c:3208",
+  "evidence_sufficient": true,
+  "rejects_3208": true,
+  "avoids_inactive_5267": true,
+  "selects_verified_7238": false,
+  "reports_insufficient": false,
+  "verified_or_insufficient": false,
+  "materialized_seed_count": 0,
+  "evaluated_seed_count": 0,
+  "combined_seed": false,
+  "reached_3150": false,
+  "reach_seed": "",
+  "0c2_snippet": "[0C2 Call-Site Reachability] The blocker function `gen_prevlinkhdr_check` is called by `gen_linktype`. The observed runtime call site for `gen_prevlinkhdr_check` is `gencode.c:3208`, which is guarded by `if (!cstate->is_geneve)`. This guard"
+}

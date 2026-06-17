@@ -45,6 +45,14 @@ Prompt 在 `prompts/templates/blocker_triage_template`。設計重點：
 
 ## 4. 重新分類與確認命令
 
+Artifact layout:
+
+- `TODO_MD/triage_final/`: reviewed complete runs and their analysis.
+- `TODO_MD/triage_archive/`: historical, superseded, or interrupted runs.
+- `TODO_MD/triage_scratch/`: temporary output from new reruns. Review a complete run before moving it into `triage_final/`.
+
+目前三次 evidence-contract rerun 與分析見 `TODO_MD/triage_final/analysis_20260614.md`。三次 first-layer agreement 為 4/9、5/9、5/9；這是 development-set retrospective agreement，不是 independent accuracy。
+
 先產生 9 個 case 的 prompt evidence，不呼叫 LLM：
 
 ```bash
@@ -53,8 +61,8 @@ Prompt 在 `prompts/templates/blocker_triage_template`。設計重點：
   --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json \
   --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv \
   --project-name libpcap \
-  --output-jsonl TODO_MD/triage_prompts_only.jsonl \
-  --save-prompts-dir TODO_MD/triage_prompts \
+  --output-jsonl TODO_MD/triage_scratch/prompts_only.jsonl \
+  --save-prompts-dir TODO_MD/triage_scratch/prompts \
   --emit-prompts-only \
   --limit 9
 ```
@@ -69,22 +77,22 @@ Prompt 在 `prompts/templates/blocker_triage_template`。設計重點：
   --project-name libpcap \
   --backend vertexai \
   --model gemini-2.5-flash \
-  --output-jsonl TODO_MD/triage_decisions_all.jsonl \
-  --save-prompts-dir TODO_MD/triage_prompts
+  --output-jsonl TODO_MD/triage_scratch/decisions_all.jsonl \
+  --save-prompts-dir TODO_MD/triage_scratch/prompts
 ```
 
 逐 case 重新分類：
 
 ```bash
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case pcap_parse:2056 --output-jsonl TODO_MD/triage_pcap_parse_2056.jsonl --save-prompts-dir TODO_MD/triage_prompts/pcap_parse_2056
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case yy_get_next_buffer:4629 --output-jsonl TODO_MD/triage_yy_get_next_buffer_4629.jsonl --save-prompts-dir TODO_MD/triage_prompts/yy_get_next_buffer_4629
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case pcap_compile:788 --output-jsonl TODO_MD/triage_pcap_compile_788.jsonl --save-prompts-dir TODO_MD/triage_prompts/pcap_compile_788
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case newchunk:642 --output-jsonl TODO_MD/triage_newchunk_642.jsonl --save-prompts-dir TODO_MD/triage_prompts/newchunk_642
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case convert_code_r:2715 --output-jsonl TODO_MD/triage_convert_code_r_2715.jsonl --save-prompts-dir TODO_MD/triage_prompts/convert_code_r_2715
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case pcap_parse:3594 --output-jsonl TODO_MD/triage_pcap_parse_3594.jsonl --save-prompts-dir TODO_MD/triage_prompts/pcap_parse_3594
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case gen_prevlinkhdr_check:3149 --output-jsonl TODO_MD/triage_gen_prevlinkhdr_check_3149.jsonl --save-prompts-dir TODO_MD/triage_prompts/gen_prevlinkhdr_check_3149
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case compute_local_ud:641 --output-jsonl TODO_MD/triage_compute_local_ud_641.jsonl --save-prompts-dir TODO_MD/triage_prompts/compute_local_ud_641
-.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case number_blks_r:2471 --output-jsonl TODO_MD/triage_number_blks_r_2471.jsonl --save-prompts-dir TODO_MD/triage_prompts/number_blks_r_2471
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case pcap_parse:2056 --output-jsonl TODO_MD/triage_scratch/cases/pcap_parse_2056.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/pcap_parse_2056
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case yy_get_next_buffer:4629 --output-jsonl TODO_MD/triage_scratch/cases/yy_get_next_buffer_4629.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/yy_get_next_buffer_4629
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case pcap_compile:788 --output-jsonl TODO_MD/triage_scratch/cases/pcap_compile_788.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/pcap_compile_788
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case newchunk:642 --output-jsonl TODO_MD/triage_scratch/cases/newchunk_642.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/newchunk_642
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case convert_code_r:2715 --output-jsonl TODO_MD/triage_scratch/cases/convert_code_r_2715.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/convert_code_r_2715
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case pcap_parse:3594 --output-jsonl TODO_MD/triage_scratch/cases/pcap_parse_3594.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/pcap_parse_3594
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case gen_prevlinkhdr_check:3149 --output-jsonl TODO_MD/triage_scratch/cases/gen_prevlinkhdr_check_3149.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/gen_prevlinkhdr_check_3149
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case compute_local_ud:641 --output-jsonl TODO_MD/triage_scratch/cases/compute_local_ud_641.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/compute_local_ud_641
+.venv/bin/python blocker_process/blocker_triage.py --attempts-jsonl experiments/20260612_020723_run_all_fuzzer/blocker_attempts.jsonl --blocker-json-path experiments/20260612_020723_run_all_fuzzer/branch_blockers/libpcap_initial_introspector_refresh.json --manual-labels-csv TODO_MD/blocker_ground_truth_labels.csv --project-name libpcap --backend vertexai --model gemini-2.5-flash --case number_blks_r:2471 --output-jsonl TODO_MD/triage_scratch/cases/number_blks_r_2471.jsonl --save-prompts-dir TODO_MD/triage_scratch/prompts/number_blks_r_2471
 ```
 
 線上 pipeline 啟用 triage：

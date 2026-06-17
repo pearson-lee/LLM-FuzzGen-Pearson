@@ -1,0 +1,576 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0626013047
+- Function: number_blks_r
+- Branch line: 2471
+- Branch code: `if (opt_state->n_blocks == 0) {`
+- Blocked-side line: 2475
+- Blocked-side code: `opt_error(opt_state, "filter is too complex to optimize");`
+- Branch hit count: 665000
+- Blocked-side hit count: 0
+- Pipeline failure stage: symcc_generated_harness
+- Pipeline methods attempted: llm_seed_generator, symcc_probe_original_target, libfuzzer_focused_pass, symcc_generated_harness
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+    2446:  * All nodes should be initially unmarked.
+    2447:  */
+    2448: static int
+    2449: count_blocks(struct icode *ic, struct block *p)
+    2450: {
+    2451: 	if (p == 0 || isMarked(ic, p))
+    2452: 		return 0;
+    2453: 	Mark(ic, p);
+    2454: 	return count_blocks(ic, JT(p)) + count_blocks(ic, JF(p)) + 1;
+    2455: }
+    2456: 
+    2457: /*
+    2458:  * Do a depth first search on the flow graph, numbering the
+    2459:  * the basic blocks, and entering them into the 'blocks' array.`
+    2460:  */
+    2461: static void
+    2462: number_blks_r(opt_state_t *opt_state, struct icode *ic, struct block *p)
+    2463: {
+    2464: 	u_int n;
+    2465: 
+    2466: 	if (p == 0 || isMarked(ic, p))
+    2467: 		return;
+    2468: 
+    2469: 	Mark(ic, p);
+    2470: 	n = opt_state->n_blocks++;
+>>  2471: 	if (opt_state->n_blocks == 0) {
+    2472: 		/*
+    2473: 		 * Overflow.
+    2474: 		 */
+>>  2475: 		opt_error(opt_state, "filter is too complex to optimize");
+    2476: 	}
+    2477: 	p->id = n;
+    2478: 	opt_state->blocks[n] = p;
+    2479: 
+    2480: 	number_blks_r(opt_state, ic, JT(p));
+    2481: 	number_blks_r(opt_state, ic, JF(p));
+    2482: }
+    2483: 
+    2484: /*
+    2485:  * Return the number of stmts in the flowgraph reachable by 'p'.
+    2486:  * The nodes should be unmarked before calling.
+    2487:  *
+    2488:  * Note that "stmts" means "instructions", and that this includes
+    2489:  *
+    2490:  *	side-effect statements in 'p' (slength(p->stmts));
+    2491:  *
+    2492:  *	statements in the true branch from 'p' (count_stmts(JT(p)));
+    2493:  *
+    2494:  *	statements in the false branch from 'p' (count_stmts(JF(p)));
+    2495:  *
+    2496:  *	the conditional jump itself (1);
+    2497:  *
+    2498:  *	an extra long jump if the true branch requires it (p->longjt);
+    2499:  *
+    2500:  *	an extra long jump if the false branch requires it (p->longjf).
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `opt_state` near line 223
+     217: 	bpf_u_int32 v0, v1;
+     218: 	int val;		/* the value number */
+     219: 	struct valnode *next;
+     220: };
+     221: 
+     222: /* Integer constants mapped with the load immediate opcode. */
+>>   223: #define K(i) F(opt_state, BPF_LD|BPF_IMM|BPF_W, i, 0U)
+     224: 
+     225: struct vmapinfo {
+     226: 	int is_const;
+     227: 	bpf_u_int32 const_val;
+     228: };
+     229: 
+
+// Related snippet 2: identifier `opt_state` near line 379
+     373: 
+     374: #ifndef MAX
+     375: #define MAX(a,b) ((a)>(b)?(a):(b))
+     376: #endif
+     377: 
+     378: static void
+>>   379: find_levels_r(opt_state_t *opt_state, struct icode *ic, struct block *b)
+     380: {
+     381: 	int level;
+     382: 
+     383: 	if (isMarked(ic, b))
+     384: 		return;
+     385: 
+
+// Related snippet 3: identifier `n_blocks` near line 261
+     255: 	 *
+     256: 	 * XXX - we need a non-heuristic way of detecting, or preventing,
+     257: 	 * such a cycle.
+     258: 	 */
+     259: 	int non_branch_movement_performed;
+     260: 
+>>   261: 	u_int n_blocks;		/* number of blocks in the CFG; guaranteed to be > 0, as it's a RET instruction at a minimum */
+     262: 	struct block **blocks;
+     263: 	u_int n_edges;		/* twice n_blocks, so guaranteed to be > 0 */
+     264: 	struct edge **edges;
+     265: 
+     266: 	/*
+     267: 	 * A bit vector set representation of the dominators.
+
+// Related snippet 4: identifier `n_blocks` near line 409
+     403:  * first node of the level list, whose elements are linked
+     404:  * with the 'link' field of the struct block.
+     405:  */
+     406: static void
+     407: find_levels(opt_state_t *opt_state, struct icode *ic)
+     408: {
+>>   409: 	memset((char *)opt_state->levels, 0, opt_state->n_blocks * sizeof(*opt_state->levels));
+     410: 	unMarkAll(ic);
+     411: 	find_levels_r(opt_state, ic, ic->root);
+     412: }
+     413: 
+     414: /*
+     415:  * Find dominator relationships.
+
+// Related snippet 5: identifier `opt_error` near line 364
+     358: 	struct bpf_insn *fstart;
+     359: 	struct bpf_insn *ftail;
+     360: } conv_state_t;
+     361: 
+     362: static void opt_init(opt_state_t *, struct icode *);
+     363: static void opt_cleanup(opt_state_t *);
+>>   364: static void PCAP_NORETURN opt_error(opt_state_t *, const char *, ...)
+     365:     PCAP_PRINTFLIKE(2, 3);
+     366: 
+     367: static void intern_blocks(opt_state_t *, struct icode *);
+     368: 
+     369: static void find_inedges(opt_state_t *, struct block *);
+     370: #ifdef BDEBUG
+
+// Related snippet 6: identifier `opt_error` near line 804
+     798: 	case BPF_MUL:
+     799: 		a *= b;
+     800: 		break;
+     801: 
+     802: 	case BPF_DIV:
+     803: 		if (b == 0)
+>>   804: 			opt_error(opt_state, "division by zero");
+     805: 		a /= b;
+     806: 		break;
+     807: 
+     808: 	case BPF_MOD:
+     809: 		if (b == 0)
+     810: 			opt_error(opt_state, "modulus by zero");
+
+// Related snippet 7: identifier `filter` near line 50
+      44: #ifdef HAVE_OS_PROTO_H
+      45: #include "os-proto.h"
+      46: #endif
+      47: 
+      48: #ifdef BDEBUG
+      49: /*
+>>    50:  * The internal "debug printout" flag for the filter expression optimizer.
+      51:  * The code to print that stuff is present only if BDEBUG is defined, so
+      52:  * the flag, and the routine to set it, are defined only if BDEBUG is
+      53:  * defined.
+      54:  */
+      55: static int pcap_optimizer_debug;
+      56: 
+
+// Related snippet 8: identifier `filter` near line 75
+      69: pcap_set_optimizer_debug(int value)
+      70: {
+      71: 	pcap_optimizer_debug = value;
+      72: }
+      73: 
+      74: /*
+>>    75:  * The internal "print dot graph" flag for the filter expression optimizer.
+      76:  * The code to print that stuff is present only if BDEBUG is defined, so
+      77:  * the flag, and the routine to set it, are defined only if BDEBUG is
+      78:  * defined.
+      79:  */
+      80: static int pcap_print_dot_graph;
+      81: 
+
+// Related snippet 9: identifier `filter` near line 2261
+    2255: 			}
+    2256: 		}
+    2257: 	}
+    2258: }
+    2259: 
+    2260: /*
+>>  2261:  * Optimize the filter code in its dag representation.
+    2262:  * Return 0 on success, -1 on error.
+    2263:  */
+    2264: int
+    2265: bpf_optimize(struct icode *ic, char *errbuf)
+    2266: {
+    2267: 	opt_state_t opt_state;
+
+// Related snippet 10: identifier `too` near line 2551
+    2545: 
+    2546: 	opt_state->n_edges = 2 * opt_state->n_blocks;
+    2547: 	if ((opt_state->n_edges / 2) != opt_state->n_blocks) {
+    2548: 		/*
+    2549: 		 * Overflow.
+    2550: 		 */
+>>  2551: 		opt_error(opt_state, "filter is too complex to optimize");
+    2552: 	}
+    2553: 	opt_state->edges = (struct edge **)calloc(opt_state->n_edges, sizeof(*opt_state->edges));
+    2554: 	if (opt_state->edges == NULL) {
+    2555: 		opt_error(opt_state, "malloc");
+    2556: 	}
+    2557: 
+
+// Related snippet 11: identifier `too` near line 2581
+    2575: 	if ((product / opt_state->n_blocks) != opt_state->nodewords) {
+    2576: 		/*
+    2577: 		 * XXX - just punt and don't try to optimize?
+    2578: 		 * In practice, this is unlikely to happen with
+    2579: 		 * a normal filter.
+    2580: 		 */
+>>  2581: 		opt_error(opt_state, "filter is too complex to optimize");
+    2582: 	}
+    2583: 
+    2584: 	/*
+    2585: 	 * Make sure the total memory required for that doesn't
+    2586: 	 * overflow.
+    2587: 	 */
+
+// Related snippet 12: identifier `to` near line 14
+       8:  * distributions including binary code include the above copyright notice and
+       9:  * this paragraph in its entirety in the documentation or other materials
+      10:  * provided with the distribution, and (3) all advertising materials mentioning
+      11:  * features or use of this software display the following acknowledgement:
+      12:  * ``This product includes software developed by the University of California,
+      13:  * Lawrence Berkeley Laboratory and its contributors.'' Neither the name of
+>>    14:  * the University nor the names of its contributors may be used to endorse
+      15:  * or promote products derived from this software without specific prior
+      16:  * written permission.
+      17:  * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED
+      18:  * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+      19:  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+      20:  *
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_dependent",
+  "project_name": "libpcap",
+  "function_name": "number_blks_r",
+  "branch_line_number": 2471,
+  "blocked_side_line_number": 2475,
+  "reference_target_name": "llm_fuzzgen0626013047",
+  "success": false,
+  "attempt_result": "failed",
+  "success_stage": null,
+  "failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "message": "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback.",
+  "llm_seed_final_status": "not_solved_by_generator",
+  "llm_seed_generator_terminal_reason": "coverage_progress_observed_but_not_solved",
+  "llm_seed_handoff_selection_reason": "Compared against triggering input baseline (branch_hit_count=15, seed_size_bytes=35). Terminal reason coverage_progress_observed_but_not_solved allows up to 4 generator seeds for SymCC handoff.",
+  "baseline": {},
+  "stage_statuses": {
+    "llm_seed_generator": {
+      "success": false,
+      "returncode": null,
+      "final_status": "not_solved_by_generator",
+      "message": null
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    }
+  },
+  "stages": {
+    "llm_seed_generator": {
+      "success": false,
+      "final_status": "not_solved_by_generator",
+      "generator_terminal_reason": "coverage_progress_observed_but_not_solved",
+      "diagnosis_counts": {
+        "reaches_branch_but_condition_not_satisfied": 1,
+        "coverage_evaluation_failed": 1
+      },
+      "iterations_run": 2,
+      "progress_iteration_count": 1,
+      "stalled_iteration_count": 0,
+      "invalid_iteration_count": 1,
+      "best_iteration": {
+        "iteration": 1,
+        "validation_ok": true,
+        "validation_error_kind": "",
+        "generated_seed_count": 16,
+        "family_counts": {
+          "F01_long_or": 4,
+          "F02_long_and": 4,
+          "F03_nested_depth": 4,
+          "F04_mixed_complex": 3,
+          "F05_hint_baseline": 1
+        }
+      }
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "validation_status": "passed"
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "seed_count_before": 3,
+      "seed_count_after": 60,
+      "new_seeds": 57,
+      "error": ""
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Dependent
+- Classifier reason: The blocked predicate checks for an integer overflow of `opt_state->n_blocks`, an internal counter representing the number of blocks in the BPF program. This count is a structural property directly derived from the fuzzer's input filter string. While reaching `UINT_MAX` blocks is highly improbable, it is theoretically possible for fuzzer input to cause this condition, thus making it 'Input Dependent' under Rule 2 (Implicit Flow & Semantic Properties).
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The blocked predicate is `if (opt_state->n_blocks == 0)` at line `2471` in `number_blks_r`. The `Branch Line Hit Count` for this line is `0`, indicating that this specific condition was never met during fuzzing. However, the `runtime_blocker_segment` explicitly states that execution reached `number_blks_r` at line `2471`. This implies that the line was executed, but the condition `opt_state->n_blocks == 0` evaluated to `FALSE` every time. The variable `opt_state->n_blocks` is an unsigned integer (`u_int`).
+
+[1.5. Blocked Side Direction]: The blocked side at line `2475` (`opt_error(opt_state, "filter is too complex to optimize");`) is reached when the condition `opt_state->n_blocks == 0` at line `2471` evaluates to `TRUE`. Given the preceding line `n = opt_state->n_blocks++;`, this condition can only be true if `opt_state->n_blocks` was `UINT_MAX` (the maximum value for an unsigned integer) immediately before the increment, causing it to wrap around to `0` after the increment.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` with the fuzzer-provided filter string. The relevant line from `<fuzz_target_code>` is:
+`if (pcap_compile(p, &fcode, filter_str, 1, PCAP_NETMASK_UNKNOWN) == 0)`
+
+[2.5. Materialization Check]: The `filter_str` passed to `pcap_compile` is directly constructed from the fuzzer's input `Data`:
+```c
+    char *filter_str = (char *)malloc(Size + 1);
+    // ... error handling ...
+    memcpy(filter_str, Data, Size);
+    filter_str[Size] = '\0';
+```
+The `pcap_compile` function then processes this `filter_str` to build an internal BPF program representation, which includes a control flow graph. The `opt_state->n_blocks` variable is an internal counter that tracks the number of unique blocks in this graph. Thus, the fuzzer input directly influences the value of `opt_state->n_blocks` by determining the complexity of the BPF filter.
+
+[3A. Setter / Transition Evidence]:
+1. In `bpf_optimize`, `opt_state_t opt_state; memset(&opt_state, 0, sizeof(opt_state));` initializes `opt_state.n_blocks` to `0`. (Occurs on observed runtime path)
+2. In `opt_init`, `opt_state->n_blocks = 0;` explicitly resets `opt_state.n_blocks` to `0` before calling `number_blks_r`. (Occurs on observed runtime path)
+3. In `number_blks_r`, `n = opt_state->n_blocks++;` increments `opt_state.n_blocks` for each unique block encountered during the recursive traversal of the BPF program's control flow graph. (Occurs on observed runtime path)
+To reach the blocked side, `opt_state->n_blocks` must become `0` after the increment, meaning it must have been `UINT_MAX` before the increment. This value is a direct consequence of the number of blocks in the BPF program, which is derived from the fuzzer's `filter_str`. There is no `FuzzedDataProvider` used, and the entire input `Data` is used to create `filter_str`, so there is no data starvation.
+
+[3B. Survival / Feasibility Check]: The increment `opt_state->n_blocks++` and the subsequent check `if (opt_state->n_blocks == 0)` occur consecutively within the `number_blks_r` function. The `opt_state` structure is passed by reference, ensuring its state persists across these operations. There are no intervening operations, early returns, or resets that would prevent the detection of an integer overflow (wrapping from `UINT_MAX` to `0`) if the number of blocks in the BPF program were to reach `UINT_MAX`. While generating a BPF filter string complex enough to create `UINT_MAX` blocks (typically 2^32 - 1) is extremely challenging, it is theoretically possible for fuzzer input to achieve this, as the number of blocks is a structural property directly derived from the input filter string.
+
+[4. Rule Application]: The blocked predicate `opt_state->n_blocks == 0` is designed to detect an integer overflow of an internal counter (`opt_state->n_blocks`). This counter's value is determined by the structural complexity (number of blocks) of the BPF program, which is directly derived from the fuzzer's input `filter_str`. Therefore, the condition depends on a semantic property (structural complexity) derived from the input, making it **Input Dependent** according to Rule 2.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Before accepting any proposed path to the blocked side, verify that execution
+   actually reaches blocked-side line 2475. When an
+   enclosing `if`, `for`, or `while` condition evaluates to false, ALL lines
+   inside that block's `{}` are skipped — including any nested `if` branches
+   within it. A condition being satisfiable (e.g., `!ptr == true`) does not
+   prove the line is reachable if that line is inside a block whose own guard
+   is not entered. Use the step "[1b. Enclosing-block reachability]" to make
+   this check explicit before proceeding.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For internal parser or scanner state variables managed by generated code or
+   opaque internal transitions, do not infer solvability from generic parser
+   theory alone. Choose `Generated Parser State` or `Structurally Unreachable
+   API Path` unless the provided source shows a visible legal public transition
+   that sets the required state and persists to the blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+   inventing missing data. The pipeline derives routing from the label and keeps
+   solver execution enabled for inconclusive cases.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line 2475. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
+
+Do not output `first_layer_decision` or `solver_action`. The pipeline derives both
+deterministically from `refined_triage_label`.

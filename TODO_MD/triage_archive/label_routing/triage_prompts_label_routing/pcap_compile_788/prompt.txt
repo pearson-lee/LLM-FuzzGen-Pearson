@@ -1,0 +1,405 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0625183237
+- Function: pcap_compile
+- Branch line: 788
+- Branch code: `if (pcap_lex_init(&scanner) != 0)`
+- Blocked-side line: 789
+- Blocked-side code: `pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,`
+- Branch hit count: 27500
+- Blocked-side hit count: 0
+- Pipeline failure stage: dedicated_generation
+- Pipeline methods attempted: reference_guided_generation, dedicated_generation
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+     763: 		(p->save_current_filter_op)(p, buf);
+     764: #endif
+     765: 
+     766: 	initchunks(&cstate);
+     767: 	cstate.no_optimize = 0;
+     768: #ifdef INET6
+     769: 	cstate.ai = NULL;
+     770: #endif
+     771: 	cstate.e = NULL;
+     772: 	cstate.ic.root = NULL;
+     773: 	cstate.ic.cur_mark = 0;
+     774: 	cstate.bpf_pcap = p;
+     775: 	cstate.error_set = 0;
+     776: 	init_regs(&cstate);
+     777: 
+     778: 	cstate.netmask = mask;
+     779: 
+     780: 	cstate.snaplen = pcap_snapshot(p);
+     781: 	if (cstate.snaplen == 0) {
+     782: 		snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+     783: 			 "snaplen of 0 rejects all packets");
+     784: 		rc = PCAP_ERROR;
+     785: 		goto quit;
+     786: 	}
+     787: 
+>>   788: 	if (pcap_lex_init(&scanner) != 0)
+>>   789: 		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+     790: 		    errno, "can't initialize scanner");
+     791: 	in_buffer = pcap__scan_string(xbuf ? xbuf : "", scanner);
+     792: 
+     793: 	/*
+     794: 	 * Associate the compiler state with the lexical analyzer
+     795: 	 * state.
+     796: 	 */
+     797: 	pcap_set_extra(&cstate, scanner);
+     798: 
+     799: 	if (init_linktype(&cstate, p) == -1) {
+     800: 		rc = PCAP_ERROR;
+     801: 		goto quit;
+     802: 	}
+     803: 	if (pcap_parse(scanner, &cstate) != 0) {
+     804: #ifdef INET6
+     805: 		if (cstate.ai != NULL)
+     806: 			freeaddrinfo(cstate.ai);
+     807: #endif
+     808: 		if (cstate.e != NULL)
+     809: 			free(cstate.e);
+     810: 		rc = PCAP_ERROR;
+     811: 		goto quit;
+     812: 	}
+     813: 
+     814: 	if (cstate.ic.root == NULL) {
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `scanner` near line 68
+      62: #include "ppp.h"
+      63: #include "pcap/sll.h"
+      64: #include "pcap/ipnet.h"
+      65: #include "arcnet.h"
+      66: #include "diag-control.h"
+      67: 
+>>    68: #include "scanner.h"
+      69: 
+      70: #if defined(linux)
+      71: #include <linux/types.h>
+      72: #include <linux/if_packet.h>
+      73: #include <linux/filter.h>
+      74: #endif
+
+// Related snippet 2: identifier `scanner` near line 724
+     718: {
+     719: #ifdef _WIN32
+     720: 	static int done = 0;
+     721: #endif
+     722: 	compiler_state_t cstate;
+     723: 	const char * volatile xbuf = buf;
+>>   724: 	yyscan_t scanner = NULL;
+     725: 	volatile YY_BUFFER_STATE in_buffer = NULL;
+     726: 	u_int len;
+     727: 	int  rc;
+     728: 
+     729: 	/*
+     730: 	 * If this pcap_t hasn't been activated, it doesn't have a
+
+// Related snippet 3: identifier `scanner` near line 790
+     784: 		rc = PCAP_ERROR;
+     785: 		goto quit;
+     786: 	}
+     787: 
+     788: 	if (pcap_lex_init(&scanner) != 0)
+     789: 		pcap_fmt_errmsg_for_errno(p->errbuf, PCAP_ERRBUF_SIZE,
+>>   790: 		    errno, "can't initialize scanner");
+     791: 	in_buffer = pcap__scan_string(xbuf ? xbuf : "", scanner);
+     792: 
+     793: 	/*
+     794: 	 * Associate the compiler state with the lexical analyzer
+     795: 	 * state.
+     796: 	 */
+
+// Related snippet 4: identifier `p` near line 639
+     633: 	return (void *)((char *)cp->m + cp->n_left);
+     634: }
+     635: 
+     636: static void *
+     637: newchunk(compiler_state_t *cstate, size_t n)
+     638: {
+>>   639: 	void *p;
+     640: 
+     641: 	p = newchunk_nolongjmp(cstate, n);
+     642: 	if (p == NULL) {
+     643: 		longjmp(cstate->top_ctx, 1);
+     644: 		/*NOTREACHED*/
+     645: 	}
+
+// Related snippet 5: identifier `errbuf` near line 439
+     433: 	 * the parse to stop.  We don't want the error reported
+     434: 	 * by the lexical analyzer to be overwritten by the syntax
+     435: 	 * error.
+     436: 	 */
+     437: 	if (!cstate->error_set) {
+     438: 		va_start(ap, fmt);
+>>   439: 		(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+     440: 		    fmt, ap);
+     441: 		va_end(ap);
+     442: 		cstate->error_set = 1;
+     443: 	}
+     444: }
+     445: 
+
+// Related snippet 6: identifier `errbuf` near line 459
+     453: static void PCAP_NORETURN
+     454: bpf_error(compiler_state_t *cstate, const char *fmt, ...)
+     455: {
+     456: 	va_list ap;
+     457: 
+     458: 	va_start(ap, fmt);
+>>   459: 	(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+     460: 	    fmt, ap);
+     461: 	va_end(ap);
+     462: 	longjmp(cstate->top_ctx, 1);
+     463: 	/*NOTREACHED*/
+     464: #ifdef _AIX
+     465: 	PCAP_UNREACHABLE
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_independent",
+  "project_name": "libpcap",
+  "function_name": "pcap_compile",
+  "branch_line_number": 788,
+  "blocked_side_line_number": 789,
+  "reference_target_name": "llm_fuzzgen0625183237",
+  "success": false,
+  "attempt_result": "failed",
+  "pipeline_methods": [
+    "reference_guided_generation",
+    "dedicated_generation"
+  ],
+  "message": null,
+  "baseline": {
+    "success": true,
+    "branch_hit_count": 27500,
+    "branch_hit_count_raw": "27.5k",
+    "blocked_side_hit_count": 0,
+    "blocked_side_hit_count_raw": "0",
+    "branch_line_reached": true,
+    "blocked_side_line_reached": false
+  },
+  "best_iteration": {
+    "iteration": 1,
+    "strategy": "dedicated_generation",
+    "accepted": false,
+    "success": false,
+    "score": 31900000,
+    "evaluation": {
+      "success": true,
+      "branch_hit_count": 31900000,
+      "branch_hit_count_raw": "31.9M",
+      "blocked_side_hit_count": 0,
+      "blocked_side_hit_count_raw": "0",
+      "branch_line_reached": true,
+      "blocked_side_line_reached": false
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Independent
+- Classifier reason: The blocked branch at `gencode.c:788` is taken if `pcap_lex_init(&scanner)` returns a non-zero value. The `pcap_lex_init` function, which is an alias for `yylex_init`, returns non-zero primarily if `yyalloc` fails to allocate memory for a fixed-size `struct yyguts_t`. This is a memory allocation failure, which is an environmental condition and not reliably controllable by the fuzzer's input bytes. The fuzzer input (`filter_string`) is not directly involved in the `pcap_lex_init` call's success or failure, as `pcap_lex_init` initializes the lexer's state before processing the input string.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The blocked predicate is at line 788 in `pcap_compile`: `if (pcap_lex_init(&scanner) != 0)`. The `N/A` hit count indicates that while the line was reached, the condition `!= 0` was never satisfied by the fuzzer's inputs.
+
+[1.5. Blocked Side Direction]: Line 789 (`pcap_fmt_errmsg_for_errno(...)`) is reached when the condition `pcap_lex_init(&scanner) != 0` evaluates to `TRUE`. This means `pcap_lex_init` must return a non-zero value.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` at `/src/llm_fuzzgen0625183237.c:115`: `if (pcap_compile(p, &fcode, filter_string, 1, PCAP_NETMASK_UNKNOWN) == 0)`.
+
+[2.5. Materialization Check]: The `filter_string` is derived from the fuzzer's input (`Data`, `Size`) and passed as an argument to `pcap_compile`. However, `pcap_lex_init` is called *before* the `filter_string` is actually processed by the lexer (e.g., by `pcap__scan_string` or `pcap_parse`). The `pcap_lex_init` function is responsible for initializing the lexer's internal state, not for parsing the input string itself. Therefore, the content or size of `filter_string` does not directly influence the success or failure of `pcap_lex_init`.
+
+[3A. Setter / Transition Evidence]: The `cfg_source_codes` shows that `pcap_lex_init` is an alias for `yylex_init`. Analyzing `yylex_init`:
+- It takes `yyscan_t* ptr_yy_globals` as an argument. In `pcap_compile`, this is `&scanner`, which is a local stack variable and thus a valid, non-NULL pointer. Therefore, the `if (ptr_yy_globals == NULL)` check will always be false.
+- It attempts to allocate memory for `struct yyguts_t` using `yyalloc(sizeof(struct yyguts_t), NULL)`. If `yyalloc` returns `NULL` (indicating a memory allocation failure), `yylex_init` returns `1` (non-zero), satisfying the blocked condition.
+- It calls `yy_init_globals(*ptr_yy_globals)`. If `yy_init_globals` returns a non-zero value, `yylex_init` would also return non-zero. The source code for `yy_init_globals` is not provided, but it's typically an internal setup function for the lexer's global state, which is generally not directly influenced by arbitrary fuzzer input bytes in a way that would cause an initialization error.
+- No data starvation is detected for `filter_string`, but its content or size does not directly affect the return value of `pcap_lex_init`.
+
+[3B. Survival / Feasibility Check]: The most plausible way for `pcap_lex_init` to return a non-zero value, given that `&scanner` is a valid pointer, is if `yyalloc` fails to allocate memory. This is a memory allocation failure for a fixed-size structure (`sizeof(struct yyguts_t)`). Such failures are typically environmental (e.g., system out of memory) and cannot be reliably or deterministically triggered by manipulating the fuzzer's input data alone. The size of the `filter_string` does not influence the size of the allocation requested by `yyalloc` for `struct yyguts_t`.
+
+[4. Rule Application]: Rule 6: Environmental or System API Failures. The blocked predicate `pcap_lex_init(&scanner) != 0` is primarily satisfied by a memory allocation failure (`yyalloc` returning `NULL`) within `yylex_init`. This is an environmental condition that cannot be reliably triggered by altering the fuzzer's data content.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Before accepting any proposed path to the blocked side, verify that execution
+   actually reaches blocked-side line 789. When an
+   enclosing `if`, `for`, or `while` condition evaluates to false, ALL lines
+   inside that block's `{}` are skipped — including any nested `if` branches
+   within it. A condition being satisfiable (e.g., `!ptr == true`) does not
+   prove the line is reachable if that line is inside a block whose own guard
+   is not entered. Use the step "[1b. Enclosing-block reachability]" to make
+   this check explicit before proceeding.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For internal parser or scanner state variables managed by generated code or
+   opaque internal transitions, do not infer solvability from generic parser
+   theory alone. Choose `Generated Parser State` or `Structurally Unreachable
+   API Path` unless the provided source shows a visible legal public transition
+   that sets the required state and persists to the blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+   inventing missing data. The pipeline derives routing from the label and keeps
+   solver execution enabled for inconclusive cases.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line 789. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
+
+Do not output `first_layer_decision` or `solver_action`. The pipeline derives both
+deterministically from `refined_triage_label`.

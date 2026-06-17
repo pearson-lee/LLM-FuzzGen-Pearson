@@ -1,0 +1,95 @@
+{
+  "llm_fuzzgen0625041520": [
+    {
+      "actionability_score": 12.239564544562535,
+      "avg_blocked_function_line_coverage": null,
+      "best_target": "llm_fuzzgen0625041520",
+      "best_target_score": [
+        1386,
+        2420
+      ],
+      "blocked_not_covered_complexity": 1386,
+      "blocked_reachable_complexity": 3083,
+      "blocked_side": "1",
+      "blocked_side_line_number": "416",
+      "blocked_unique_functions": [
+        "CreateRoundtripXForm",
+        "RootOfLeastSquaresFitQuadraticCurve",
+        "cmsDeleteTransform",
+        "cmsDoTransform",
+        "cmsLab2XYZ",
+        "cmsXYZ2Lab"
+      ],
+      "blocked_unique_not_covered_complexity": 1386,
+      "blocked_unique_reachable_complexity": 1658,
+      "branch_line_number": "403",
+      "contributing_targets": [
+        "llm_fuzzgen0625030039",
+        "llm_fuzzgen0625040215",
+        "llm_fuzzgen0625041520",
+        "llm_fuzzgen0625143518"
+      ],
+      "function_name": "cmsDetectDestinationBlackPoint",
+      "globally_unhit_function_count": 0,
+      "impact_score": 25.22268339634068,
+      "low_coverage_function_count": 0,
+      "matched_function_count": 0,
+      "max_blocked_function_undiscovered_complexity": 0,
+      "occurrence_count": 4,
+      "project_blocked_hit_count": 0,
+      "project_blocked_side_reached": false,
+      "project_blocked_side_reached_target_count": 0,
+      "project_blocked_side_reached_targets": [],
+      "project_blocker_state": "stalled_at_branch",
+      "project_branch_hit_count": 4850,
+      "project_branch_reached": true,
+      "project_branch_reached_target_count": 4,
+      "project_branch_reached_targets": [
+        "llm_fuzzgen0625030039",
+        "llm_fuzzgen0625040215",
+        "llm_fuzzgen0625041520",
+        "llm_fuzzgen0625143518"
+      ],
+      "project_file_branches_notcovered": 0,
+      "project_file_branches_percent": null,
+      "project_file_coverage_signal": 0.0,
+      "project_file_lines_notcovered": 0,
+      "project_file_lines_percent": null,
+      "project_function_coverage_signal": 0.0,
+      "project_relevant": true,
+      "project_target_hit_details": [
+        {
+          "blocked_hit_count": 0,
+          "branch_hit_count": 2420,
+          "target_name": "llm_fuzzgen0625041520"
+        },
+        {
+          "blocked_hit_count": 0,
+          "branch_hit_count": 1850,
+          "target_name": "llm_fuzzgen0625030039"
+        },
+        {
+          "blocked_hit_count": 0,
+          "branch_hit_count": 577,
+          "target_name": "llm_fuzzgen0625040215"
+        },
+        {
+          "blocked_hit_count": 0,
+          "branch_hit_count": 1,
+          "target_name": "llm_fuzzgen0625143518"
+        }
+      ],
+      "score": 37.46224794090322,
+      "score_components": {
+        "actionability_score": 12.2396,
+        "impact_score": 25.2227,
+        "solvability_score": 1.0
+      },
+      "sides_hitcount_diff": 4848,
+      "solvability_reason": "normal",
+      "solvability_score": 1.0,
+      "source_file": "/src/lcms/src/cmssamp.c",
+      "sum_blocked_function_undiscovered_complexity": 0
+    }
+  ]
+}

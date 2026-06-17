@@ -1,0 +1,461 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0625164049
+- Function: convert_code_r
+- Branch line: 2715
+- Branch code: `if (!offset) {`
+- Blocked-side line: 2716
+- Blocked-side code: `conv_error(conv_state, "not enough core");`
+- Branch hit count: 47500000
+- Blocked-side hit count: 0
+- Pipeline failure stage: symcc_generated_harness
+- Pipeline methods attempted: llm_seed_generator, symcc_probe_original_target, libfuzzer_focused_pass, symcc_generated_harness
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+    2690: {
+    2691: 	struct bpf_insn *dst;
+    2692: 	struct slist *src;
+    2693: 	u_int slen;
+    2694: 	u_int off;
+    2695: 	struct slist **offset = NULL;
+    2696: 
+    2697: 	if (p == 0 || isMarked(ic, p))
+    2698: 		return (1);
+    2699: 	Mark(ic, p);
+    2700: 
+    2701: 	if (convert_code_r(conv_state, ic, JF(p)) == 0)
+    2702: 		return (0);
+    2703: 	if (convert_code_r(conv_state, ic, JT(p)) == 0)
+    2704: 		return (0);
+    2705: 
+    2706: 	slen = slength(p->stmts);
+    2707: 	dst = conv_state->ftail -= (slen + 1 + p->longjt + p->longjf);
+    2708: 		/* inflate length by any extra jumps */
+    2709: 
+    2710: 	p->offset = (int)(dst - conv_state->fstart);
+    2711: 
+    2712: 	/* generate offset[] for convenience  */
+    2713: 	if (slen) {
+    2714: 		offset = (struct slist **)calloc(slen, sizeof(struct slist *));
+>>  2715: 		if (!offset) {
+>>  2716: 			conv_error(conv_state, "not enough core");
+    2717: 			/*NOTREACHED*/
+    2718: 		}
+    2719: 	}
+    2720: 	src = p->stmts;
+    2721: 	for (off = 0; off < slen && src; off++) {
+    2722: #if 0
+    2723: 		printf("off=%d src=%x\n", off, src);
+    2724: #endif
+    2725: 		offset[off] = src;
+    2726: 		src = src->next;
+    2727: 	}
+    2728: 
+    2729: 	off = 0;
+    2730: 	for (src = p->stmts; src; src = src->next) {
+    2731: 		if (src->s.code == NOP)
+    2732: 			continue;
+    2733: 		dst->code = (u_short)src->s.code;
+    2734: 		dst->k = src->s.k;
+    2735: 
+    2736: 		/* fill block-local relative jump */
+    2737: 		if (BPF_CLASS(src->s.code) != BPF_JMP || src->s.code == (BPF_JMP|BPF_JA)) {
+    2738: #if 0
+    2739: 			if (src->s.jt || src->s.jf) {
+    2740: 				free(offset);
+    2741: 				conv_error(conv_state, "illegal jmp destination");
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `offset` near line 2684
+    2678: 
+    2679: static void PCAP_NORETURN conv_error(conv_state_t *, const char *, ...)
+    2680:     PCAP_PRINTFLIKE(2, 3);
+    2681: 
+    2682: /*
+    2683:  * Returns true if successful.  Returns false if a branch has
+>>  2684:  * an offset that is too large.  If so, we have marked that
+    2685:  * branch so that on a subsequent iteration, it will be treated
+    2686:  * properly.
+    2687:  */
+    2688: static int
+    2689: convert_code_r(conv_state_t *conv_state, struct icode *ic, struct block *p)
+    2690: {
+
+// Related snippet 2: identifier `offset` near line 2710
+    2704: 		return (0);
+    2705: 
+    2706: 	slen = slength(p->stmts);
+    2707: 	dst = conv_state->ftail -= (slen + 1 + p->longjt + p->longjf);
+    2708: 		/* inflate length by any extra jumps */
+    2709: 
+>>  2710: 	p->offset = (int)(dst - conv_state->fstart);
+    2711: 
+    2712: 	/* generate offset[] for convenience  */
+    2713: 	if (slen) {
+    2714: 		offset = (struct slist **)calloc(slen, sizeof(struct slist *));
+    2715: 		if (!offset) {
+    2716: 			conv_error(conv_state, "not enough core");
+
+// Related snippet 3: identifier `conv_error` near line 2741
+    2735: 
+    2736: 		/* fill block-local relative jump */
+    2737: 		if (BPF_CLASS(src->s.code) != BPF_JMP || src->s.code == (BPF_JMP|BPF_JA)) {
+    2738: #if 0
+    2739: 			if (src->s.jt || src->s.jf) {
+    2740: 				free(offset);
+>>  2741: 				conv_error(conv_state, "illegal jmp destination");
+    2742: 				/*NOTREACHED*/
+    2743: 			}
+    2744: #endif
+    2745: 			goto filled;
+    2746: 		}
+    2747: 		if (off == slen - 2)	/*???*/
+
+// Related snippet 4: identifier `conv_error` near line 2762
+    2756: 		printf("code=%x off=%d %x %x\n", src->s.code,
+    2757: 			off, src->s.jt, src->s.jf);
+    2758: #endif
+    2759: 
+    2760: 		if (!src->s.jt || !src->s.jf) {
+    2761: 			free(offset);
+>>  2762: 			conv_error(conv_state, ljerr, "no jmp destination", off);
+    2763: 			/*NOTREACHED*/
+    2764: 		}
+    2765: 
+    2766: 		jt = jf = 0;
+    2767: 		for (i = 0; i < slen; i++) {
+    2768: 			if (offset[i] == src->s.jt) {
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_dependent",
+  "project_name": "libpcap",
+  "function_name": "convert_code_r",
+  "branch_line_number": 2715,
+  "blocked_side_line_number": 2716,
+  "reference_target_name": "llm_fuzzgen0625164049",
+  "success": false,
+  "attempt_result": "failed",
+  "success_stage": null,
+  "failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "message": "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback.",
+  "llm_seed_final_status": "not_solved_by_generator",
+  "llm_seed_generator_terminal_reason": "invalid_generator",
+  "llm_seed_handoff_selection_reason": "Generator terminal reason invalid_generator does not justify generator-seed handoff.",
+  "baseline": {},
+  "stage_statuses": {
+    "llm_seed_generator": {
+      "success": false,
+      "returncode": null,
+      "final_status": "not_solved_by_generator",
+      "message": null
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    }
+  },
+  "stages": {
+    "llm_seed_generator": {
+      "success": false,
+      "final_status": "not_solved_by_generator",
+      "generator_terminal_reason": "invalid_generator",
+      "diagnosis_counts": {
+        "coverage_evaluation_failed": 2
+      },
+      "iterations_run": 2,
+      "progress_iteration_count": 0,
+      "stalled_iteration_count": 0,
+      "invalid_iteration_count": 2,
+      "best_iteration": {
+        "iteration": 1,
+        "validation_ok": true,
+        "validation_error_kind": "",
+        "generated_seed_count": 16,
+        "family_counts": {
+          "F01_long_arithmetic_filter_001_opt0_link1": 1,
+          "F01_long_arithmetic_filter_002_opt0_link1": 1,
+          "F01_long_arithmetic_filter_003_opt0_link1": 1,
+          "F01_long_arithmetic_filter_004_opt0_link12": 1,
+          "F01_long_arithmetic_filter_005_opt0_link12": 1,
+          "F01_long_arithmetic_filter_006_opt0_link12": 1,
+          "F01_long_arithmetic_filter_007_opt1_link1": 1,
+          "F01_long_arithmetic_filter_008_opt1_link1": 1,
+          "F01_long_arithmetic_filter_009_opt1_link1": 1,
+          "F01_long_arithmetic_filter_010_opt1_link12": 1,
+          "F01_long_arithmetic_filter_011_opt1_link12": 1,
+          "F01_long_arithmetic_filter_012_opt1_link12": 1,
+          "F04_max_len_simple_filter_013_opt0_link1": 1,
+          "F04_max_len_simple_filter_014_opt0_link12": 1,
+          "F04_max_len_simple_filter_015_opt1_link1": 1,
+          "F04_max_len_simple_filter_016_opt1_link12": 1
+        }
+      }
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "validation_status": "passed"
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "seed_count_before": 1,
+      "seed_count_after": 1270,
+      "new_seeds": 1269,
+      "error": ""
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Dependent
+- Classifier reason: The blocked predicate `if (!offset)` at line `2716` (leading to `conv_error` at line `2717`) is reachable if the `offset` pointer is `NULL`. `offset` is initialized to `NULL` and is only assigned a non-`NULL` value if `slen` is greater than `0` and `calloc` succeeds. The value of `slen` is derived from `slength(p->stmts)`, where `p->stmts` represents the statements of a BPF program block. This program structure is directly parsed from the fuzzer's `filter_string` input. If the fuzzer can provide a `filter_string` that results in `slen == 0` for any block `p` during the recursive processing in `convert_code_r`, then `offset` would remain `NULL`, and the blocked branch would be taken. This falls under Rule 2 (Implicit Flow & Semantic Properties) as `slen` is a semantic property derived from the input.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The blocked predicate is `!offset` at line `2716` (assuming the prompt's line number `2715` for the condition is a slight offset, as `if (!offset)` is at line `2716` in the provided source). The branch hit count for this condition is `0`, meaning the `TRUE` branch of `if (!offset)` was never taken. The variable `offset` is a `struct slist **`.
+
+[1.5. Blocked Side Direction]: Line `2717` (`conv_error(conv_state, "not enough core");`) is reached when the condition `!offset` at line `2716` evaluates to `TRUE`. This requires the `offset` pointer to be `NULL`.
+
+[2. Fuzz Target Call Site]: The fuzz target API call that launches the observed path toward the blocker is `pcap_compile_nopcap` at line `52` in `LLVMFuzzerTestOneInput`:
+```c
+if (pcap_compile_nopcap(65535, linktype, &program, filter_string, optimize, PCAP_NETMASK_UNKNOWN) == 0) {
+```
+
+[2.5. Materialization Check]: The `filter_string` is directly derived from the fuzzer's input `data` and `filter_len`. This `filter_string` is passed to `pcap_compile_nopcap`, which then calls `pcap_compile`. `pcap_compile` parses this string to build an internal BPF program representation (`cstate.ic.root`). This representation, including its `struct block`s and their `stmts` lists, directly influences the `slen` variable in `convert_code_r`. Therefore, the fuzz target actively materializes and uses the relevant input-derived data that affects the blocked predicate.
+
+[3A. Setter / Transition Evidence]:
+- The `offset` variable is declared and initialized to `NULL` at line `2712`: `struct slist **offset = NULL;`
+- At line `2714`, there's a check `if (slen) {`.
+- If `slen` is non-zero, `offset` is assigned the result of `calloc(slen, sizeof(struct slist *))` at line `2715`.
+- To reach the blocked side (where `!offset` is `TRUE`), `offset` must be `NULL` at line `2716`. This can happen in two ways:
+  1. `slen` is `0`. In this case, the `if (slen)` block (lines 2714-2720) is skipped, and `offset` remains `NULL` from its initialization.
+  2. `slen` is `> 0`, and the `calloc` call at line `2715` fails and returns `NULL`.
+- `slen` is calculated at line `2707` as `slength(p->stmts)`. The `struct block *p` and its `stmts` list are internal representations of the BPF filter program, which is parsed from the fuzzer's `filter_string` input. Thus, `slen` is implicitly controlled by the fuzzer input.
+- The fuzz target does not use `FuzzedDataProvider`, so no FDP starvation is applicable. The `filter_string` is copied directly from the fuzzer's `data` buffer, allowing arbitrary content and length (up to `size/2`).
+
+[3B. Survival / Feasibility Check]:
+- The runtime evidence indicates that the `TRUE` branch of `if (!offset)` (i.e., line `2717`) was never reached. This implies that `offset` was always non-`NULL` when the condition was evaluated.
+- For `offset` to always be non-`NULL`, two conditions must hold:
+  1. `slen` must never be `0`. If `slen` were `0`, the `calloc` would be skipped, `offset` would remain `NULL`, and the blocked branch would be taken.
+  2. When `slen` is `> 0`, `calloc` must always succeed (return a non-`NULL` pointer).
+- The first condition (`slen` must never be `0`) is directly influenced by the fuzzer's input `filter_string`. It is semantically possible for a BPF filter string to compile into a program structure where a `struct block *p` (especially in recursive calls) has an empty `stmts` list, leading to `slen == 0`. If such an input were provided, `offset` would remain `NULL`, and the blocked side would be reached.
+- The second condition (`calloc` always succeeds`) is an environmental factor (memory allocation success). While the size of the allocation is input-dependent, the failure of `calloc` itself is generally considered outside the direct control of input *content* in a fuzzing context (Rule 6).
+- However, since there is a path to the blocked side (`slen == 0`) that is directly controllable by the fuzzer's input `filter_string`, the blocker is considered input dependent. The current fuzzer inputs simply haven't generated a `filter_string` that results in `slen == 0` for any block `p`.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow:
+   - finite, practical, legal edge value -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Always verify control nesting before accepting a proposed path. If the
+   classifier claims an earlier value such as zero can reach a branch, but the
+   branch is nested inside a guard that excludes that value, source evidence must
+   override the classifier.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. For generated Bison/Flex parser/scanner states, do not infer solvability from
+   generic parser behavior alone. Choose `Generated Parser State` or
+   `Structurally Unreachable API Path` unless the provided source shows a visible
+   legal public transition that sets the required state and survives to the
+   blocked-side read.
+8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+9. If source/runtime evidence is incomplete, return `Inconclusive` and
+   `manual_review` rather than inventing missing data.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[2. Required blocked-side condition]: ...",
+    "[3. Solvability evidence]: ...",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "first_layer_decision": "Generation-solvable",
+  "refined_triage_label": "Actionable Target Gap",
+  "solver_action": "run_solver",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `first_layer_decision`: `Generation-solvable`, `Non-generation-solvable`, `Inconclusive`
+- `solver_action`: `run_solver`, `skip_solver`, `manual_review`
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`

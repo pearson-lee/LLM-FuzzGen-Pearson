@@ -1,0 +1,490 @@
+## Role
+You are a senior C/C++ fuzzing engineer. Your task is to triage one fuzz blocker
+before the solver pipeline runs.
+
+The classifier may already have labeled the blocker as Input Dependent or Input
+Independent. Treat that classifier result as a prior opinion only. Your decision
+must be based first on source code and runtime evidence.
+
+---
+
+## Goal
+Decide whether this blocker is **generation-solvable**:
+
+- `Generation-solvable`: a legal seed, input structure, fuzz target setup, harness
+  API sequence, or bounded extreme value can plausibly reach the blocked side.
+- `Non-generation-solvable`: the blocked side depends on allocator/system failure,
+  internal defensive invariants, generated parser/scanner internal states with no
+  visible legal transition, infeasible counter overflow, crash-before-observe
+  behavior, or a current API path that cannot be repaired by normal target/seed
+  generation using the visible public interface.
+- `Inconclusive`: the provided source/runtime evidence is insufficient.
+
+This triage is a **hard gate** before solver execution. If the blocker is
+non-generation-solvable, the solver should be skipped and the reason recorded.
+
+---
+
+## Evidence Priority
+Use evidence in this order:
+
+1. Source code around the blocked branch and visible setter/state-transition code.
+2. Runtime evidence: hit counts, runtime blocker segment, and pipeline failure stage.
+3. Static supplementary context.
+4. Classifier trace and dependency label. This can be wrong; do not anchor on it.
+
+If source/runtime evidence contradicts the classifier trace, set
+`source_overrides_classifier` to true and explain the conflict.
+
+---
+
+## Blocker Metadata
+- Language: C/C++
+- Project: libpcap
+- Target: llm_fuzzgen0625183237
+- Function: newchunk
+- Branch line: 642
+- Branch code: `if (p == NULL) {`
+- Blocked-side line: 643
+- Blocked-side code: `longjmp(cstate->top_ctx, 1);`
+- Branch hit count: 19200000
+- Blocked-side hit count: 0
+- Pipeline failure stage: symcc_generated_harness
+- Pipeline methods attempted: llm_seed_generator, symcc_probe_original_target, libfuzzer_focused_pass, symcc_generated_harness
+
+---
+
+## Source Evidence
+Read this before considering the classifier trace.
+
+### Source Snippet Around Branch
+```c
+     617: 			return (NULL);
+     618: 		}
+     619: 		size = CHUNK0SIZE << k;
+     620: 		cp->m = (void *)malloc(size);
+     621: 		if (cp->m == NULL) {
+     622: 			bpf_set_error(cstate, "out of memory");
+     623: 			return (NULL);
+     624: 		}
+     625: 		memset((char *)cp->m, 0, size);
+     626: 		cp->n_left = size;
+     627: 		if (n > size) {
+     628: 			bpf_set_error(cstate, "out of memory");
+     629: 			return (NULL);
+     630: 		}
+     631: 	}
+     632: 	cp->n_left -= n;
+     633: 	return (void *)((char *)cp->m + cp->n_left);
+     634: }
+     635: 
+     636: static void *
+     637: newchunk(compiler_state_t *cstate, size_t n)
+     638: {
+     639: 	void *p;
+     640: 
+     641: 	p = newchunk_nolongjmp(cstate, n);
+>>   642: 	if (p == NULL) {
+>>   643: 		longjmp(cstate->top_ctx, 1);
+     644: 		/*NOTREACHED*/
+     645: 	}
+     646: 	return (p);
+     647: }
+     648: 
+     649: static void
+     650: freechunks(compiler_state_t *cstate)
+     651: {
+     652: 	int i;
+     653: 
+     654: 	for (i = 0; i < NCHUNKS; ++i)
+     655: 		if (cstate->chunks[i].m != NULL)
+     656: 			free(cstate->chunks[i].m);
+     657: }
+     658: 
+     659: /*
+     660:  * A strdup whose allocations are freed after code generation is over.
+     661:  * This is used by the lexical analyzer, so it can't longjmp; it just
+     662:  * returns NULL on an allocation error, and the callers must check
+     663:  * for it.
+     664:  */
+     665: char *
+     666: sdup(compiler_state_t *cstate, const char *s)
+     667: {
+     668: 	size_t n = strlen(s) + 1;
+```
+
+### Related Source Snippets for Predicate Variables
+These snippets are collected by searching the same source file for identifiers
+appearing in the branch and blocked-side code. Use them to verify setters,
+initializers, control nesting, and generated parser/scanner transitions.
+```c
+// Related snippet 1: identifier `p` near line 639
+     633: 	return (void *)((char *)cp->m + cp->n_left);
+     634: }
+     635: 
+     636: static void *
+     637: newchunk(compiler_state_t *cstate, size_t n)
+     638: {
+>>   639: 	void *p;
+     640: 
+     641: 	p = newchunk_nolongjmp(cstate, n);
+     642: 	if (p == NULL) {
+     643: 		longjmp(cstate->top_ctx, 1);
+     644: 		/*NOTREACHED*/
+     645: 	}
+
+// Related snippet 2: identifier `top_ctx` near line 238
+     232: 	void *m;
+     233: };
+     234: 
+     235: /* Code generator state */
+     236: 
+     237: struct _compiler_state {
+>>   238: 	jmp_buf top_ctx;
+     239: 	pcap_t *bpf_pcap;
+     240: 	int error_set;
+     241: 
+     242: 	struct icode ic;
+     243: 
+     244: 	int snaplen;
+
+// Related snippet 3: identifier `top_ctx` near line 462
+     456: 	va_list ap;
+     457: 
+     458: 	va_start(ap, fmt);
+     459: 	(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+     460: 	    fmt, ap);
+     461: 	va_end(ap);
+>>   462: 	longjmp(cstate->top_ctx, 1);
+     463: 	/*NOTREACHED*/
+     464: #ifdef _AIX
+     465: 	PCAP_UNREACHABLE
+     466: #endif /* _AIX */
+     467: }
+     468: 
+
+// Related snippet 4: identifier `top_ctx` near line 818
+     812: 	}
+     813: 
+     814: 	if (cstate.ic.root == NULL) {
+     815: 		/*
+     816: 		 * Catch errors reported by gen_retblk().
+     817: 		 */
+>>   818: 		if (setjmp(cstate.top_ctx)) {
+     819: 			rc = PCAP_ERROR;
+     820: 			goto quit;
+     821: 		}
+     822: 		cstate.ic.root = gen_retblk(&cstate, cstate.snaplen);
+     823: 	}
+     824: 
+
+// Related snippet 5: identifier `longjmp` near line 261
+     255: 	u_int vlan_stack_depth;
+     256: 
+     257: 	/* XXX */
+     258: 	u_int pcap_fddipad;
+     259: 
+     260: 	/*
+>>   261: 	 * As errors are handled by a longjmp, anything allocated must
+     262: 	 * be freed in the longjmp handler, so it must be reachable
+     263: 	 * from that handler.
+     264: 	 *
+     265: 	 * One thing that's allocated is the result of pcap_nametoaddrinfo();
+     266: 	 * it must be freed with freeaddrinfo().  This variable points to
+     267: 	 * any addrinfo structure that would need to be freed.
+
+// Related snippet 6: identifier `cstate` near line 424
+     418: 
+     419: /*
+     420:  * For use by routines outside this file.
+     421:  */
+     422: /* VARARGS */
+     423: void
+>>   424: bpf_set_error(compiler_state_t *cstate, const char *fmt, ...)
+     425: {
+     426: 	va_list ap;
+     427: 
+     428: 	/*
+     429: 	 * If we've already set an error, don't override it.
+     430: 	 * The lexical analyzer reports some errors by setting
+
+// Related snippet 7: identifier `cstate` near line 437
+     431: 	 * the error and then returning a LEX_ERROR token, which
+     432: 	 * is not recognized by any grammar rule, and thus forces
+     433: 	 * the parse to stop.  We don't want the error reported
+     434: 	 * by the lexical analyzer to be overwritten by the syntax
+     435: 	 * error.
+     436: 	 */
+>>   437: 	if (!cstate->error_set) {
+     438: 		va_start(ap, fmt);
+     439: 		(void)vsnprintf(cstate->bpf_pcap->errbuf, PCAP_ERRBUF_SIZE,
+     440: 		    fmt, ap);
+     441: 		va_end(ap);
+     442: 		cstate->error_set = 1;
+     443: 	}
+```
+
+### Runtime Segment Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+### Static Supplementary Source Codes
+```c
+N/A: offline mode relies on source snippet and saved pipeline summary unless a context file is supplied.
+```
+
+---
+
+## Runtime Evidence
+
+### Runtime Blocker Segment
+```text
+N/A: offline blocker_attempts.jsonl does not store the full runtime segment.
+```
+
+### Pipeline Summary
+```text
+{
+  "solver": "input_dependent",
+  "project_name": "libpcap",
+  "function_name": "newchunk",
+  "branch_line_number": 642,
+  "blocked_side_line_number": 643,
+  "reference_target_name": "llm_fuzzgen0625183237",
+  "success": false,
+  "attempt_result": "failed",
+  "success_stage": null,
+  "failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "message": "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback.",
+  "llm_seed_final_status": null,
+  "llm_seed_generator_terminal_reason": null,
+  "llm_seed_handoff_selection_reason": "",
+  "baseline": {},
+  "stage_statuses": {
+    "llm_seed_generator": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "returncode": null,
+      "final_status": null,
+      "message": null
+    }
+  },
+  "stages": {
+    "llm_seed_generator": {
+      "success": false,
+      "attempt_result": "llm_error",
+      "error": "Empty LLM response on iteration 2."
+    },
+    "symcc_probe_original_target": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    },
+    "symcc_harness_generation": {
+      "success": true,
+      "validation_status": "passed"
+    },
+    "libfuzzer_focused_pass": {
+      "success": true,
+      "seed_count_before": 1,
+      "seed_count_after": 1338,
+      "new_seeds": 1337,
+      "error": ""
+    },
+    "symcc_generated_harness": {
+      "success": false,
+      "symcc": {
+        "returncode": 1,
+        "solved": false,
+        "failure_kind": "coverage_no_blocked_side"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Classifier Prior
+Use this only after your own source/runtime analysis.
+
+- Classifier dependency result: Input Dependent
+- Classifier reason: The blocked predicate `if (p == NULL)` in `newchunk` is reached if the internal memory allocation function `newchunk_nolongjmp` returns `NULL`. The number of allocations performed by `newchunk_nolongjmp` is directly dependent on the complexity and length of the `filter_string` that the fuzz target passes to `pcap_compile`. A sufficiently large or complex `filter_string` from the fuzzer input could lead to memory exhaustion or the exhaustion of the internal chunk pool, causing `newchunk_nolongjmp` to return `NULL` and thus satisfying the blocked condition. This demonstrates an implicit dependency on the fuzzer's input.
+
+### Classifier Analysis Trace
+```text
+[1. Target Variable]: The predicate at line `642` in `newchunk` is `if (p == NULL)`. The branch hit count is `N/A`, indicating the line was executed, but the condition `p == NULL` was never true during the observed fuzzing run.
+
+[1.5. Blocked Side Direction]: Line `643`, `longjmp(cstate->top_ctx, 1);`, is reached when the condition `p == NULL` at line `642` evaluates to `TRUE`. Therefore, to reach the blocked side, the variable `p` must be `NULL`.
+
+[2. Fuzz Target Call Site]: The fuzz target calls `pcap_compile` with a `filter_string` that is constructed from fuzzer input. The relevant call is: `p = pcap_fopen_offline(pcap_file, errbuf);` followed by `pcap_compile(p, &fcode, filter_string, 1, PCAP_NETMASK_UNKNOWN);` at `/src/llm_fuzzgen0625183237.c:115`.
+
+[2.5. Materialization Check]: The `filter_string` is explicitly created from a portion of the fuzzer's `Data` buffer and null-terminated. This `filter_string` is then passed to `pcap_compile`. The parsing and compilation of this string within `pcap_compile` (and its callees like `pcap_parse`, `gen_loadi`, `gen_loadi_internal`) directly drives calls to `newchunk` for allocating internal data structures. Thus, the fuzz target actively materializes and uses the input to influence the allocation behavior that leads to the `newchunk` function.
+
+[3A. Setter / Transition Evidence]: The variable `p` in `newchunk` is assigned the return value of `newchunk_nolongjmp`: `p = newchunk_nolongjmp(cstate, n);`. For the blocked side to be reached, `newchunk_nolongjmp` must return `NULL`. `newchunk_nolongjmp` returns `NULL` under the following conditions:
+1. `k >= NCHUNKS`: The internal chunk index `cstate->cur_chunk` exceeds the maximum number of chunks `NCHUNKS`. This occurs when the currently available chunk (`cp->n_left`) is exhausted, and a new chunk needs to be allocated, but the maximum number of chunks has been reached.
+2. `cp->m == NULL`: A call to `malloc(size)` to allocate a new chunk fails.
+3. `n > size`: The requested allocation size `n` is greater than the `size` of the newly allocated chunk. (This is highly unlikely in this context, as `n` is `sizeof(struct arth)` or `sizeof(struct slist)`, which are fixed, small sizes, and `size` grows exponentially).
+
+The `n` parameter passed to `newchunk_nolongjmp` is a fixed size (e.g., `sizeof(struct arth)` or `sizeof(struct slist)`). However, the *number* of times `newchunk` is called, and consequently the total memory allocated and the progression of `cstate->cur_chunk` towards `NCHUNKS`, is directly dependent on the complexity and length of the `filter_string` provided by the fuzzer input. A more complex filter string will require more internal data structures (like `struct arth` and `struct slist`) to be allocated, increasing the likelihood of exhausting the chunk pool or triggering a `malloc` failure. No data starvation is detected; the `filter_string` is fully utilized.
+
+[3B. Survival / Feasibility Check]: If `newchunk_nolongjmp` returns `NULL` (due to memory exhaustion or chunk pool exhaustion), the `p` variable in `newchunk` will indeed be `NULL`. The `if (p == NULL)` condition will then evaluate to `TRUE`, leading directly to the `longjmp(cstate->top_ctx, 1);` at line `643`. There are no intervening operations or control flow changes between the assignment of `p` and the conditional check that would alter `p`'s `NULL` status. Therefore, if the fuzzer input can cause `newchunk_nolongjmp` to return `NULL`, the blocked side is reachable.
+
+[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties (Input Dependent). The condition `p == NULL` is met if internal memory allocation fails or the chunk pool is exhausted. The amount of memory and number of chunks required are directly influenced by the complexity and length of the `filter_string` provided by the fuzzer input. Thus, the fuzzer input can implicitly control whether this condition is met.
+```
+
+---
+
+## Generic C/C++ Triage Labels
+Choose exactly one `refined_triage_label`:
+
+- `Actionable Target Gap`: the current seed/target/harness does not construct the
+  required semantic state, but a legal public API sequence, target setup, or seed
+  structure can plausibly construct it.
+- `Bounded Extreme Value`: the blocked side needs an extreme but finite and
+  practical legal value or structure within a normal fuzzing iteration.
+- `Resource-Exhaustion Guard`: the blocked side is allocator/resource failure such
+  as `malloc`, `calloc`, `realloc`, custom chunk allocation, or arena exhaustion.
+- `Environmental Failure`: the blocked side depends on system/environment failure
+  such as file I/O, OS permission, descriptor, clock, locale, or platform failure.
+- `Internal Invariant Guard`: the blocked side is a defensive branch for an
+  internal state that legal public inputs/API paths should not create.
+- `Generated Parser State`: the blocked side depends on generated parser/scanner
+  recovery/refill/internal state, such as Bison/Flex `yy*` state, without a visible
+  legal public transition from input or target setup.
+- `Structurally Unreachable API Path`: the current API path fixes a predicate to
+  the wrong value. Use this only when the provided evidence does not show a legal
+  alternate public API/target sequence. If an alternate legal target sequence is
+  visible, use `Actionable Target Gap` instead.
+- `Infeasible Counter Overflow`: the blocked side requires wraparound or a counter
+  magnitude far beyond a practical fuzzing budget.
+- `Crash-Revealing Path`: input can approach the area, but the program crashes or
+  aborts before stable coverage can observe the blocked side.
+- `Inconclusive`: evidence is insufficient.
+
+---
+
+## Decision Rules
+
+1. Do not call a blocker generation-solvable merely because a variable is
+   input-derived. A memory allocation failure or system failure is still not
+   solvable by normal seed/target generation.
+2. Do not call a blocker non-generation-solvable merely because the current target
+   cannot reach it. If a legal target/harness/API sequence is visible, it is an
+   actionable target gap.
+3. Distinguish bounded extremes from infeasible overflow. A finite mathematical
+   bound is not automatically practical. Estimate the required input size, memory,
+   operation count, and execution time against one normal fuzzing iteration:
+   - finite, practical, legal edge value within the budget -> `Bounded Extreme Value`
+   - unsigned wraparound, billions of iterations, or impossible allocation scale
+     -> `Infeasible Counter Overflow`
+4. If the classifier trace has the branch direction reversed, or reasons about the
+   opposite side of the predicate, source evidence must override it.
+5. Before accepting any proposed path to the blocked side, verify that execution
+   actually reaches blocked-side line 643. When an
+   enclosing `if`, `for`, or `while` condition evaluates to false, ALL lines
+   inside that block's `{}` are skipped — including any nested `if` branches
+   within it. A condition being satisfiable (e.g., `!ptr == true`) does not
+   prove the line is reachable if that line is inside a block whose own guard
+   is not entered. Use the step "[1b. Enclosing-block reachability]" to make
+   this check explicit before proceeding.
+6. For allocator/resource guards, input-amplified workload is not enough. If the
+   blocked side ultimately requires `malloc`/`calloc`/`realloc` failure, arena
+   exhaustion, or a custom allocation helper returning NULL, choose
+   `Resource-Exhaustion Guard` unless the source shows an explicit finite,
+   practical non-failure bound that reaches the blocked side.
+7. A setter is relevant only if it is on the observed or otherwise proven legal
+   public API call path. A different function assigning the desired value does not
+   prove reachability. Trace caller -> setter -> blocked-side read. If this path is
+   absent from the evidence, set `producer_path_status` to `insufficient`.
+8. For internal parser/scanner states or other opaque transitions, do not infer
+   solvability from generic parser theory. Use `Generated Parser State` or
+   `Structurally Unreachable API Path` only when source evidence contradicts a
+   legal producer path. If the transition is merely not shown, choose `Inconclusive`.
+9. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+   `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
+   legal public API/input sequence that intentionally constructs that state.
+10. A source input influencing an internal IR field does not prove that arbitrary
+   values are legal. Identify the actual producer and its value domain. If the
+   producer only emits a bounded register, enum, index, or validated state, do not
+   treat the internal field as directly controllable input.
+11. A branch-line hit count proves only that the predicate was evaluated. It does
+   not prove that the condition was true. A zero blocked-side count means the
+   required branch outcome was not observed.
+12. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+   inventing missing data. The pipeline derives routing from the label and keeps
+   solver execution enabled for inconclusive cases.
+
+---
+
+## Output Strict JSON
+Return one valid JSON object only. Begin directly with `{`.
+
+```json
+{
+  "analysis_trace": [
+    "[1. Source-first blocker interpretation]: ...",
+    "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line 643. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
+    "[2. Required blocked-side condition]: ...",
+    "[2b. Producer-path proof]: Trace the legal caller -> setter/producer -> blocked-side read path. State whether it is proven, contradicted, or missing from the evidence.",
+    "[3. Practical feasibility]: Estimate required input size, memory, operations, and time. Finite alone is not practical.",
+    "[4. Classifier conflict check]: ...",
+    "[5. Triage decision]: ..."
+  ],
+  "required_condition": "State the exact predicate value and all enclosing conditions required.",
+  "producer_path_status": "proven",
+  "practical_feasibility": "practical",
+  "refined_triage_label": "Actionable Target Gap",
+  "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
+  "evidence_strength": "A",
+  "classifier_agreement": "agree",
+  "source_overrides_classifier": false,
+  "source_override_reason": "N/A",
+  "cost_note": "One triage LLM call; source/runtime evidence reused from existing pipeline."
+}
+```
+
+Allowed values:
+- `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `producer_path_status`: `proven`, `contradicted`, `insufficient`
+- `practical_feasibility`: `practical`, `resource_failure`,
+  `environmental_failure`, `infeasible`, `internal_invariant`,
+  `crash_before_observe`, `insufficient`
+- `evidence_strength`: `A`, `B`, `C`
+- `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
+
+Do not output `first_layer_decision` or `solver_action`. The pipeline derives both
+deterministically from `refined_triage_label`.

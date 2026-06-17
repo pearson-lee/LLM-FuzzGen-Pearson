@@ -1,0 +1,52 @@
+[
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_01.bpf",
+    "relative_path": "F01_geneve_base_01.bpf",
+    "size_bytes": 6
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_02.bpf",
+    "relative_path": "F01_geneve_base_02.bpf",
+    "size_bytes": 23
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_03.bpf",
+    "relative_path": "F01_geneve_base_03.bpf",
+    "size_bytes": 13
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_04.bpf",
+    "relative_path": "F01_geneve_base_04.bpf",
+    "size_bytes": 24
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_05.bpf",
+    "relative_path": "F01_geneve_base_05.bpf",
+    "size_bytes": 13
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_01.bpf",
+    "relative_path": "F02_geneve_with_modifiers_01.bpf",
+    "size_bytes": 10
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_02.bpf",
+    "relative_path": "F02_geneve_with_modifiers_02.bpf",
+    "size_bytes": 10
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_03.bpf",
+    "relative_path": "F02_geneve_with_modifiers_03.bpf",
+    "size_bytes": 10
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_04.bpf",
+    "relative_path": "F02_geneve_with_modifiers_04.bpf",
+    "size_bytes": 15
+  },
+  {
+    "path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_05.bpf",
+    "relative_path": "F02_geneve_with_modifiers_05.bpf",
+    "size_bytes": 19
+  }
+]

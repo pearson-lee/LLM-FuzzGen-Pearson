@@ -1,0 +1,25 @@
+{
+  "status": "valid",
+  "attempts_used": 1,
+  "schema_errors": [],
+  "generator_validation": {
+    "ok": true,
+    "error_kind": "",
+    "output": "Generated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_01.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_02.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_03.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_04.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F01_geneve_base_05.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_01.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_02.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_03.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_04.bpf\nGenerated seed: /home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator/F02_geneve_with_modifiers_05.bpf",
+    "generated_dir": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/materialized_by_generator",
+    "generator_path": "/home/kyliechien/LLM-FuzzGen/TODO_MD/poc_gen_prevlinkhdr/ablation_runs/20260614_234204/new/run_01/generator_attempt_01/generator.py"
+  },
+  "selected_candidate_id": "unknown",
+  "evidence_sufficient": false,
+  "rejects_3208": true,
+  "avoids_inactive_5267": true,
+  "selects_verified_7238": false,
+  "reports_insufficient": true,
+  "verified_or_insufficient": true,
+  "materialized_seed_count": 10,
+  "evaluated_seed_count": 10,
+  "combined_seed": true,
+  "reached_3150": false,
+  "reach_seed": "",
+  "0c2_snippet": "[0C2 Call-Site Reachability] The blocker function `gen_prevlinkhdr_check` is called by `gen_linktype` in the observed runtime path. However, the call site `gencode.c:3208` is guarded by `if (!cstate->is_geneve)`, which is incompatible with "
+}
