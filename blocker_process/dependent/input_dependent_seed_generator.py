@@ -9,6 +9,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
@@ -40,10 +41,16 @@ DEFAULT_REPRESENTATIVE_SEEDS_PER_EXISTING_FAMILY = 1
 DEFAULT_MAX_REPRESENTATIVE_EVALS = 12
 DEFAULT_CORPUS_REPLAY_BATCH_SIZE = 300
 MAX_SEED_SIZE_BYTES = 65536           # 64KB; oversized seeds are skipped in representative eval
+DEFAULT_GENERATOR_TIMEOUT_SEC = 120   # Seed materialization should be short; long runs are pathological
 DEFAULT_COVERAGE_SEED_TIMEOUT_SEC = 30    # libfuzzer -timeout per seed (primary defence)
 DEFAULT_COVERAGE_EVAL_TIMEOUT_SEC = 120   # subprocess wall-clock limit for per-seed Docker eval
 DEFAULT_COVERAGE_BATCH_TIMEOUT_SEC = 600  # subprocess wall-clock limit for aggregate batch eval
 _SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
+SEED_BUDGET_ERROR_KINDS = {
+    "all_generated_seeds_oversized",
+    "generator_timeout_no_valid_seeds",
+    "generator_timeout_partial_output",
+}
 
 
 def load_text(path: Path) -> str:
@@ -442,6 +449,13 @@ def build_prompt(args: argparse.Namespace) -> str:
         ),
         "cfg_call_chain": clip_text(resolve_text(args.cfg_call_chain_file, args.cfg_call_chain), max_chars=6000),
         "cfg_source_codes": clip_text(resolve_text(args.cfg_source_codes_file, args.cfg_source_codes), max_chars=8000),
+        "blocker_call_sites": clip_text(
+            resolve_text(
+                getattr(args, "blocker_call_sites_file", None),
+                getattr(args, "blocker_call_sites", None),
+            ),
+            max_chars=8000,
+        ),
         "format_strategy_notes": format_strategy_notes,
     }
     mapping.update(format_info.to_prompt_mapping())
@@ -517,8 +531,10 @@ You are revising the previous generator based on execution feedback. Keep any wo
 - Distinguish corpus-level coverage from generated-family coverage. If post-merge coverage says the branch is
   reached but every generated family has branch_hits=0, then the generated seeds did NOT reach the branch. Treat this
   as did_not_reach_branch, not as predicate_false.
-- If generated families do not reach the branch, revisit [0A API Anchor] and [0B Input Layout] before changing
-  predicate values.
+- If generated families do not reach the branch, revisit [0A API Anchor], [0B Input Layout], and
+  [0C2 Call-Site Reachability] before changing predicate values. Reaching the branch may require an independent
+  caller-trigger input feature that is separate from the predicate setter; if the generated input set the predicate
+  but still never reached the branch, a required caller-trigger feature is likely missing and must be added.
 - If the blocker is selected through a parser, decoder, dispatcher, state machine, opcode switch, field-tag switch,
   handler table, or virtual/visitor dispatch, also revisit whether the generated input used the exact representation
   category that selects the target route. Do not treat a semantically similar surface form as equivalent unless it
@@ -585,14 +601,14 @@ Your job in this repair attempt is different from the normal blocker-solving ite
     )
 
 
-def setup_file_logging(func_name: str) -> None:
+def setup_file_logging(func_name: str, log_dir: str | Path | None = None) -> None:
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_filename = f"{timestamp}_{safe_func_name}_seedgen.log"
 
-    log_dir = REPO_ROOT / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_filepath = log_dir / log_filename
+    resolved_log_dir = Path(log_dir) if log_dir else REPO_ROOT / "logs"
+    resolved_log_dir.mkdir(parents=True, exist_ok=True)
+    log_filepath = resolved_log_dir / log_filename
 
     root_logger = logging.getLogger()
     for handler in list(root_logger.handlers):
@@ -616,57 +632,196 @@ def write_generator(output_dir: Path, generator_code: str, suggested_name: str) 
     return generator_path
 
 
+def _coerce_subprocess_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def scan_and_reject_oversized_seeds(
+    generated_dir: Path,
+    *,
+    max_seed_size_bytes: int = MAX_SEED_SIZE_BYTES,
+) -> dict:
+    rejected_dir = generated_dir.parent / f"{generated_dir.name}_oversized_rejected"
+    if rejected_dir.exists():
+        shutil.rmtree(rejected_dir, ignore_errors=True)
+
+    files = sorted(path for path in generated_dir.rglob("*") if path.is_file()) if generated_dir.exists() else []
+    total_bytes = 0
+    largest_seed_size = 0
+    valid_seed_count = 0
+    oversized_records: list[dict] = []
+
+    for seed_path in files:
+        try:
+            seed_size = seed_path.stat().st_size
+        except OSError:
+            continue
+        total_bytes += seed_size
+        largest_seed_size = max(largest_seed_size, seed_size)
+        if seed_size <= max_seed_size_bytes:
+            valid_seed_count += 1
+            continue
+
+        relative_path = seed_path.relative_to(generated_dir)
+        rejected_path = rejected_dir / relative_path
+        rejected_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(seed_path), str(rejected_path))
+        oversized_records.append({
+            "source_path": str(seed_path),
+            "rejected_path": str(rejected_path),
+            "seed_size_bytes": seed_size,
+        })
+
+    return {
+        "seed_size_limit_bytes": max_seed_size_bytes,
+        "generated_seed_count_before_filter": len(files),
+        "valid_seed_count": valid_seed_count,
+        "oversized_seed_count": len(oversized_records),
+        "generated_total_bytes_before_filter": total_bytes,
+        "largest_seed_size_bytes": largest_seed_size,
+        "oversized_rejected_dir": str(rejected_dir) if oversized_records else "",
+        "oversized_seed_records": oversized_records,
+    }
+
+
+def _render_validation_output(base_output: str, scan_metadata: dict) -> str:
+    lines: list[str] = []
+    if base_output:
+        lines.append(base_output.strip())
+    lines.append(
+        "Seed materialization budget: "
+        f"valid={scan_metadata.get('valid_seed_count', 0)}, "
+        f"oversized_rejected={scan_metadata.get('oversized_seed_count', 0)}, "
+        f"limit={scan_metadata.get('seed_size_limit_bytes', MAX_SEED_SIZE_BYTES)}B, "
+        f"largest={scan_metadata.get('largest_seed_size_bytes', 0)}B"
+    )
+    rejected_dir = str(scan_metadata.get("oversized_rejected_dir") or "")
+    if rejected_dir:
+        lines.append(f"Oversized seeds moved to: {rejected_dir}")
+    return "\n".join(lines).strip()
+
+
 def validate_generator(
     generator_path: Path,
     output_dir: Path,
     materialized_dir_name: str = "materialized_by_generator",
+    *,
+    timeout_seconds: int | float = DEFAULT_GENERATOR_TIMEOUT_SEC,
+    max_seed_size_bytes: int = MAX_SEED_SIZE_BYTES,
 ) -> dict:
+    validation_started_at = time.monotonic()
+    compile_started_at = time.monotonic()
     py_compile = subprocess.run(
         [sys.executable, "-m", "py_compile", str(generator_path)],
         capture_output=True,
         text=True,
         check=False,
     )
+    py_compile_elapsed = time.monotonic() - compile_started_at
     if py_compile.returncode != 0:
         return {
             "ok": False,
             "error_kind": "compile_failed",
             "output": py_compile.stderr or py_compile.stdout,
             "generated_dir": output_dir / materialized_dir_name,
+            "py_compile_elapsed_seconds": py_compile_elapsed,
+            "validation_elapsed_seconds": time.monotonic() - validation_started_at,
         }
 
     generated_dir = output_dir / materialized_dir_name
     if generated_dir.exists():
         shutil.rmtree(generated_dir, ignore_errors=True)
     generated_dir.mkdir(parents=True, exist_ok=True)
-    run_result = subprocess.run(
-        [sys.executable, str(generator_path), "--output-dir", str(generated_dir)],
-        capture_output=True,
-        text=True,
-        check=False,
+    generator_started_at = time.monotonic()
+    generator_timed_out = False
+    timeout_output = ""
+    try:
+        run_result = subprocess.run(
+            [sys.executable, str(generator_path), "--output-dir", str(generated_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        generator_timed_out = True
+        timeout_output = "\n".join(
+            part for part in [
+                _coerce_subprocess_text(exc.stdout),
+                _coerce_subprocess_text(exc.stderr),
+                f"Generator timed out after {timeout_seconds} seconds.",
+            ] if part
+        )
+        run_result = None
+    generator_elapsed = time.monotonic() - generator_started_at
+
+    scan_metadata = scan_and_reject_oversized_seeds(
+        generated_dir,
+        max_seed_size_bytes=max_seed_size_bytes,
     )
+    common_metadata = {
+        **scan_metadata,
+        "generated_dir": generated_dir,
+        "py_compile_elapsed_seconds": py_compile_elapsed,
+        "generator_elapsed_seconds": generator_elapsed,
+        "validation_elapsed_seconds": time.monotonic() - validation_started_at,
+        "generator_timeout_seconds": timeout_seconds,
+        "generator_timed_out": generator_timed_out,
+    }
+
+    if generator_timed_out:
+        output = _render_validation_output(timeout_output, scan_metadata)
+        if int(scan_metadata.get("valid_seed_count", 0)) > 0:
+            return {
+                "ok": True,
+                "error_kind": "generator_timeout_partial_output",
+                "output": output,
+                **common_metadata,
+            }
+        return {
+            "ok": False,
+            "error_kind": "generator_timeout_no_valid_seeds",
+            "output": output,
+            **common_metadata,
+        }
+
+    assert run_result is not None
     if run_result.returncode != 0:
         return {
             "ok": False,
             "error_kind": "runtime_failed",
-            "output": run_result.stderr or run_result.stdout,
-            "generated_dir": generated_dir,
+            "output": _render_validation_output(run_result.stderr or run_result.stdout, scan_metadata),
+            **common_metadata,
         }
 
-    generated_seed_count = len([p for p in generated_dir.rglob("*") if p.is_file()])
+    generated_seed_count = int(scan_metadata.get("valid_seed_count", 0))
+    if generated_seed_count <= 0 and int(scan_metadata.get("oversized_seed_count", 0)) > 0:
+        return {
+            "ok": False,
+            "error_kind": "all_generated_seeds_oversized",
+            "output": _render_validation_output(run_result.stdout.strip(), scan_metadata),
+            **common_metadata,
+        }
     if generated_seed_count <= 0:
         return {
             "ok": False,
             "error_kind": "no_output",
-            "output": run_result.stdout.strip() or "Generator finished without writing any seed files.",
-            "generated_dir": generated_dir,
+            "output": _render_validation_output(
+                run_result.stdout.strip() or "Generator finished without writing any seed files.",
+                scan_metadata,
+            ),
+            **common_metadata,
         }
 
     return {
         "ok": True,
         "error_kind": "",
-        "output": run_result.stdout.strip(),
-        "generated_dir": generated_dir,
+        "output": _render_validation_output(run_result.stdout.strip(), scan_metadata),
+        **common_metadata,
     }
 
 
@@ -787,76 +942,115 @@ def summarize_family_inventory(generated_dir: Path) -> dict[str, int]:
     return counts
 
 
-def stage_generated_seeds(
-    oss_fuzz: OSSFuzz,
-    project_name: str,
-    fuzzer_name: str,
-    generated_dir: Path,
-    iteration_dir: Path,
-    reset_corpus_per_iteration: bool = False,
-) -> tuple[Path, dict, list[dict]]:
-    corpus_dir = oss_fuzz.build_corpus_dir / project_name / fuzzer_name
-    if corpus_dir.exists() and reset_corpus_per_iteration:
-        shutil.rmtree(corpus_dir)
-    corpus_dir.mkdir(parents=True, exist_ok=True)
+def materialize_triggering_input(
+    triggering_input: str,
+    format_info: FormatInfo,
+    dest_dir: Path,
+) -> Path:
+    if not triggering_input:
+        raise ValueError("No triggering input is available.")
 
-    existing_hashes: dict[str, Path] = {}
-    for existing_file in sorted(p for p in corpus_dir.rglob("*") if p.is_file()):
-        try:
-            digest = hashlib.sha256(existing_file.read_bytes()).hexdigest()
-        except Exception:
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    trigger_path = Path(triggering_input)
+    if trigger_path.exists() and trigger_path.is_file():
+        seed_bytes = trigger_path.read_bytes()
+        suffix = trigger_path.suffix or choose_seed_extension(seed_bytes, format_info)
+    else:
+        seed_bytes = seed_to_bytes(triggering_input)
+        suffix = choose_seed_extension(triggering_input, format_info)
+
+    materialized_seed = dest_dir / f"triggering_input{suffix}"
+    materialized_seed.write_bytes(seed_bytes)
+    return materialized_seed
+
+
+def build_seed_records(seed_paths: list[Path], source_kind: str) -> list[dict]:
+    records: list[dict] = []
+    for path in seed_paths:
+        if not path.is_file():
             continue
-        existing_hashes[digest] = existing_file
-
-    count = 0
-    added = 0
-    skipped_duplicates = 0
-    staged_seed_records: list[dict] = []
-    for path in sorted(p for p in generated_dir.rglob("*") if p.is_file()):
-        try:
-            payload = path.read_bytes()
-        except Exception:
-            continue
-
-        digest = hashlib.sha256(payload).hexdigest()
-        if digest in existing_hashes:
-            skipped_duplicates += 1
-            continue
-
-        target = corpus_dir / f"{count:04d}_{sanitize_name(path.stem)}{path.suffix or '.bin'}"
-        while target.exists():
-            count += 1
-            target = corpus_dir / f"{count:04d}_{sanitize_name(path.stem)}{path.suffix or '.bin'}"
-        shutil.copy2(path, target)
-        existing_hashes[digest] = target
-        staged_seed_records.append(
+        payload = path.read_bytes()
+        records.append(
             {
-                "source_path": str(path),
-                "staged_path": str(target),
-                "family": derive_seed_family(path),
+                "source_path": str(path.resolve()),
+                "source_kind": source_kind,
+                "family": "F00_triggering" if source_kind == "triggering" else derive_seed_family(path),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "seed_size_bytes": len(payload),
             }
         )
-        count += 1
-        added += 1
+    return records
 
-    snapshot_dir = iteration_dir / "staged_corpus_snapshot"
+
+def build_corpus_manifest(corpus_dir: Path) -> dict[str, dict[str, object]]:
+    if not corpus_dir.exists():
+        return {}
+
+    manifest: dict[str, dict[str, object]] = {}
+    for path in sorted(p for p in corpus_dir.rglob("*") if p.is_file()):
+        payload = path.read_bytes()
+        manifest[path.relative_to(corpus_dir).as_posix()] = {
+            "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    return manifest
+
+
+def prepare_isolated_corpus_snapshot(
+    snapshot_dir: Path,
+    seed_records: list[dict],
+) -> tuple[list[dict], dict]:
     if snapshot_dir.exists():
         shutil.rmtree(snapshot_dir)
-    shutil.copytree(corpus_dir, snapshot_dir)
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+    isolated_records: list[dict] = []
+    duplicate_records: list[dict] = []
+    seen_hashes: dict[str, str] = {}
+    for record in seed_records:
+        source_path = Path(str(record.get("source_path", "")))
+        if not source_path.is_file():
+            continue
+        payload = source_path.read_bytes()
+        digest = str(record.get("sha256") or hashlib.sha256(payload).hexdigest())
+        if digest in seen_hashes:
+            duplicate_records.append(
+                {
+                    "source_path": str(source_path),
+                    "sha256": digest,
+                    "duplicate_of": seen_hashes[digest],
+                }
+            )
+            continue
+
+        suffix = source_path.suffix or ".bin"
+        target = snapshot_dir / (
+            f"{len(isolated_records):04d}_{sanitize_name(source_path.stem)}_{digest[:12]}{suffix}"
+        )
+        shutil.copy2(source_path, target)
+        isolated_record = dict(record)
+        isolated_record.update(
+            {
+                "source_path": str(source_path.resolve()),
+                "sha256": digest,
+                "isolated_path": str(target.resolve()),
+                "evaluation_seed_path": str(target.resolve()),
+            }
+        )
+        isolated_records.append(isolated_record)
+        seen_hashes[digest] = str(source_path.resolve())
+
     metadata = {
-        "reset_corpus_per_iteration": reset_corpus_per_iteration,
-        "added_seed_count": added,
-        "skipped_duplicate_seed_count": skipped_duplicates,
-        "total_seed_count_after_merge": len([p for p in corpus_dir.rglob("*") if p.is_file()]),
-        "corpus_dir": str(corpus_dir),
-        "family_counts": summarize_family_inventory(generated_dir),
+        "isolated_corpus_dir": str(snapshot_dir.resolve()),
+        "input_seed_count": len(seed_records),
+        "copied_seed_count": len(isolated_records),
+        "duplicate_seed_count": len(duplicate_records),
+        "duplicate_records": duplicate_records,
     }
-    (iteration_dir / "staging_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    (iteration_dir / "staged_seed_records.json").write_text(
-        json.dumps(staged_seed_records, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return corpus_dir, metadata, staged_seed_records
+    return isolated_records, metadata
 
 
 def evaluate_iteration_with_coverage(
@@ -939,14 +1133,14 @@ def evaluate_iteration_with_coverage(
 
 
 def choose_representative_seed_records(
-    staged_seed_records: list[dict],
+    seed_records: list[dict],
     known_families: set[str],
     per_new_family: int = DEFAULT_REPRESENTATIVE_SEEDS_PER_NEW_FAMILY,
     per_existing_family: int = DEFAULT_REPRESENTATIVE_SEEDS_PER_EXISTING_FAMILY,
     max_total: int = DEFAULT_MAX_REPRESENTATIVE_EVALS,
 ) -> list[dict]:
     family_groups: dict[str, list[dict]] = {}
-    for record in staged_seed_records:
+    for record in seed_records:
         family = str(record.get("family") or "F00_unclassified")
         family_groups.setdefault(family, []).append(record)
 
@@ -1044,23 +1238,11 @@ def evaluate_triggering_input_with_coverage(
             "error": "No triggering input is available.",
         }
 
-    project_corpus_root = oss_fuzz.build_corpus_dir / project_name
-    eval_corpus_name = f"{fuzzer_name}__triggering_input_eval"
-    eval_corpus_dir = project_corpus_root / eval_corpus_name
-    if eval_corpus_dir.exists():
-        shutil.rmtree(eval_corpus_dir)
-    eval_corpus_dir.mkdir(parents=True, exist_ok=True)
-
     try:
-        trigger_path = Path(triggering_input)
-        if trigger_path.exists() and trigger_path.is_file():
-            seed_bytes = trigger_path.read_bytes()
-            suffix = trigger_path.suffix or choose_seed_extension(seed_bytes, format_info)
-        else:
-            seed_bytes = seed_to_bytes(triggering_input)
-            suffix = choose_seed_extension(triggering_input, format_info)
-        materialized_seed = eval_corpus_dir / f"triggering_input{suffix}"
-        materialized_seed.write_bytes(seed_bytes)
+        project_corpus_root = oss_fuzz.build_corpus_dir / project_name
+        eval_corpus_dir = project_corpus_root / f"{fuzzer_name}__triggering_input_eval"
+        materialized_seed = materialize_triggering_input(triggering_input, format_info, eval_corpus_dir)
+        seed_size = materialized_seed.stat().st_size
     except Exception as exc:
         return {
             "success": False,
@@ -1081,7 +1263,7 @@ def evaluate_triggering_input_with_coverage(
         report_name="triggering_input",
     )
     if isinstance(eval_result, dict):
-        eval_result["seed_size_bytes"] = len(seed_bytes)
+        eval_result["seed_size_bytes"] = seed_size
     return eval_result
 
 
@@ -1099,18 +1281,22 @@ def evaluate_representative_seed_records(
 ) -> list[dict]:
     representative_results: list[dict] = []
     for index, record in enumerate(representative_records, start=1):
-        staged_path = Path(str(record.get("staged_path", "")))
+        source_path = Path(str(record.get("source_path", "")))
+        evaluation_seed_path = Path(
+            str(record.get("evaluation_seed_path") or record.get("isolated_path") or "")
+        )
         family = str(record.get("family") or "F00_unclassified")
-        seed_size = staged_path.stat().st_size if staged_path.is_file() else 0
+        seed_size = source_path.stat().st_size if source_path.is_file() else 0
         if seed_size > MAX_SEED_SIZE_BYTES:
             logging.warning(
                 "Skipping oversized representative seed (%dB > %dB): %s",
-                seed_size, MAX_SEED_SIZE_BYTES, staged_path.name,
+                seed_size, MAX_SEED_SIZE_BYTES, source_path.name,
             )
             representative_results.append({
                 "family": family,
-                "seed_path": str(staged_path),
-                "source_path": str(record.get("source_path", "")),
+                "seed_path": str(source_path),
+                "evaluation_seed_path": str(evaluation_seed_path),
+                "source_path": str(source_path),
                 "success": False,
                 "skipped": True,
                 "skip_reason": "oversized_seed",
@@ -1126,15 +1312,18 @@ def evaluate_representative_seed_records(
             source_api_file=source_api_file,
             branch_line=branch_line,
             blocked_side_line=blocked_side_line,
-            seed_path=staged_path,
+            seed_path=evaluation_seed_path,
             output_dir=output_dir,
             report_name=f"representative_{index:02d}_{family}",
         )
+        eval_result.pop("seed_path", None)
         representative_results.append(
             {
                 "family": family,
-                "seed_path": str(staged_path),
-                "source_path": str(record.get("source_path", "")),
+                "seed_path": str(source_path),
+                "evaluation_seed_path": str(evaluation_seed_path),
+                "source_path": str(source_path),
+                "sha256": record.get("sha256", ""),
                 **eval_result,
             }
         )
@@ -1478,24 +1667,6 @@ def select_recommended_symcc_generator_seeds(
     }
 
 
-def prepare_corpus_snapshot(
-    oss_fuzz: OSSFuzz,
-    project_name: str,
-    source_corpus_name: str,
-    snapshot_corpus_name: str,
-) -> Path:
-    project_corpus_root = oss_fuzz.build_corpus_dir / project_name
-    source_dir = project_corpus_root / source_corpus_name
-    snapshot_dir = project_corpus_root / snapshot_corpus_name
-    if snapshot_dir.exists():
-        shutil.rmtree(snapshot_dir)
-    if source_dir.exists():
-        shutil.copytree(source_dir, snapshot_dir)
-    else:
-        snapshot_dir.mkdir(parents=True, exist_ok=True)
-    return snapshot_dir
-
-
 def compute_coverage_delta(baseline: dict, post_merge: dict) -> dict:
     if not baseline.get("success") or not post_merge.get("success"):
         return {
@@ -1524,6 +1695,7 @@ def classify_iteration_status(
     baseline_evaluation: dict,
     post_merge_evaluation: dict,
     coverage_delta: dict,
+    representative_results: list[dict],
     family_summary: dict,
     previous_family_signal_score: int,
 ) -> tuple[str, str]:
@@ -1531,14 +1703,20 @@ def classify_iteration_status(
         return "invalid_generator", "Generator validation failed."
     if generated_seed_count <= 0:
         return "invalid_generator", "Generator produced no materialized seeds."
+    if baseline_evaluation.get("success") and baseline_evaluation.get("blocked_side_line_reached"):
+        return "already_covered_in_baseline", "Blocked-side line was already covered before merging generated seeds."
+    representative_solved = any(
+        bool(result.get("success")) and bool(result.get("blocked_side_reached"))
+        for result in representative_results
+    )
+    if representative_solved:
+        return "solved", "A generated representative seed directly reached the blocked-side line."
     if not baseline_evaluation.get("success"):
         return "evaluation_failed", f"Baseline evaluation failed: {baseline_evaluation.get('error', 'unknown error')}"
-    if not post_merge_evaluation.get("success"):
-        return "evaluation_failed", f"Post-merge evaluation failed: {post_merge_evaluation.get('error', 'unknown error')}"
-    if baseline_evaluation.get("blocked_side_line_reached"):
-        return "already_covered_in_baseline", "Blocked-side line was already covered before merging generated seeds."
     if coverage_delta.get("newly_reached_blocked_side_line"):
         return "solved", "Blocked-side line was newly reached after merging generated seeds."
+    if not post_merge_evaluation.get("success"):
+        return "evaluation_failed", f"Post-merge evaluation failed: {post_merge_evaluation.get('error', 'unknown error')}"
 
     branch_delta = int(coverage_delta.get("branch_hit_count_delta", 0))
     blocked_delta = int(coverage_delta.get("blocked_side_hit_count_delta", 0))
@@ -1572,13 +1750,17 @@ def diagnose_iteration(
     blocked_delta = int(coverage_delta.get("blocked_side_hit_count_delta", 0) or 0)
     added_seed_count = int(staging_metadata.get("added_seed_count", 0) or 0)
     skipped_duplicate_seed_count = int(staging_metadata.get("skipped_duplicate_seed_count", 0) or 0)
-    branch_reached = bool(post_merge_evaluation.get("branch_line_reached"))
-    blocked_reached = bool(post_merge_evaluation.get("blocked_side_line_reached"))
-    baseline_blocked_reached = bool(baseline_evaluation.get("blocked_side_line_reached"))
-    newly_blocked_reached = bool(coverage_delta.get("newly_reached_blocked_side_line"))
-    coverage_novelty_success = bool(coverage_delta.get("coverage_novelty_success"))
     generated_family_reached_branch = bool(family_summary.get("generated_family_reached_branch"))
     generated_family_reached_blocked_side = bool(family_summary.get("generated_family_reached_blocked_side"))
+    branch_reached = bool(post_merge_evaluation.get("branch_line_reached")) or generated_family_reached_branch
+    blocked_reached = bool(post_merge_evaluation.get("blocked_side_line_reached")) or generated_family_reached_blocked_side
+    baseline_blocked_reached = bool(baseline_evaluation.get("blocked_side_line_reached"))
+    newly_blocked_reached = bool(coverage_delta.get("newly_reached_blocked_side_line"))
+    coverage_novelty_success = bool(coverage_delta.get("coverage_novelty_success")) or (
+        bool(baseline_evaluation.get("success"))
+        and not baseline_blocked_reached
+        and generated_family_reached_blocked_side
+    )
     seed_contract_reproduction_success = bool(family_summary.get("seed_contract_reproduction_success"))
     stable_branch_families = family_summary.get("stable_branch_families", [])
     dead_families = family_summary.get("dead_families", [])
@@ -1589,18 +1771,18 @@ def diagnose_iteration(
     if not validation_ok or generated_seed_count <= 0:
         code = "generator_invalid"
         action = "Inspect generator_code and validation_output before changing prompt strategy."
+    elif baseline_evaluation.get("success") and baseline_blocked_reached:
+        code = "already_covered_in_baseline"
+        action = "Skip blocker solving for this target because the blocked side was already covered before this iteration."
+    elif generated_family_reached_blocked_side or newly_blocked_reached:
+        code = "solved"
+        action = "Stop seed generation for this blocker."
     elif added_seed_count == 0 and skipped_duplicate_seed_count > 0:
         code = "generated_seeds_duplicate_existing_behavior"
         action = "Ask the next iteration for structurally different seed families."
     elif not baseline_evaluation.get("success") or not post_merge_evaluation.get("success"):
         code = "coverage_evaluation_failed"
         action = "Fix build or coverage evaluation before interpreting seed quality."
-    elif baseline_blocked_reached:
-        code = "already_covered_in_baseline"
-        action = "Skip blocker solving for this target because the blocked side was already covered before this iteration."
-    elif newly_blocked_reached:
-        code = "solved"
-        action = "Stop seed generation for this blocker."
     elif iteration_status == "no_branch_signal":
         baseline_branch = int(baseline_evaluation.get("branch_hit_count", 0))
         if baseline_branch > 0:
@@ -1698,30 +1880,29 @@ def summarize_evaluation(
 
     if not baseline_evaluation.get("success"):
         lines.append(f"Baseline coverage evaluation failed: {baseline_evaluation.get('error', 'unknown error')}")
-        return "\n".join(lines)
-
     if not post_merge_evaluation.get("success"):
-        lines.append(f"Post-merge coverage evaluation failed: {post_merge_evaluation.get('error', 'unknown error')}")
-        return "\n".join(lines)
+        lines.append(
+            "Post-merge supplementary coverage evaluation failed: "
+            f"{post_merge_evaluation.get('error', 'unknown error')}"
+        )
 
-    lines.extend(
-        [
-            f"Coverage source file in container: {post_merge_evaluation.get('container_source_file', 'N/A')}",
-            f"Baseline branch_line hit count: {baseline_evaluation.get('branch_hit_count_raw', '0')}",
-            f"Baseline blocked_side_line hit count: {baseline_evaluation.get('blocked_side_hit_count_raw', '0')}",
-            f"Post-merge branch_line hit count: {post_merge_evaluation.get('branch_hit_count_raw', '0')}",
-            f"Post-merge blocked_side_line hit count: {post_merge_evaluation.get('blocked_side_hit_count_raw', '0')}",
-            f"branch_line hit count delta: {coverage_delta.get('branch_hit_count_delta', 'N/A')}",
-            f"blocked_side_line hit count delta: {coverage_delta.get('blocked_side_hit_count_delta', 'N/A')}",
-            f"branch_line reached after merge: {post_merge_evaluation.get('branch_line_reached', False)}",
-            f"blocked_side_line reached after merge: {post_merge_evaluation.get('blocked_side_line_reached', False)}",
-            f"Newly reached branch_line this iteration: {coverage_delta.get('newly_reached_branch_line', False)}",
-            f"Newly reached blocked_side_line this iteration: {coverage_delta.get('newly_reached_blocked_side_line', False)}",
-            "",
-            "Family-level representative summary:",
-            family_summary_text or "N/A",
-        ]
-    )
+    if baseline_evaluation.get("success") and post_merge_evaluation.get("success"):
+        lines.extend(
+            [
+                f"Coverage source file in container: {post_merge_evaluation.get('container_source_file', 'N/A')}",
+                f"Baseline branch_line hit count: {baseline_evaluation.get('branch_hit_count_raw', '0')}",
+                f"Baseline blocked_side_line hit count: {baseline_evaluation.get('blocked_side_hit_count_raw', '0')}",
+                f"Post-merge branch_line hit count: {post_merge_evaluation.get('branch_hit_count_raw', '0')}",
+                f"Post-merge blocked_side_line hit count: {post_merge_evaluation.get('blocked_side_hit_count_raw', '0')}",
+                f"branch_line hit count delta: {coverage_delta.get('branch_hit_count_delta', 'N/A')}",
+                f"blocked_side_line hit count delta: {coverage_delta.get('blocked_side_hit_count_delta', 'N/A')}",
+                f"branch_line reached after merge: {post_merge_evaluation.get('branch_line_reached', False)}",
+                f"blocked_side_line reached after merge: {post_merge_evaluation.get('blocked_side_line_reached', False)}",
+                f"Newly reached branch_line this iteration: {coverage_delta.get('newly_reached_branch_line', False)}",
+                f"Newly reached blocked_side_line this iteration: {coverage_delta.get('newly_reached_blocked_side_line', False)}",
+            ]
+        )
+    lines.extend(["", "Family-level representative summary:", family_summary_text or "N/A"])
     return "\n".join(lines)
 
 
@@ -1732,9 +1913,9 @@ def get_seed_generator_temperature(iteration_index: int) -> float:
 
 
 def run_seed_generation(args: argparse.Namespace) -> dict:
-    from llm_interface.llm_client import LLMClient
+    from llm_interface.llm_client import LLMClient, new_thread_id
 
-    setup_file_logging(args.function_name)
+    setup_file_logging(args.function_name, getattr(args, "log_dir", None))
     base_prompt = build_prompt(args)
     triggering_input_path, triggering_input_preview = resolve_triggering_input(args.triggering_input)
     format_info = infer_input_format(
@@ -1796,7 +1977,17 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         (iteration_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
         llm = LLMClient(backend=args.backend, model_name=args.model, temperature=temperature)
-        response_text = llm.generate(prompt)
+        llm_thread_id = new_thread_id(
+            "input_dependent_seed_generator",
+            args.project_name,
+            args.function_name,
+            args.branch_line_number,
+            args.blocked_side_line_number,
+            iteration_index,
+            iteration_dir,
+        )
+        logging.info("Seed generator LLM thread_id=%s", llm_thread_id)
+        response_text = llm.generate(prompt, thread_id=llm_thread_id)
         if not response_text:
             raise RuntimeError(f"Empty LLM response on iteration {iteration_index}.")
 
@@ -1840,7 +2031,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                     max_fix_attempts=max_fix_attempts,
                 )
                 (iteration_dir / f"fix_prompt_{fix_attempt_index:02d}.txt").write_text(fix_prompt, encoding="utf-8")
-                candidate_response_text = llm.generate(fix_prompt)
+                candidate_response_text = llm.generate(fix_prompt, thread_id=llm_thread_id)
                 if not candidate_response_text:
                     raise RuntimeError(
                         f"Empty LLM repair response on iteration {iteration_index}, fix attempt {fix_attempt_index}."
@@ -1888,6 +2079,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                     if fix_attempt_index == 0
                     else f"materialized_by_generator_fix_{fix_attempt_index:02d}"
                 ),
+                timeout_seconds=float(getattr(args, "generator_timeout_sec", DEFAULT_GENERATOR_TIMEOUT_SEC)),
+                max_seed_size_bytes=int(getattr(args, "max_seed_size_bytes", MAX_SEED_SIZE_BYTES)),
             )
             if validation_result.get("ok"):
                 current_response_text = candidate_response_text
@@ -1903,6 +2096,25 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         validation_error_kind = str(validation_result.get("error_kind", ""))
         generated_dir = Path(validation_result.get("generated_dir", iteration_dir / "materialized_by_generator"))
         generated_seed_count = len([p for p in generated_dir.rglob("*") if p.is_file()]) if generated_dir.exists() else 0
+        validation_metadata = {
+            key: validation_result.get(key)
+            for key in [
+                "seed_size_limit_bytes",
+                "generated_seed_count_before_filter",
+                "valid_seed_count",
+                "oversized_seed_count",
+                "generated_total_bytes_before_filter",
+                "largest_seed_size_bytes",
+                "oversized_rejected_dir",
+                "oversized_seed_records",
+                "py_compile_elapsed_seconds",
+                "generator_elapsed_seconds",
+                "validation_elapsed_seconds",
+                "generator_timeout_seconds",
+                "generator_timed_out",
+            ]
+            if key in validation_result
+        }
         seed_preview = materialized_seed_preview(generated_dir)
         family_counts = summarize_family_inventory(generated_dir) if generated_dir.exists() else {}
         representative_results: list[dict] = []
@@ -1924,29 +2136,45 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         family_summary_text = "N/A"
 
         if validation_ok and generated_seed_count > 0:
+            project_corpus_root = oss_fuzz.build_corpus_dir / args.project_name
+            formal_corpus_dir = project_corpus_root / fuzzer_name
             baseline_snapshot_name = f"{fuzzer_name}__baseline_iter_{iteration_index:02d}"
-            baseline_snapshot_dir = prepare_corpus_snapshot(
-                oss_fuzz=oss_fuzz,
-                project_name=args.project_name,
-                source_corpus_name=fuzzer_name,
-                snapshot_corpus_name=baseline_snapshot_name,
-            )
-            baseline_evaluation = evaluate_iteration_with_coverage(
-                oss_fuzz=oss_fuzz,
-                project_name=args.project_name,
-                fuzzer_name=fuzzer_name,
-                function_name=args.function_name,
-                source_file=args.source_file,
-                source_api_file=args.source_api_file,
-                branch_line=int(args.branch_line_number),
-                blocked_side_line=int(args.blocked_side_line_number),
-                fuzz_seconds=args.fuzz_seconds,
-                output_dir=iteration_dir,
-                report_basename="baseline",
-                corpus_subdir_name=baseline_snapshot_name,
-            )
-            if not triggering_input_evaluation.get("success") and args.triggering_input:
-                triggering_input_evaluation = evaluate_triggering_input_with_coverage(
+            post_merge_snapshot_name = f"{fuzzer_name}__post_merge_iter_{iteration_index:02d}"
+            representative_snapshot_name = f"{fuzzer_name}__representative_iter_{iteration_index:02d}"
+            baseline_snapshot_dir = project_corpus_root / baseline_snapshot_name
+            post_merge_snapshot_dir = project_corpus_root / post_merge_snapshot_name
+            representative_snapshot_dir = project_corpus_root / representative_snapshot_name
+            formal_manifest_before = build_corpus_manifest(formal_corpus_dir)
+            post_merge_records: list[dict] = []
+            staging_metadata = {
+                "reset_corpus_per_iteration": False,
+                "reset_corpus_request_ignored": bool(args.reset_corpus_per_iteration),
+                "formal_corpus_mutated": False,
+                "added_seed_count": 0,
+                "skipped_duplicate_seed_count": 0,
+                "total_seed_count_after_merge": 0,
+                "family_counts": family_counts,
+            }
+            if args.reset_corpus_per_iteration:
+                logging.warning(
+                    "Ignoring --reset-corpus-per-iteration: focused evaluation never mutates the formal corpus."
+                )
+
+            try:
+                triggering_seed = materialize_triggering_input(
+                    args.triggering_input,
+                    format_info,
+                    iteration_dir / "triggering_input_materialized",
+                )
+                triggering_records = build_seed_records([triggering_seed], source_kind="triggering")
+                generated_paths = sorted(p for p in generated_dir.rglob("*") if p.is_file())
+                generated_records = build_seed_records(generated_paths, source_kind="generated")
+
+                _, baseline_snapshot_metadata = prepare_isolated_corpus_snapshot(
+                    baseline_snapshot_dir,
+                    triggering_records,
+                )
+                baseline_evaluation = evaluate_iteration_with_coverage(
                     oss_fuzz=oss_fuzz,
                     project_name=args.project_name,
                     fuzzer_name=fuzzer_name,
@@ -1955,69 +2183,122 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                     source_api_file=args.source_api_file,
                     branch_line=int(args.branch_line_number),
                     blocked_side_line=int(args.blocked_side_line_number),
-                    triggering_input=args.triggering_input,
-                    format_info=format_info,
+                    fuzz_seconds=args.fuzz_seconds,
+                    output_dir=iteration_dir,
+                    report_basename="baseline",
+                    corpus_subdir_name=baseline_snapshot_name,
+                )
+                if not triggering_input_evaluation.get("success"):
+                    triggering_input_evaluation = {
+                        **baseline_evaluation,
+                        "seed_path": str(triggering_seed.resolve()),
+                        "seed_size_bytes": triggering_seed.stat().st_size,
+                    }
+
+                selected_representatives = choose_representative_seed_records(
+                    seed_records=generated_records,
+                    known_families=seen_families,
+                )
+                representative_records, representative_snapshot_metadata = prepare_isolated_corpus_snapshot(
+                    representative_snapshot_dir,
+                    selected_representatives,
+                )
+                representative_results = evaluate_representative_seed_records(
+                    oss_fuzz=oss_fuzz,
+                    project_name=args.project_name,
+                    fuzzer_name=fuzzer_name,
+                    function_name=args.function_name,
+                    source_file=args.source_file,
+                    source_api_file=args.source_api_file,
+                    branch_line=int(args.branch_line_number),
+                    blocked_side_line=int(args.blocked_side_line_number),
+                    representative_records=representative_records,
                     output_dir=iteration_dir,
                 )
-            _, staging_metadata, staged_seed_records = stage_generated_seeds(
-                oss_fuzz=oss_fuzz,
-                project_name=args.project_name,
-                fuzzer_name=fuzzer_name,
-                generated_dir=generated_dir,
-                iteration_dir=iteration_dir,
-                reset_corpus_per_iteration=args.reset_corpus_per_iteration,
-            )
-            post_merge_snapshot_name = f"{fuzzer_name}__post_merge_iter_{iteration_index:02d}"
-            post_merge_snapshot_dir = prepare_corpus_snapshot(
-                oss_fuzz=oss_fuzz,
-                project_name=args.project_name,
-                source_corpus_name=fuzzer_name,
-                snapshot_corpus_name=post_merge_snapshot_name,
-            )
-            post_merge_evaluation = evaluate_iteration_with_coverage(
-                oss_fuzz=oss_fuzz,
-                project_name=args.project_name,
-                fuzzer_name=fuzzer_name,
-                function_name=args.function_name,
-                source_file=args.source_file,
-                source_api_file=args.source_api_file,
-                branch_line=int(args.branch_line_number),
-                blocked_side_line=int(args.blocked_side_line_number),
-                fuzz_seconds=args.fuzz_seconds,
-                output_dir=iteration_dir,
-                report_basename="post_merge",
-                corpus_subdir_name=post_merge_snapshot_name,
-            )
-            representative_records = choose_representative_seed_records(
-                staged_seed_records=staged_seed_records,
-                known_families=seen_families,
-            )
-            representative_results = evaluate_representative_seed_records(
-                oss_fuzz=oss_fuzz,
-                project_name=args.project_name,
-                fuzzer_name=fuzzer_name,
-                function_name=args.function_name,
-                source_file=args.source_file,
-                source_api_file=args.source_api_file,
-                branch_line=int(args.branch_line_number),
-                blocked_side_line=int(args.blocked_side_line_number),
-                representative_records=representative_records,
-                output_dir=iteration_dir,
-            )
-            family_summary = summarize_family_performance(family_counts, representative_results)
-            family_summary_text = render_family_summary_text(family_summary)
-            symcc_candidate_bundle = select_best_symcc_candidates(family_summary, representative_results)
-            (iteration_dir / "representative_results.json").write_text(
-                json.dumps(representative_results, ensure_ascii=False, indent=2),
+                family_summary = summarize_family_performance(family_counts, representative_results)
+                family_summary_text = render_family_summary_text(family_summary)
+                symcc_candidate_bundle = select_best_symcc_candidates(family_summary, representative_results)
+
+                post_merge_records, post_merge_snapshot_metadata = prepare_isolated_corpus_snapshot(
+                    post_merge_snapshot_dir,
+                    triggering_records + generated_records,
+                )
+                post_merge_evaluation = evaluate_iteration_with_coverage(
+                    oss_fuzz=oss_fuzz,
+                    project_name=args.project_name,
+                    fuzzer_name=fuzzer_name,
+                    function_name=args.function_name,
+                    source_file=args.source_file,
+                    source_api_file=args.source_api_file,
+                    branch_line=int(args.branch_line_number),
+                    blocked_side_line=int(args.blocked_side_line_number),
+                    fuzz_seconds=args.fuzz_seconds,
+                    output_dir=iteration_dir,
+                    report_basename="post_merge",
+                    corpus_subdir_name=post_merge_snapshot_name,
+                )
+                coverage_delta = compute_coverage_delta(baseline_evaluation, post_merge_evaluation)
+                added_seed_count = sum(
+                    1 for record in post_merge_records if record.get("source_kind") == "generated"
+                )
+                staging_metadata.update(
+                    {
+                        "added_seed_count": added_seed_count,
+                        "skipped_duplicate_seed_count": int(
+                            post_merge_snapshot_metadata.get("duplicate_seed_count", 0)
+                        ),
+                        "total_seed_count_after_merge": int(
+                            post_merge_snapshot_metadata.get("copied_seed_count", 0)
+                        ),
+                        "isolated_corpus_dir": str(post_merge_snapshot_dir.resolve()),
+                        "baseline_snapshot": baseline_snapshot_metadata,
+                        "post_merge_snapshot": post_merge_snapshot_metadata,
+                        "representative_snapshot": representative_snapshot_metadata,
+                    }
+                )
+                (iteration_dir / "representative_results.json").write_text(
+                    json.dumps(representative_results, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                (iteration_dir / "family_summary.json").write_text(
+                    json.dumps(family_summary, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                (iteration_dir / "isolated_seed_records.json").write_text(
+                    json.dumps(post_merge_records, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception as exc:
+                logging.exception("Focused isolated evaluation failed on iteration %d", iteration_index)
+                baseline_evaluation = {
+                    "success": False,
+                    "error": f"Focused isolated evaluation failed: {exc}",
+                }
+                post_merge_evaluation = {
+                    "success": False,
+                    "error": f"Focused isolated evaluation failed: {exc}",
+                }
+                coverage_delta = {
+                    "success": False,
+                    "error": f"Focused isolated evaluation failed: {exc}",
+                    "coverage_novelty_success": False,
+                }
+                family_summary = summarize_family_performance(family_counts, representative_results)
+                family_summary_text = render_family_summary_text(family_summary)
+            finally:
+                shutil.rmtree(baseline_snapshot_dir, ignore_errors=True)
+                shutil.rmtree(post_merge_snapshot_dir, ignore_errors=True)
+                shutil.rmtree(representative_snapshot_dir, ignore_errors=True)
+
+            formal_manifest_after = build_corpus_manifest(formal_corpus_dir)
+            staging_metadata["formal_corpus_mutated"] = formal_manifest_before != formal_manifest_after
+            staging_metadata["formal_corpus_file_count"] = len(formal_manifest_after)
+            if staging_metadata["formal_corpus_mutated"]:
+                logging.error("Formal corpus changed during focused isolated evaluation: %s", formal_corpus_dir)
+            (iteration_dir / "staging_metadata.json").write_text(
+                json.dumps(staging_metadata, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-            (iteration_dir / "family_summary.json").write_text(
-                json.dumps(family_summary, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            coverage_delta = compute_coverage_delta(baseline_evaluation, post_merge_evaluation)
-            shutil.rmtree(baseline_snapshot_dir, ignore_errors=True)
-            shutil.rmtree(post_merge_snapshot_dir, ignore_errors=True)
         else:
             staging_metadata = {
                 "added_seed_count": 0,
@@ -2046,6 +2327,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             baseline_evaluation=baseline_evaluation,
             post_merge_evaluation=post_merge_evaluation,
             coverage_delta=coverage_delta,
+            representative_results=representative_results,
             family_summary=family_summary,
             previous_family_signal_score=previous_family_signal_score,
         )
@@ -2093,6 +2375,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "validation_ok": validation_ok,
             "validation_error_kind": validation_error_kind,
             "validation_output": validation_output,
+            "validation_metadata": validation_metadata,
             "fix_attempts_used": fix_attempts_used,
             "generated_seed_count": generated_seed_count,
             "staging_metadata": staging_metadata,
@@ -2130,7 +2413,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         iterations.append(iteration_record)
 
         score = (
-            int(bool(coverage_delta.get("newly_reached_blocked_side_line"))) * 1_000_000
+            int(iteration_status == "solved") * 1_000_000
             + int(post_merge_evaluation.get("blocked_side_hit_count", 0)) * 1_000
             + int(post_merge_evaluation.get("branch_hit_count", 0))
         )
@@ -2144,7 +2427,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         logging.info("Iteration %d validation success: %s", iteration_index, validation_ok)
         logging.info("Iteration %d evaluation summary:\n%s", iteration_index, evaluation_summary)
 
-        if coverage_delta.get("newly_reached_blocked_side_line"):
+        if iteration_status == "solved":
             logging.info("Blocked side was newly reached on iteration %d. Stopping early.", iteration_index)
             break
         if baseline_evaluation.get("blocked_side_line_reached"):
@@ -2197,6 +2480,9 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     invalid_iteration_count = sum(
         1 for item in iterations if item.get("iteration_status") in {"invalid_generator", "evaluation_failed"}
     )
+    seed_budget_exceeded_iteration_count = sum(
+        1 for item in iterations if item.get("validation_error_kind") in SEED_BUDGET_ERROR_KINDS
+    )
     coverage_novelty_success_count = sum(
         1 for item in iterations if item.get("coverage_novelty_success")
     )
@@ -2243,6 +2529,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         generator_terminal_reason = "coverage_progress_observed_but_not_solved"
     elif family_progress_iteration_count > 0:
         generator_terminal_reason = "family_progress_observed_but_not_solved"
+    elif seed_budget_exceeded_iteration_count > 0:
+        generator_terminal_reason = "seed_budget_exceeded"
     elif stalled_iteration_count > 0:
         generator_terminal_reason = "stalled_at_branch"
     elif no_branch_signal_count == len(iterations) and iterations:
@@ -2272,6 +2560,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         "family_progress_iteration_count": family_progress_iteration_count,
         "stalled_iteration_count": stalled_iteration_count,
         "invalid_iteration_count": invalid_iteration_count,
+        "seed_budget_exceeded_iteration_count": seed_budget_exceeded_iteration_count,
         "symcc_candidate_iteration_count": symcc_candidate_iteration_count,
         "no_branch_signal_count": no_branch_signal_count,
         "coverage_novelty_success": coverage_novelty_success_count > 0,
@@ -2321,13 +2610,19 @@ def main() -> None:
     parser.add_argument("--runtime-blocker-segment-source-codes", default=None)
     parser.add_argument("--cfg-call-chain", default=None)
     parser.add_argument("--cfg-source-codes", default=None)
+    parser.add_argument("--blocker-call-sites", default=None)
+    parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
+    parser.add_argument("--generator-timeout-sec", type=float, default=DEFAULT_GENERATOR_TIMEOUT_SEC)
+    parser.add_argument("--max-seed-size-bytes", type=int, default=MAX_SEED_SIZE_BYTES)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument("--output-root", default=None,
                         help="Root directory under which iteration output dirs are created. "
                              "Defaults to generated_generators/.")
+    parser.add_argument("--log-dir", default=None,
+                        help="Directory for seed generator session logs. Defaults to logs/ when omitted.")
     args = parser.parse_args()
 
     try:

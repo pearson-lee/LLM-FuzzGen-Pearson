@@ -128,6 +128,12 @@ def existing_seed_inputs(args: argparse.Namespace) -> list[str]:
     return []
 
 
+def resolve_seed_generator_triggering_input(args: argparse.Namespace, seeds: list[str]) -> str:
+    if args.triggering_input:
+        return str(args.triggering_input)
+    return seeds[0] if seeds else ""
+
+
 def choose_symcc_seed_inputs(
     fallback_seeds: list[str],
     parsed_llm_seed: dict | None,
@@ -203,6 +209,14 @@ def build_context_args(args: argparse.Namespace) -> list[str]:
         forwarded.extend(["--cfg-call-chain", args.cfg_call_chain])
     if args.cfg_source_codes:
         forwarded.extend(["--cfg-source-codes", args.cfg_source_codes])
+    if getattr(args, "blocker_call_sites_file", None):
+        forwarded.extend(["--blocker-call-sites-file", args.blocker_call_sites_file])
+    if getattr(args, "blocker_call_sites", None):
+        forwarded.extend(["--blocker-call-sites", args.blocker_call_sites])
+    if getattr(args, "seed_generator_timeout_sec", None) is not None:
+        forwarded.extend(["--generator-timeout-sec", str(args.seed_generator_timeout_sec)])
+    if getattr(args, "max_seed_size_bytes", None) is not None:
+        forwarded.extend(["--max-seed-size-bytes", str(args.max_seed_size_bytes)])
     if args.triggering_input:
         forwarded.extend(["--triggering-input", args.triggering_input])
     return forwarded
@@ -440,6 +454,12 @@ def successful(parsed_output: dict | None) -> bool:
     return bool(parsed_output and parsed_output.get("success"))
 
 
+def seed_generation_exceeded_budget(parsed_output: dict | None) -> bool:
+    if not isinstance(parsed_output, dict):
+        return False
+    return str(parsed_output.get("generator_terminal_reason") or "") == "seed_budget_exceeded"
+
+
 def infer_attempt_result(result: dict) -> str:
     if result.get("success"):
         return "success"
@@ -484,10 +504,15 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         "stages": {},
     }
 
+    seed_generator_context_args = build_context_args(args)
+    seed_generator_triggering_input = resolve_seed_generator_triggering_input(args, seeds)
+    if seed_generator_triggering_input and not args.triggering_input:
+        seed_generator_context_args.extend(["--triggering-input", seed_generator_triggering_input])
+
     llm_seed_cmd = [
         sys.executable,
         str(SEED_GENERATOR),
-        *build_context_args(args),
+        *seed_generator_context_args,
         "--max-iterations",
         str(args.max_iterations),
         "--fuzz-seconds",
@@ -497,6 +522,8 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         llm_seed_cmd.append("--reset-corpus-per-iteration")
     if getattr(args, "output_root", None):
         llm_seed_cmd.extend(["--output-root", str(Path(args.output_root) / "generator")])
+    if getattr(args, "log_dir", None):
+        llm_seed_cmd.extend(["--log-dir", str(args.log_dir)])
     llm_seed_result = run_program(llm_seed_cmd)
     result["used_llm_seed_generator"] = True
     result["pipeline_methods"].append("llm_seed_generator")
@@ -520,6 +547,15 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["success"] = True
         result["success_stage"] = "llm_seed_generator"
         result["attempt_result"] = "success"
+        return result
+    if seed_generation_exceeded_budget(parsed_llm_seed):
+        result["success"] = False
+        result["failure_stage"] = "llm_seed_generator"
+        result["attempt_result"] = "failed"
+        result["message"] = (
+            "LLM seed generation exceeded the configured seed materialization budget; "
+            "skipping SymCC handoff for this blocker attempt."
+        )
         return result
 
     symcc_seeds, handoff_metadata = choose_symcc_seed_inputs(seeds, parsed_llm_seed)
@@ -645,7 +681,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     return result
 
 
-def main() -> None:
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the input-dependent blocker solver: generator -> SymCC probe -> SymCC harness."
     )
@@ -669,10 +705,14 @@ def main() -> None:
     parser.add_argument("--runtime-blocker-segment-source-codes", default=None)
     parser.add_argument("--cfg-call-chain", default=None)
     parser.add_argument("--cfg-source-codes", default=None)
+    parser.add_argument("--blocker-call-sites", default=None)
+    parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--seed", action="append", default=[])
     parser.add_argument("--max-iterations", type=int, default=5)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
+    parser.add_argument("--seed-generator-timeout-sec", type=float, default=None)
+    parser.add_argument("--max-seed-size-bytes", type=int, default=None)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument("--symcc-max-generations", type=int, default=3)
     parser.add_argument("--symcc-max-total-seeds", type=int, default=60)
@@ -686,7 +726,13 @@ def main() -> None:
     parser.add_argument("--output-root", default=None,
                         help="Root directory under which output dirs are created. "
                              "Defaults to generated_symbolic_runs/.")
-    args = parser.parse_args()
+    parser.add_argument("--log-dir", default=None,
+                        help="Directory for child session logs. Defaults to logs/ in child tools when omitted.")
+    return parser
+
+
+def main() -> None:
+    args = build_argument_parser().parse_args()
 
     try:
         result = run_input_dependent_solver(args)

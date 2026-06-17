@@ -122,7 +122,7 @@ def _legacy_get_line_execution_count(
     return ""
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=512)
 def _build_report_index(report: str) -> tuple[dict[str, dict[int, list[str]]], dict[int, list[str]]]:
     sections = _iter_function_sections(report)
     section_indexes: dict[str, dict[int, list[str]]] = {}

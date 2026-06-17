@@ -1,4 +1,5 @@
 import os
+import hashlib
 from langchain_core.runnables import RunnableLambda
 from langchain_deepseek import ChatDeepSeek
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,6 +20,14 @@ import langchain_google_vertexai as langchain_vertexai
 from langchain_ollama import ChatOllama
 
 logger = logging.getLogger(__name__)
+
+
+def new_thread_id(*parts: object) -> int:
+    """Create an explicit LangGraph thread id for one logical LLM session."""
+    seed = "|".join(str(part) for part in parts if part is not None)
+    seed = f"{seed}|{time.time_ns()}"
+    digest = hashlib.sha256(seed.encode("utf-8", errors="replace")).hexdigest()
+    return int(digest[:15], 16)
 
 
 class State(TypedDict):

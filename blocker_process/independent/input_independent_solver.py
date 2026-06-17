@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
@@ -18,14 +19,44 @@ if str(REPO_ROOT) not in sys.path:
 
 import config.config as config
 from blocker_process.coverage_utils import get_line_execution_count
+from blocker_process.blocker_source_evidence import collect_symbol_evidence, render_symbol_evidence_for_prompt
+from blocker_process.target_quality_analyzer import analyze_target_quality
 from external.oss_fuzz import OSSFuzz
-from llm_interface.llm_client import LLMClient
+from llm_interface.llm_client import LLMClient, new_thread_id
 from prompts import prompt_generator
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 OUTPUT_ROOT = MODULE_ROOT / "generated_targets"
 _SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
+_STRATEGY_CONTRACT_COMMENT_RE = re.compile(
+    r"/\*\s*BLOCKER_STRATEGY_CONTRACT\b(.*?)\*/",
+    re.DOTALL,
+)
+_STRATEGY_CONTRACT_END_RE = re.compile(
+    r"^\s*END_[A-Z_]*STRATEGY_CONTRACT\s*$",
+    re.MULTILINE,
+)
+_STRATEGY_CONTRACT_FIELDS = (
+    "required_state",
+    "state_constructor",
+    "trigger_api",
+    "preserved_invariants",
+)
+_CALL_NAME_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+_C_NON_CODE_RE = re.compile(
+    r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+    re.DOTALL,
+)
+_NON_CALL_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof"}
+
+
+@dataclass(frozen=True)
+class StrategyContractParseResult:
+    valid: bool
+    contract: str
+    fields: dict[str, str]
+    error: str = ""
 
 
 def load_text(path: Path) -> str:
@@ -64,18 +95,150 @@ def clip_text(text: str, max_chars: int = 12000) -> str:
     return f"{text[:max_chars]}\n\n... [truncated {omitted} characters] ..."
 
 
+def strip_standalone_markdown_fences(text: str) -> str:
+    """Remove Markdown fence lines without changing the generated C/C++ body."""
+    if not text:
+        return text
+    fence_re = re.compile(r"^[ \t]*```(?:c|cc|cpp|cxx|c\+\+|h|hpp)?[ \t]*$")
+    return "".join(
+        line
+        for line in text.splitlines(keepends=True)
+        if not fence_re.fullmatch(line.rstrip("\r\n"))
+    )
+
+
+def parse_strategy_contract(code: str) -> StrategyContractParseResult:
+    matches = list(_STRATEGY_CONTRACT_COMMENT_RE.finditer(code or ""))
+    if not matches:
+        return StrategyContractParseResult(False, "", {}, "Missing BLOCKER_STRATEGY_CONTRACT comment.")
+    if len(matches) > 1:
+        return StrategyContractParseResult(
+            False,
+            "",
+            {},
+            f"Expected one BLOCKER_STRATEGY_CONTRACT comment, found {len(matches)}.",
+        )
+
+    match = matches[0]
+    body = _STRATEGY_CONTRACT_END_RE.sub("", match.group(1)).strip()
+    field_names = "|".join(re.escape(field) for field in _STRATEGY_CONTRACT_FIELDS)
+    field_re = re.compile(
+        rf"^\s*({field_names})\s*:\s*(.*?)(?=^\s*(?:{field_names})\s*:|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = list(field_re.finditer(body))
+    fields: dict[str, str] = {}
+    duplicates: list[str] = []
+    for field_match in matches:
+        name = field_match.group(1)
+        value = " ".join(field_match.group(2).split())
+        if name in fields:
+            duplicates.append(name)
+        else:
+            fields[name] = value
+
+    missing = [field for field in _STRATEGY_CONTRACT_FIELDS if not fields.get(field)]
+    errors: list[str] = []
+    if missing:
+        errors.append(f"Missing or empty fields: {', '.join(missing)}.")
+    if duplicates:
+        errors.append(f"Duplicate fields: {', '.join(sorted(set(duplicates)))}.")
+    if errors:
+        return StrategyContractParseResult(False, "", fields, " ".join(errors))
+
+    contract = "\n".join(f"{field}: {fields[field]}" for field in _STRATEGY_CONTRACT_FIELDS)
+    return StrategyContractParseResult(True, contract, fields)
+
+
+def extract_strategy_contract(code: str) -> str:
+    result = parse_strategy_contract(code)
+    return result.contract if result.valid else ""
+
+
+def extract_strategy_contract_comment(code: str) -> str:
+    matches = _STRATEGY_CONTRACT_COMMENT_RE.findall(code or "")
+    if not matches:
+        return "N/A"
+    return "\n\n".join(
+        "/* BLOCKER_STRATEGY_CONTRACT\n"
+        f"{body.strip()}\n"
+        "*/"
+        for body in matches
+    )
+
+
+def apply_strategy_contract(code: str, strategy_contract: str) -> str:
+    parsed = parse_strategy_contract(
+        "/* BLOCKER_STRATEGY_CONTRACT\n"
+        f"{strategy_contract or ''}\n"
+        "END_BLOCKER_STRATEGY_CONTRACT */"
+    )
+    if not parsed.valid:
+        raise ValueError(f"Invalid Strategy Contract: {parsed.error}")
+    contract = parsed.contract
+    rendered = (
+        "/* BLOCKER_STRATEGY_CONTRACT\n"
+        f"{contract}\n"
+        "END_BLOCKER_STRATEGY_CONTRACT */"
+    )
+    implementation = _STRATEGY_CONTRACT_COMMENT_RE.sub("", code or "").lstrip()
+    return f"{rendered}\n\n{implementation}"
+
+
+def strategy_contract_anchors(strategy_contract: str, code: str) -> list[str]:
+    parsed = parse_strategy_contract(
+        "/* BLOCKER_STRATEGY_CONTRACT\n"
+        f"{strategy_contract}\n"
+        "END_BLOCKER_STRATEGY_CONTRACT */"
+    )
+    if not parsed.valid:
+        return []
+
+    contract_identifiers = set(
+        re.findall(
+            r"\b[A-Za-z_][A-Za-z0-9_]*\b",
+            f"{parsed.fields['state_constructor']} {parsed.fields['trigger_api']}",
+        )
+    )
+    implementation_code = _C_NON_CODE_RE.sub(" ", code or "")
+    code_calls = {
+        name for name in _CALL_NAME_RE.findall(implementation_code) if name not in _NON_CALL_KEYWORDS
+    }
+    return sorted(contract_identifiers & code_calls)
+
+
+def validate_strategy_preservation(code: str, anchors: list[str]) -> tuple[bool, list[str]]:
+    implementation_code = _C_NON_CODE_RE.sub(" ", code or "")
+    code_calls = {
+        name for name in _CALL_NAME_RE.findall(implementation_code) if name not in _NON_CALL_KEYWORDS
+    }
+    missing = sorted(anchor for anchor in anchors if anchor not in code_calls)
+    return not missing, missing
+
+
+def diagnose_runtime_evaluation(evaluation: dict | None) -> str:
+    evaluation = evaluation or {}
+    if not evaluation.get("success"):
+        return "coverage_error"
+    if int(evaluation.get("blocked_side_hit_count", 0)) > 0:
+        return "success"
+    if int(evaluation.get("branch_hit_count", 0)) > 0:
+        return "predicate_state_failure"
+    return "route_failure"
+
+
 def sanitize_name(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("._-") or "unknown"
 
 
-def setup_file_logging(func_name: str) -> None:
+def setup_file_logging(func_name: str, log_dir: str | Path | None = None) -> None:
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_filename = f"{timestamp}_{safe_func_name}_input_independent_solver.log"
 
-    log_dir = REPO_ROOT / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_filepath = log_dir / log_filename
+    resolved_log_dir = Path(log_dir) if log_dir else REPO_ROOT / "logs"
+    resolved_log_dir.mkdir(parents=True, exist_ok=True)
+    log_filepath = resolved_log_dir / log_filename
 
     root_logger = logging.getLogger()
     for handler in list(root_logger.handlers):
@@ -181,15 +344,31 @@ def build_output_dir(args: argparse.Namespace) -> Path:
     return out_dir
 
 
-def collect_prompt_context(args: argparse.Namespace, oss_fuzz: OSSFuzz) -> dict[str, str]:
+def collect_prompt_context(args: argparse.Namespace, oss_fuzz: OSSFuzz) -> dict:
     fuzz_target_code = clip_text(read_optional_file(args.fuzz_file), max_chars=20000)
-    header_code = clip_text(read_optional_file(args.header_file), max_chars=12000)
-    source_code = clip_text(read_optional_file(args.source_file), max_chars=20000)
     branch_window = clip_text(extract_source_window_from_file(args.source_file, int(args.branch_line_number)), max_chars=4000)
     blocked_window = clip_text(
         extract_source_window_from_file(args.source_file, int(args.blocked_side_line_number)),
         max_chars=4000,
     )
+    symbol_evidence_data = collect_symbol_evidence(
+        project_name=args.project_name,
+        function_name=args.function_name,
+        source_file=args.source_file,
+        header_file=args.header_file,
+        blocker_line_code=getattr(args, "blocker_line_code", "N/A") or "N/A",
+        blocked_side_line_code=getattr(args, "blocked_side_line_code", "N/A") or "N/A",
+        branch_window=branch_window,
+        blocked_window=blocked_window,
+    )
+    has_symbol_evidence = bool(symbol_evidence_data.get("entries"))
+    symbol_evidence = clip_text(render_symbol_evidence_for_prompt(symbol_evidence_data), max_chars=28000)
+    if has_symbol_evidence:
+        source_code = "N/A: replaced by targeted symbol evidence."
+        header_code = "N/A: replaced by targeted symbol evidence."
+    else:
+        source_code = clip_text(read_optional_file(args.source_file), max_chars=4000)
+        header_code = clip_text(read_optional_file(args.header_file), max_chars=4000)
     triggering_input_path, triggering_input_preview = resolve_triggering_input(args.triggering_input)
     fuzz_path = Path(args.fuzz_file)
 
@@ -209,6 +388,7 @@ def collect_prompt_context(args: argparse.Namespace, oss_fuzz: OSSFuzz) -> dict[
         "source_code": source_code,
         "branch_window": branch_window,
         "blocked_window": blocked_window,
+        "symbol_evidence": symbol_evidence,
         "runtime_blocker_segment": clip_text(
             resolve_text(args.runtime_blocker_segment_file, args.runtime_blocker_segment),
             max_chars=7000,
@@ -219,8 +399,16 @@ def collect_prompt_context(args: argparse.Namespace, oss_fuzz: OSSFuzz) -> dict[
         ),
         "cfg_call_chain": clip_text(resolve_text(args.cfg_call_chain_file, args.cfg_call_chain), max_chars=7000),
         "cfg_source_codes": clip_text(resolve_text(args.cfg_source_codes_file, args.cfg_source_codes), max_chars=10000),
+        "blocker_call_sites": clip_text(
+            resolve_text(
+                getattr(args, "blocker_call_sites_file", None),
+                getattr(args, "blocker_call_sites", None),
+            ),
+            max_chars=10000,
+        ),
         "triggering_input_path": triggering_input_path,
         "triggering_input_preview": triggering_input_preview,
+        "_symbol_evidence_data": symbol_evidence_data,
     }
 
 
@@ -230,6 +418,51 @@ def write_text(path: Path, text: str) -> None:
 
 def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_best_iteration_code(best_iteration: dict | None) -> str:
+    if not isinstance(best_iteration, dict):
+        return ""
+    build = best_iteration.get("build") if isinstance(best_iteration.get("build"), dict) else {}
+    if build.get("code"):
+        return build["code"]
+    if best_iteration.get("target_path"):
+        return load_text(Path(best_iteration["target_path"]))
+    return ""
+
+
+def attach_target_quality_report(
+    result: dict,
+    *,
+    output_dir: Path,
+    symbol_evidence_data: dict | None,
+) -> dict:
+    best_iteration = result.get("best_iteration")
+    if not isinstance(best_iteration, dict):
+        return result
+
+    code = _read_best_iteration_code(best_iteration)
+    evaluation = best_iteration.get("evaluation") if isinstance(best_iteration.get("evaluation"), dict) else {}
+    build = best_iteration.get("build") if isinstance(best_iteration.get("build"), dict) else {}
+    strategy_contract = (
+        best_iteration.get("strategy_contract")
+        or evaluation.get("strategy_contract")
+        or build.get("strategy_contract")
+        or ""
+    )
+    quality_report = analyze_target_quality(
+        code=code,
+        evaluation=evaluation,
+        strategy_contract=strategy_contract,
+        symbol_evidence=symbol_evidence_data or {},
+    )
+    quality_path = output_dir / "target_quality_report.json"
+    write_json(quality_path, quality_report)
+    result["target_quality_report"] = quality_report
+    result["target_quality_report_path"] = str(quality_path)
+    best_iteration["target_quality_report"] = quality_report
+    result["best_iteration"] = best_iteration
+    return result
 
 
 def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
@@ -251,6 +484,10 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "pipeline_methods": result.get("pipeline_methods", []),
         "iteration_budget": result.get("iteration_budget"),
         "output_dir": result.get("output_dir"),
+        "symbol_evidence_path": result.get("symbol_evidence_path"),
+        "symbol_evidence_summary": result.get("symbol_evidence_summary"),
+        "target_quality_report_path": result.get("target_quality_report_path"),
+        "target_quality_report": result.get("target_quality_report"),
         "baseline": {
             "success": baseline.get("success"),
             "branch_hit_count": baseline.get("branch_hit_count"),
@@ -268,6 +505,7 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
             "success": best_iteration.get("success"),
             "score": best_iteration.get("score"),
             "evaluation": best_iteration.get("evaluation"),
+            "target_quality_report": best_iteration.get("target_quality_report"),
         }
         if best_iteration
         else None,
@@ -275,6 +513,8 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "dedicated_generation_iteration_count": len(fallback_iterations),
         "reference_guided_stalled_out": result.get("reference_guided_stalled_out"),
         "dedicated_generation_stalled_out": result.get("dedicated_generation_stalled_out"),
+        "reference_guided_strategy_replan_count": result.get("reference_guided_strategy_replan_count"),
+        "dedicated_generation_strategy_replan_count": result.get("dedicated_generation_strategy_replan_count"),
         "message": result.get("message"),
         "iterations": iterations,
         "fallback_iterations": fallback_iterations,
@@ -393,6 +633,7 @@ def format_refinement_feedback(
     compile_error: str,
     previous_code: str,
     iteration_feedback: str,
+    strategy_contract: str,
     preserve_seed_compatibility: bool,
 ) -> str:
     return prompt_generator.blocker_compile_fix_prompt(
@@ -401,8 +642,49 @@ def format_refinement_feedback(
         compile_error=compile_error,
         previous_code=previous_code,
         iteration_feedback=iteration_feedback,
+        strategy_contract=strategy_contract,
         preserve_seed_compatibility=preserve_seed_compatibility,
     )
+
+
+def classify_compile_api_diagnostics(error: str) -> list[dict[str, str]]:
+    diagnostics: list[dict[str, str]] = []
+    patterns = (
+        ("symbol_not_found", r"(?:undeclared function|undeclared identifier)\s+['‘`]([^'’`]+)['’`]"),
+        ("symbol_not_found", r"implicit declaration of function\s+['‘`]([^'’`]+)['’`]"),
+        ("undefined_link", r"undefined reference to\s+['‘`]([^'’`]+)['’`]"),
+        ("wrong_signature", r"(?:too few|too many) arguments to function call[^\n]*?['‘`]([^'’`]+)['’`]"),
+    )
+    seen: set[tuple[str, str]] = set()
+    for kind, pattern in patterns:
+        for match in re.finditer(pattern, error or "", re.IGNORECASE):
+            symbol = match.group(1).strip()
+            key = (kind, symbol)
+            if not symbol or key in seen:
+                continue
+            seen.add(key)
+            diagnostics.append({"kind": kind, "symbol": symbol})
+    if not diagnostics and re.search(r"incompatible (?:function|pointer|integer|type)|no matching function", error or "", re.IGNORECASE):
+        diagnostics.append({"kind": "wrong_signature", "symbol": "unknown"})
+    return diagnostics
+
+
+def repair_strategy_contract(
+    *,
+    llm: LLMClient,
+    code: str,
+    parse_error: str,
+    iteration_dir: Path,
+    thread_id: int,
+) -> StrategyContractParseResult:
+    prompt = prompt_generator.blocker_contract_fix_prompt(
+        contract_error=parse_error,
+        malformed_contract=extract_strategy_contract_comment(code),
+    )
+    write_text(iteration_dir / "contract_repair_prompt.txt", prompt)
+    repaired_comment = llm.generate(prompt, thread_id=thread_id) or ""
+    write_text(iteration_dir / "contract_repair_response.txt", repaired_comment)
+    return parse_strategy_contract(repaired_comment)
 
 
 def build_iteration_prompt(
@@ -427,14 +709,34 @@ Previous candidate summary:
 - Reached blocked-side line: {previous_evaluation.get('blocked_side_line_reached', False)}
 - Blocker branch hit count: {previous_evaluation.get('branch_hit_count_raw', '0')}
 - Blocked side hit count: {previous_evaluation.get('blocked_side_hit_count_raw', '0')}
+- Runtime diagnosis: {previous_evaluation.get('runtime_diagnosis', 'N/A')}
 - Notes: {previous_evaluation.get('note', 'N/A')}
+
+Strategy Contract from the previous candidate:
+```text
+{previous_evaluation.get('strategy_contract', 'N/A')}
+```
 
 Previous candidate code:
 ```cpp
 {previous_code or 'N/A'}
 ```
 
-Revise the target based on this feedback. Do not repeat a candidate that keeps the same blocker coverage behavior.
+Compiler API diagnostics from the previous iteration:
+```text
+{json.dumps(previous_evaluation.get('compile_api_diagnostics', []), ensure_ascii=False)}
+```
+
+Interpret these diagnostics narrowly: `symbol_not_found` is negative evidence for that spelling in the current build; `wrong_signature` means the API may exist but was called incorrectly; `undefined_link` means declaration/implementation linkage must be checked. Do not convert every compile failure into proof that an API does not exist.
+
+This is bounded strategy replanning, not compile repair:
+- `route_failure`: redesign the API route or prerequisite setup so the branch line is reached.
+- `predicate_state_failure`: preserve the working route, but redesign the constructor/setter sequence so the blocked predicate state changes.
+- `coverage_error`: fix the target/evaluation failure before drawing a semantic conclusion.
+- `contract_parse_error`: emit a complete canonical Strategy Contract before attempting compilation.
+- `strategy_replan_required`: keep the required state and trigger API, but replace the non-compiling constructor/API sequence with a different supported strategy.
+
+Revise the target based on this diagnosis. Do not repeat a candidate that keeps the same blocker coverage behavior.
 """
     return base_prompt + appended
 
@@ -471,15 +773,37 @@ def summarize_compile_failure(iteration_index: int, build_info: dict) -> str:
     )
 
 
+def summarize_strategy_generation_failure(iteration_index: int, build_info: dict) -> str:
+    failure_kind = build_info.get("failure_kind", "strategy_replan_required")
+    reason = (
+        build_info.get("strategy_preservation_error")
+        or build_info.get("contract_parse_error")
+        or build_info.get("error")
+        or "The candidate could not preserve a valid Strategy Contract."
+    )
+    return f"Iteration {iteration_index} requires strategy replanning ({failure_kind}): {reason}"
+
+
 def summarize_coverage_feedback(iteration_index: int, evaluation: dict, became_best: bool) -> str:
     branch_hit = evaluation.get("branch_hit_count_raw", "0")
     blocked_hit = evaluation.get("blocked_side_hit_count_raw", "0")
+    diagnosis = evaluation.get("runtime_diagnosis") or diagnose_runtime_evaluation(evaluation)
+    if diagnosis == "predicate_state_failure":
+        action = (
+            "The route reaches the blocker, but the required predicate state was not established. "
+            "Replan the state constructor/setter sequence; do not merely increase fuzzing time."
+        )
+    elif diagnosis == "route_failure":
+        action = "The branch was not reached. Replan the API route or prerequisite object setup."
+    else:
+        action = "Coverage evaluation failed; fix the evaluation or target execution problem first."
     status = "This candidate is the new best-so-far compiled version." if became_best else (
         "This candidate compiled but did not improve over the current best-so-far version."
     )
     return (
         f"Iteration {iteration_index} compiled successfully but did not reach the blocked-side line. "
-        f"Branch hit count: {branch_hit}. Blocked-side hit count: {blocked_hit}. {status}"
+        f"Branch hit count: {branch_hit}. Blocked-side hit count: {blocked_hit}. "
+        f"Runtime diagnosis: {diagnosis}. {action} {status}"
     )
 
 
@@ -544,21 +868,95 @@ def generate_and_build_target(
     preserve_seed_compatibility: bool,
     iteration_feedback: str = "",
 ) -> dict:
-    thread_id = int(time.time() * 1000)
+    thread_id = new_thread_id(
+        "input_independent_target_generation",
+        project_name,
+        stem_prefix,
+        iteration_dir,
+    )
+    logging.info("Input-independent target generation LLM thread_id=%s", thread_id)
     current_prompt = prompt
     previous_code = ""
+    strategy_contract = ""
+    strategy_contract_explicit = False
+    strategy_anchors: list[str] = []
+    contract_repair_attempts = 0
     last_build_error = ""
     saw_nonempty_code = False
+    compile_api_diagnostics: list[dict[str, str]] = []
 
     for attempt in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
         logging.info("Compilation-oriented generation attempt %d/%d", attempt, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS)
         write_text(iteration_dir / f"prompt_attempt_{attempt:02d}.txt", current_prompt)
-        code = llm.generate(current_prompt, thread_id=thread_id)
+        code = strip_standalone_markdown_fences(
+            llm.generate(current_prompt, thread_id=thread_id) or ""
+        )
         if not code:
             current_prompt = "Return a full fuzz target in a single <fuzz_target> block."
             continue
 
         saw_nonempty_code = True
+        contract_result = parse_strategy_contract(code)
+        if not strategy_contract:
+            if not contract_result.valid:
+                contract_repair_attempts = 1
+                contract_result = repair_strategy_contract(
+                    llm=llm,
+                    code=code,
+                    parse_error=contract_result.error,
+                    iteration_dir=iteration_dir,
+                    thread_id=thread_id,
+                )
+                if not contract_result.valid:
+                    return {
+                        "success": False,
+                        "error": "Strategy Contract could not be parsed after one format-repair attempt.",
+                        "last_code": code,
+                        "compile_attempts": attempt - 1,
+                        "contract_repair_attempts": contract_repair_attempts,
+                        "contract_parse_error": contract_result.error,
+                        "strategy_contract": "",
+                        "strategy_contract_explicit": False,
+                        "failure_kind": "contract_parse_error",
+                    }
+            strategy_contract = contract_result.contract
+            strategy_contract_explicit = True
+            code = apply_strategy_contract(code, strategy_contract)
+            strategy_anchors = strategy_contract_anchors(strategy_contract, code)
+        else:
+            if not contract_result.valid:
+                return {
+                    "success": False,
+                    "error": "Compile repair did not preserve a valid Strategy Contract.",
+                    "last_code": code,
+                    "compile_attempts": attempt - 1,
+                    "contract_repair_attempts": contract_repair_attempts,
+                    "contract_parse_error": contract_result.error,
+                    "strategy_contract": strategy_contract,
+                    "strategy_contract_explicit": True,
+                    "strategy_anchors": strategy_anchors,
+                    "strategy_preservation_error": contract_result.error,
+                    "failure_kind": "strategy_replan_required",
+                }
+            code = apply_strategy_contract(code, strategy_contract)
+            preserved, missing_anchors = validate_strategy_preservation(code, strategy_anchors)
+            if not preserved:
+                return {
+                    "success": False,
+                    "error": "Compile repair removed blocker-strategy API anchors.",
+                    "last_code": code,
+                    "compile_attempts": attempt - 1,
+                    "contract_repair_attempts": contract_repair_attempts,
+                    "strategy_contract": strategy_contract,
+                    "strategy_contract_explicit": True,
+                    "strategy_anchors": strategy_anchors,
+                    "missing_strategy_anchors": missing_anchors,
+                    "strategy_preservation_error": (
+                        "Compile repair removed required constructor/trigger calls: "
+                        f"{', '.join(missing_anchors)}."
+                    ),
+                    "failure_kind": "strategy_replan_required",
+                }
         previous_code = code
         target_path = save_named_target(oss_fuzz, project_name, code, stem_prefix)
         write_text(iteration_dir / f"candidate_attempt_{attempt:02d}{target_path.suffix}", code)
@@ -570,10 +968,18 @@ def generate_and_build_target(
                 "target_path": str(target_path),
                 "code": code,
                 "compile_attempts": attempt,
+                "strategy_contract": strategy_contract,
+                "strategy_contract_explicit": strategy_contract_explicit,
+                "strategy_anchors": strategy_anchors,
+                "contract_repair_attempts": contract_repair_attempts,
+                "compile_api_diagnostics": compile_api_diagnostics,
             }
 
         logging.warning("Candidate build failed on attempt %d: %s", attempt, build_result.error)
         last_build_error = build_result.error or ""
+        for diagnostic in classify_compile_api_diagnostics(last_build_error):
+            if diagnostic not in compile_api_diagnostics:
+                compile_api_diagnostics.append(diagnostic)
         oss_fuzz.remove_target(project_name, target_path.stem)
         current_prompt = format_refinement_feedback(
             project_name=project_name,
@@ -581,6 +987,7 @@ def generate_and_build_target(
             compile_error=build_result.error,
             previous_code=code,
             iteration_feedback=iteration_feedback,
+            strategy_contract=strategy_contract,
             preserve_seed_compatibility=preserve_seed_compatibility,
         )
 
@@ -589,6 +996,11 @@ def generate_and_build_target(
         "error": last_build_error or "Failed to generate a compiling fuzz target.",
         "last_code": previous_code,
         "compile_attempts": config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
+        "strategy_contract": strategy_contract,
+        "strategy_contract_explicit": strategy_contract_explicit,
+        "strategy_anchors": strategy_anchors,
+        "contract_repair_attempts": contract_repair_attempts,
+        "compile_api_diagnostics": compile_api_diagnostics,
         "failure_kind": "compile_failed" if saw_nonempty_code else "llm_error",
     }
 
@@ -665,12 +1077,20 @@ def run_strategy_iterations(
         }
     no_growth_count = 0
     stalled_out = False
+    replan_code = ""
+    replan_evaluation: dict | None = None
+    replan_count = 0
 
     for iteration_index in range(1, max_iterations + 1):
         iteration_dir = output_dir / strategy_name / f"iter_{iteration_index:02d}"
         iteration_dir.mkdir(parents=True, exist_ok=True)
 
-        if strategy_name == "reference_guided" and best_attempt is not None:
+        if replan_evaluation is not None:
+            previous_code = replan_code or previous_code
+            previous_evaluation = dict(replan_evaluation)
+            replan_code = ""
+            replan_evaluation = None
+        elif strategy_name == "reference_guided" and best_attempt is not None:
             previous_code = best_attempt.get("code", previous_code)
             previous_evaluation = dict(best_attempt.get("evaluation", {}))
             previous_evaluation["note"] = last_failure_summary or previous_evaluation.get("note", "N/A")
@@ -706,15 +1126,35 @@ def run_strategy_iterations(
 
         if not build_info.get("success"):
             record["note"] = build_info.get("error", "build failed")
+            failure_kind = build_info.get("failure_kind")
+            if failure_kind in {"contract_parse_error", "strategy_replan_required"}:
+                last_failure_summary = summarize_strategy_generation_failure(iteration_index, build_info)
+                record["note"] = last_failure_summary
+                record["last_failure_summary"] = last_failure_summary
+                replan_count += 1
+                record["strategy_replan_required"] = True
+                record["strategy_replan_number"] = replan_count
+                replan_code = build_info.get("last_code", previous_code)
+                replan_evaluation = {
+                    "runtime_diagnosis": failure_kind,
+                    "strategy_contract": build_info.get("strategy_contract") or "N/A",
+                    "note": last_failure_summary,
+                }
+                iterations.append(record)
+                continue
             if strategy_name == "reference_guided":
                 last_failure_summary = summarize_compile_failure(iteration_index, build_info)
                 record["note"] = last_failure_summary
                 record["last_failure_summary"] = last_failure_summary
                 previous_evaluation = dict((best_attempt or {}).get("evaluation", accepted_evaluation))
                 previous_evaluation["note"] = last_failure_summary
+                previous_evaluation["compile_api_diagnostics"] = build_info.get("compile_api_diagnostics", [])
             iterations.append(record)
             if strategy_name != "reference_guided":
-                previous_evaluation = {"note": record["note"]}
+                previous_evaluation = {
+                    "note": record["note"],
+                    "compile_api_diagnostics": build_info.get("compile_api_diagnostics", []),
+                }
                 previous_code = build_info.get("last_code", previous_code)
             continue
 
@@ -734,6 +1174,11 @@ def run_strategy_iterations(
         )
         record["evaluation"] = evaluation
         record["target_path"] = str(target_path)
+        runtime_diagnosis = diagnose_runtime_evaluation(evaluation)
+        evaluation["runtime_diagnosis"] = runtime_diagnosis
+        evaluation["strategy_contract"] = build_info.get("strategy_contract", "N/A")
+        record["runtime_diagnosis"] = runtime_diagnosis
+        record["strategy_contract"] = evaluation["strategy_contract"]
         record["success"] = bool(evaluation.get("blocked_side_line_reached"))
         if evaluation.get("success"):
             record["note"] = (
@@ -792,6 +1237,13 @@ def run_strategy_iterations(
                 record["rolled_back"] = True
             no_growth_count += 1
             record["no_growth_count"] = no_growth_count
+            if runtime_diagnosis in {"route_failure", "predicate_state_failure", "coverage_error"}:
+                replan_count += 1
+                record["strategy_replan_required"] = True
+                record["strategy_replan_number"] = replan_count
+                replan_code = build_info.get("code", "")
+                replan_evaluation = dict(evaluation)
+                replan_evaluation["note"] = last_failure_summary or record["note"]
             if strategy_name == "reference_guided" and kept_as_best:
                 record["note"] = (
                     f"{record['note']} | kept as best-so-far compiled candidate "
@@ -858,6 +1310,7 @@ def run_strategy_iterations(
         "accepted_target_path": accepted_target_path,
         "accepted_evaluation": accepted_evaluation,
         "best_attempt": best_attempt,
+        "strategy_replan_count": replan_count,
     }
 
 
@@ -880,12 +1333,27 @@ def summarize_best_iteration(iterations: list[dict]) -> dict | None:
 
 
 def run_input_independent_solver(args: argparse.Namespace) -> dict:
-    setup_file_logging(args.function_name)
+    setup_file_logging(args.function_name, getattr(args, "log_dir", None))
     oss_fuzz = OSSFuzz()
     llm = LLMClient(backend=args.backend, model_name=args.model)
     output_dir = build_output_dir(args)
 
     prompt_context = collect_prompt_context(args, oss_fuzz)
+    symbol_evidence_data = prompt_context.pop("_symbol_evidence_data")
+    symbol_evidence_path = output_dir / "symbol_evidence.json"
+    write_json(symbol_evidence_path, symbol_evidence_data)
+    symbol_evidence_summary = {
+        "total_entries": symbol_evidence_data.get("total_entries", 0),
+        "included_entries": symbol_evidence_data.get("included_entries", 0),
+        "truncated": symbol_evidence_data.get("truncated", False),
+        "symbol_seed_count": len(symbol_evidence_data.get("symbol_seeds", [])),
+        "type_seed_count": len(symbol_evidence_data.get("type_seeds", [])),
+        "collection_errors": symbol_evidence_data.get("collection_errors", []),
+    }
+    evidence_result_fields = {
+        "symbol_evidence_path": str(symbol_evidence_path),
+        "symbol_evidence_summary": symbol_evidence_summary,
+    }
     baseline_dir = output_dir / "baseline"
     baseline_dir.mkdir(parents=True, exist_ok=True)
     source_fuzzer_name = Path(args.fuzz_file).stem
@@ -913,6 +1381,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
             "baseline_evaluation": baseline_evaluation,
             "message": "Baseline fuzz target already reaches the blocked-side line.",
             "iterations": [],
+            **evidence_result_fields,
         }
 
     reference_guided_prompt = prompt_generator.blocker_reference_guided_prompt(**prompt_context)
@@ -933,7 +1402,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
     )
     reference_guided_iterations = reference_guided_result["iterations"]
     if any(item.get("success") for item in reference_guided_iterations):
-        return {
+        result = {
             "success": True,
             "attempt_result": "success",
             "success_stage": "reference_guided_generation",
@@ -945,7 +1414,15 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
             "best_iteration": summarize_best_iteration(reference_guided_iterations),
             "iterations": reference_guided_iterations,
             "fallback_iterations": [],
+            "reference_guided_strategy_replan_count": reference_guided_result["strategy_replan_count"],
+            "dedicated_generation_strategy_replan_count": 0,
+            **evidence_result_fields,
         }
+        return attach_target_quality_report(
+            result,
+            output_dir=output_dir,
+            symbol_evidence_data=symbol_evidence_data,
+        )
 
     ref_handoff_summary = build_ref_handoff_summary(reference_guided_result, baseline_evaluation)
     dedicated_generation_prompt = prompt_generator.blocker_dedicated_generation_prompt(
@@ -976,7 +1453,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
             "fallback_iterations": dedicated_generation_iterations,
         }
     )
-    return {
+    result = {
         "success": final_success,
         "attempt_result": attempt_result,
         "success_stage": "dedicated_generation" if final_success else None,
@@ -994,13 +1471,21 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
         "iteration_budget": iteration_budget,
         "reference_guided_stalled_out": reference_guided_result["stalled_out"],
         "dedicated_generation_stalled_out": dedicated_generation_result["stalled_out"],
+        "reference_guided_strategy_replan_count": reference_guided_result["strategy_replan_count"],
+        "dedicated_generation_strategy_replan_count": dedicated_generation_result["strategy_replan_count"],
         "best_iteration": summarize_best_iteration(all_iterations),
         "iterations": reference_guided_iterations,
         "fallback_iterations": dedicated_generation_iterations,
+        **evidence_result_fields,
     }
+    return attach_target_quality_report(
+        result,
+        output_dir=output_dir,
+        symbol_evidence_data=symbol_evidence_data,
+    )
 
 
-def main() -> None:
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Solve input-independent blockers via reference-guided and dedicated fuzz target generation."
     )
@@ -1026,6 +1511,8 @@ def main() -> None:
     parser.add_argument("--runtime-blocker-segment-source-codes", default=None)
     parser.add_argument("--cfg-call-chain", default=None)
     parser.add_argument("--cfg-source-codes", default=None)
+    parser.add_argument("--blocker-call-sites", default=None)
+    parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--seed", action="append", default=[])
     parser.add_argument("--max-iterations", type=int, default=config.ITERATION_LOOP)
@@ -1034,7 +1521,13 @@ def main() -> None:
     parser.add_argument("--output-root", default=None,
                         help="Root directory under which output dirs are created. "
                              "Defaults to generated_targets/.")
-    args = parser.parse_args()
+    parser.add_argument("--log-dir", default=None,
+                        help="Directory for input-independent solver session logs. Defaults to logs/ when omitted.")
+    return parser
+
+
+def main() -> None:
+    args = build_argument_parser().parse_args()
 
     try:
         result = run_input_independent_solver(args)

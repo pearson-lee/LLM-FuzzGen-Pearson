@@ -686,7 +686,7 @@ def build_output_dir(args: argparse.Namespace) -> Path:
 
 
 def run_generation(args: argparse.Namespace) -> dict:
-    from llm_interface.llm_client import LLMClient
+    from llm_interface.llm_client import LLMClient, new_thread_id
 
     prompt = build_prompt(args)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -698,6 +698,16 @@ def run_generation(args: argparse.Namespace) -> dict:
     (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
 
     llm = LLMClient(backend=args.backend, model_name=args.model, temperature=args.temperature)
+    llm_thread_id = new_thread_id(
+        "input_dependent_harness_generator",
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        args.blocked_side_line_number,
+        args.mode,
+        output_dir,
+    )
+    logging.info("Harness generator LLM thread_id=%s", llm_thread_id)
     original_code = read_optional_file(args.fuzz_file)
     runtime_segment = resolve_text(args.runtime_blocker_segment_file, args.runtime_blocker_segment)
     default_filename = f"{args.mode}_harness{_infer_harness_extension(args.language)}"
@@ -714,7 +724,7 @@ def run_generation(args: argparse.Namespace) -> dict:
     native_build_metadata: dict[str, str] = {}
 
     for attempt_index in range(2):
-        response_text = llm.generate(current_prompt)
+        response_text = llm.generate(current_prompt, thread_id=llm_thread_id)
         if not response_text:
             raise RuntimeError("Empty LLM response.")
 

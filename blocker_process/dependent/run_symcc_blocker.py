@@ -179,7 +179,7 @@ def apply_project_config_overrides(args: argparse.Namespace, project_config: dic
 
 
 # Phase 1 allowlist: only projects where symcc_library has been validated.
-_SYMCC_LIBRARY_PROJECTS = {"libpcap"}
+_SYMCC_LIBRARY_PROJECTS = {"libpcap", "tinyxml2"}
 
 
 def _symcc_variant_name(symcc_bin_host: Path, length: int = 8) -> str:
@@ -522,7 +522,7 @@ def main() -> int:
                     f"{native_build.error}",
                     flush=True,
                 )
-        # symcc_library: re-build libpcap with SymCC instrumentation so symbolic tracking
+        # symcc_library: re-build the project library with SymCC instrumentation so symbolic tracking
         # can follow execution into library internals (not just the harness).
         seeds_for_check = getattr(args, "seed", []) or []
         if _should_use_symcc_library(args.project_name, project_config, seeds_for_check):

@@ -616,6 +616,10 @@ def _blocker_identity(blocker: dict) -> tuple[str, str, str]:
     )
 
 
+def _should_persist_blocker_attempt(pipeline_result: dict) -> bool:
+    return pipeline_result.get("attempt_result") != "pipeline_error"
+
+
 def _select_project_blockers(
     project_name: str,
     blocker_json_path: Path,
@@ -856,6 +860,15 @@ def run_blocker_pipeline(
         if experiment_dir is not None
         else None
     )
+    _blocker_log_dir = (
+        _blocker_base / "logs"
+        if (
+            _blocker_base is not None
+            and experiment_logger is not None
+            and experiment_logger.project_name == "run_all_fuzzer"
+        )
+        else None
+    )
     args = argparse.Namespace(
         backend=llm_backend,
         model=model_name,
@@ -900,6 +913,7 @@ def run_blocker_pipeline(
         classify_only=False,
         language=None,
         output_root=str(_blocker_base) if _blocker_base is not None else None,
+        log_dir=str(_blocker_log_dir) if _blocker_log_dir is not None else None,
     )
 
     classify_started_at = time.perf_counter()
@@ -993,6 +1007,10 @@ def run_blocker_pipeline(
         pipeline_summary_path = pipeline_parsed_output.get("summary_path")
         pipeline_success_stage = pipeline_parsed_output.get("success_stage")
         pipeline_failure_stage = pipeline_parsed_output.get("failure_stage")
+    elif attempt_result == "pipeline_error":
+        pipeline_failure_stage = "solver_dispatch"
+
+    result_reason = result.get("pipeline_error_reason") or result.get("reason")
 
     _log_experiment_event(
         "blocker_pipeline_result",
@@ -1008,7 +1026,7 @@ def run_blocker_pipeline(
         pipeline_failure_stage=pipeline_failure_stage,
         classify_elapsed_seconds=classify_elapsed,
         pipeline_elapsed_seconds=pipeline_elapsed,
-        reason=result.get("reason"),
+        reason=result_reason,
         analysis_trace=(result.get("parsed_result") or {}).get("analysis_trace", []),
         triage_first_layer_decision=triage_result.get("first_layer_decision"),
         triage_refined_label=triage_result.get("refined_triage_label"),
@@ -1020,6 +1038,10 @@ def run_blocker_pipeline(
         triage_normalization_applied=triage_result.get("normalization_applied"),
         triage_normalization_reason=triage_result.get("normalization_reason"),
         triage_review_required=triage_result.get("review_required"),
+        triage_required_condition=triage_result.get("required_condition"),
+        triage_producer_path_status=triage_result.get("producer_path_status"),
+        triage_practical_feasibility=triage_result.get("practical_feasibility"),
+        triage_evidence_contract_satisfied=triage_result.get("evidence_contract_satisfied"),
         triage_status=triage_result.get("triage_status"),
         triage_error_reason=triage_result.get("triage_error_reason"),
         triage_llm_attempt_count=triage_result.get("llm_attempt_count"),
@@ -1052,7 +1074,7 @@ def run_blocker_pipeline(
         pipeline_elapsed_seconds=pipeline_elapsed,
         pipeline_output_dir=pipeline_output_dir,
         pipeline_summary_path=pipeline_summary_path,
-        reason=result.get("reason"),
+        reason=result_reason,
         analysis_trace=(result.get("parsed_result") or {}).get("analysis_trace", []),
         triage_first_layer_decision=triage_result.get("first_layer_decision"),
         triage_refined_label=triage_result.get("refined_triage_label"),
@@ -1064,6 +1086,10 @@ def run_blocker_pipeline(
         triage_normalization_applied=triage_result.get("normalization_applied"),
         triage_normalization_reason=triage_result.get("normalization_reason"),
         triage_review_required=triage_result.get("review_required"),
+        triage_required_condition=triage_result.get("required_condition"),
+        triage_producer_path_status=triage_result.get("producer_path_status"),
+        triage_practical_feasibility=triage_result.get("practical_feasibility"),
+        triage_evidence_contract_satisfied=triage_result.get("evidence_contract_satisfied"),
         triage_status=triage_result.get("triage_status"),
         triage_error_reason=triage_result.get("triage_error_reason"),
         triage_llm_attempt_count=triage_result.get("llm_attempt_count"),
@@ -1101,7 +1127,7 @@ def run_blocker_pipeline(
     return {
         "success": success,
         "attempt_result": attempt_result,
-        "reason": result.get("reason"),
+        "reason": result_reason,
         "dependency_result": result.get("dependency_result"),
         "pipeline_methods": pipeline_methods,
         "pipeline_success": pipeline_success,
@@ -1299,6 +1325,8 @@ def run_blocker_session(
 
     attempted = 0
     succeeded = 0
+    pipeline_errors = 0
+    session_seen_blocker_keys: set[tuple[str, str, str]] = set()
     selected_blockers: list[dict] = []
     for blocker in blockers:
         blocker_key = _blocker_identity(blocker)
@@ -1353,7 +1381,7 @@ def run_blocker_session(
             break
         blocker = selected_blockers.pop(0)
         blocker_key = _blocker_identity(blocker)
-        state.attempted_blocker_keys.add(blocker_key)
+        session_seen_blocker_keys.add(blocker_key)
         pipeline_result = run_blocker_pipeline(
             project_name=project_name,
             llm_backend=llm_backend,
@@ -1371,6 +1399,27 @@ def run_blocker_session(
             enable_blocker_triage=enable_blocker_triage,
             deadline=deadline,
         )
+        attempt_result = pipeline_result.get("attempt_result")
+        if not _should_persist_blocker_attempt(pipeline_result):
+            pipeline_errors += 1
+            logger.error(
+                "Retryable blocker pipeline infrastructure error for %s:%s; "
+                "the blocker will remain eligible in a later session.",
+                blocker.get("function_name"),
+                blocker.get("branch_line_number"),
+            )
+            _log_experiment_event(
+                "blocker_pipeline_retryable_error",
+                project_name=project_name,
+                function_name=blocker.get("function_name"),
+                branch_line_number=blocker.get("branch_line_number"),
+                blocked_side_line_number=blocker.get("blocked_side_line_number"),
+                pipeline_returncode=pipeline_result.get("pipeline_returncode"),
+                pipeline_failure_stage=pipeline_result.get("pipeline_failure_stage"),
+            )
+            continue
+
+        state.attempted_blocker_keys.add(blocker_key)
         attempted += 1
         state.total_blockers_attempted += 1
         success = bool(pipeline_result.get("success"))
@@ -1379,7 +1428,6 @@ def run_blocker_session(
             state.total_blockers_succeeded += 1
 
         blocker_kind = pipeline_result.get("dependency_result")
-        attempt_result = pipeline_result.get("attempt_result")
         if blocker_kind == "Input Independent":
             state.artifacts_dirty = True
 
@@ -1467,6 +1515,7 @@ def run_blocker_session(
                 candidate
                 for candidate in reranked
                 if _blocker_identity(candidate) not in state.attempted_blocker_keys
+                and _blocker_identity(candidate) not in session_seen_blocker_keys
             ]
 
     _log_experiment_event(
@@ -1476,10 +1525,17 @@ def run_blocker_session(
         session_number=state.sessions_run,
         attempted=attempted,
         succeeded=succeeded,
+        pipeline_errors=pipeline_errors,
         artifacts_ready=state.artifacts_ready,
         artifacts_dirty=state.artifacts_dirty,
     )
-    return {"success": succeeded > 0, "attempted": attempted, "succeeded": succeeded, "reason": "completed"}
+    return {
+        "success": succeeded > 0,
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "pipeline_errors": pipeline_errors,
+        "reason": "completed",
+    }
 
 
 def run_blocker_once(

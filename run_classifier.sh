@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 指定包含指令的檔案路徑
-COMMAND_FILE="classify_command/freetype2_dynamic_classify_command.txt"
+COMMAND_FILE="classify_command/tinyxml2_dynamic_classify_command.txt"
 
 usage() {
     echo "Usage: $0 [-n NUM]"

@@ -431,6 +431,7 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
             extract_blocker_callchain_info,
             format_cfg_collection_status,
             format_runtime_collection_status,
+            render_call_sites_for_prompt,
         )
     except Exception as exc:
         logging.warning("Failed to import blocker_callpath_extractor for auto context collection: %s", exc)
@@ -457,6 +458,8 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
         args.cfg_call_chain = cfg_result.get("chain_structure")
     if not getattr(args, "cfg_source_codes", None):
         args.cfg_source_codes = cfg_result.get("unique_source_codes")
+    if not getattr(args, "blocker_call_sites", None):
+        args.blocker_call_sites = render_call_sites_for_prompt(extraction_result.get("call_sites"))
     if not getattr(args, "triggering_input", None):
         args.triggering_input = gdb_result.get("triggering_input", "")
 
@@ -657,12 +660,14 @@ def infer_attempt_result(
     parsed_output = pipeline_output.get("parsed_output") if isinstance(pipeline_output, dict) else None
     if isinstance(parsed_output, dict):
         explicit = str(parsed_output.get("attempt_result", "")).strip()
-        if explicit in {"success", "failed", "llm_error"}:
+        if explicit in {"success", "failed", "llm_error", "pipeline_error"}:
             return explicit
         if parsed_output.get("success") is True:
             return "success"
 
     if dependency_result in {"Input Dependent", "Input Independent"}:
+        if pipeline_returncode not in {None, 0} and not isinstance(parsed_output, dict):
+            return "pipeline_error"
         return "success" if pipeline_returncode == 0 else "failed"
     return "failed"
 
@@ -717,6 +722,8 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
         forwarded.extend(["--cfg-call-chain", args.cfg_call_chain])
     if getattr(args, "cfg_source_codes", None):
         forwarded.extend(["--cfg-source-codes", args.cfg_source_codes])
+    if getattr(args, "blocker_call_sites", None):
+        forwarded.extend(["--blocker-call-sites", args.blocker_call_sites])
     if getattr(args, "triggering_input", None):
         forwarded.extend(["--triggering-input", args.triggering_input])
     if getattr(args, "max_iterations", None) is not None:
@@ -725,6 +732,8 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
         forwarded.extend(["--fuzz-seconds", str(args.fuzz_seconds)])
     if getattr(args, "reset_corpus_per_iteration", False):
         forwarded.append("--reset-corpus-per-iteration")
+    if getattr(args, "log_dir", None):
+        forwarded.extend(["--log-dir", str(args.log_dir)])
 
     return forwarded
 
@@ -788,14 +797,14 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     return report
 
 @contextlib.contextmanager
-def scoped_file_logging(func_name: str):
+def scoped_file_logging(func_name: str, log_dir: str | Path | None = None):
     safe_func_name = func_name.replace("::", "_").replace(" ", "_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_filename = f"{timestamp}_{safe_func_name}.log"
 
-    log_dir = REPO_ROOT / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_filepath = log_dir / log_filename
+    resolved_log_dir = Path(log_dir) if log_dir else REPO_ROOT / "logs"
+    resolved_log_dir.mkdir(parents=True, exist_ok=True)
+    log_filepath = resolved_log_dir / log_filename
 
     root_logger = logging.getLogger()
     file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
@@ -856,11 +865,11 @@ def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) -> dict:
-    from llm_interface.llm_client import LLMClient
+    from llm_interface.llm_client import LLMClient, new_thread_id
 
     try:
         args = apply_blocker_payload(args)
-        with scoped_file_logging(args.function_name):
+        with scoped_file_logging(args.function_name, getattr(args, "log_dir", None)):
             args = auto_resolve_context_files(args)
             args = auto_collect_callpath_context(args)
             log_collection_status(args)
@@ -878,6 +887,15 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
                 model_name=args.model,
                 temperature=config.BLOCKER_CLASSIFIER_TEMPERATURE,
             )
+            llm_thread_id = new_thread_id(
+                "blocker_classifier",
+                args.project_name,
+                args.function_name,
+                args.branch_line_number,
+                args.blocked_side_line_number,
+                args.target_name,
+            )
+            logging.info("Blocker classifier LLM thread_id=%s", llm_thread_id)
             parse_retry_attempts = max(1, int(getattr(config, "BLOCKER_CLASSIFIER_PARSE_RETRY_ATTEMPTS", 3)))
             parse_retry_delay_sec = float(getattr(config, "BLOCKER_CLASSIFIER_PARSE_RETRY_DELAY_SEC", 2.0))
             response_text = ""
@@ -886,7 +904,7 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
             last_exc: Exception | None = None
 
             for attempt in range(1, parse_retry_attempts + 1):
-                response_text = llm.generate(current_prompt) or ""
+                response_text = llm.generate(current_prompt, thread_id=llm_thread_id) or ""
                 if not response_text:
                     last_exc = RuntimeError("Empty LLM response.")
                 else:
@@ -1026,6 +1044,11 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
                     output["pipeline_returncode"],
                     pipeline_output,
                 )
+                if output["attempt_result"] == "pipeline_error":
+                    output["pipeline_error_reason"] = (
+                        str(pipeline_output.get("stderr") or pipeline_output.get("stdout") or "").strip()
+                        or "Input-dependent solver exited without structured output."
+                    )
                 return output
 
             if dependency_result == "Input Independent":
@@ -1053,6 +1076,11 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
                     output["pipeline_returncode"],
                     pipeline_output,
                 )
+                if output["attempt_result"] == "pipeline_error":
+                    output["pipeline_error_reason"] = (
+                        str(pipeline_output.get("stderr") or pipeline_output.get("stdout") or "").strip()
+                        or "Input-independent solver exited without structured output."
+                    )
                 return output
 
             raise RuntimeError(f"Unknown dependency classification: {dependency_result}")
@@ -1157,6 +1185,11 @@ def main():
         default=None,
         help="Root directory for all pipeline outputs (sub-scripts write under symbolic_run/, "
              "generator/, harness/). Auto-generated under experiments/ when not specified.",
+    )
+    parser.add_argument(
+        "--log-dir",
+        default=None,
+        help="Directory for session log files. Defaults to logs/ when omitted.",
     )
     args = parser.parse_args()
     args = apply_blocker_payload(args)

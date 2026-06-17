@@ -6,6 +6,9 @@ from blocker_process.blocker_triage import extract_source_identifiers, run_triag
 
 VALID_TRIAGE_JSON = """{
   "analysis_trace": [],
+  "required_condition": "A legal public input must establish the required state.",
+  "producer_path_status": "proven",
+  "practical_feasibility": "practical",
   "refined_triage_label": "Actionable Target Gap",
   "required_solver_hint": "Use a legal API sequence.",
   "evidence_strength": "B",
@@ -20,9 +23,11 @@ class FakeLLM:
     def __init__(self, responses: list[str]) -> None:
         self.responses = iter(responses)
         self.calls = 0
+        self.thread_ids = []
 
-    def generate(self, _prompt: str) -> str:
+    def generate(self, _prompt: str, thread_id: int | None = None) -> str:
         self.calls += 1
+        self.thread_ids.append(thread_id)
         return next(self.responses)
 
 
@@ -46,6 +51,8 @@ class BlockerTriageTest(unittest.TestCase):
             result = run_triage_prompt("prompt", backend="test", model=None)
 
         self.assertEqual(fake_llm.calls, 3)
+        self.assertEqual(len(set(fake_llm.thread_ids)), 1)
+        self.assertIsNotNone(fake_llm.thread_ids[0])
         self.assertEqual(result["triage_status"], "completed")
         self.assertEqual(result["llm_attempt_count"], 3)
         self.assertEqual(result["solver_action"], "run_solver")
@@ -78,7 +85,11 @@ class BlockerTriageTest(unittest.TestCase):
         self.assertIsNone(result["triage_error_reason"])
 
     def test_routing_is_derived_only_from_label(self) -> None:
-        legacy_conflict = VALID_TRIAGE_JSON[:-1] + (
+        resource_evidence = VALID_TRIAGE_JSON.replace(
+            '"practical_feasibility": "practical"',
+            '"practical_feasibility": "resource_failure"',
+        )
+        legacy_conflict = resource_evidence[:-1] + (
             ', "first_layer_decision": "Generation-solvable",'
             ' "solver_action": "run_solver",'
             ' "refined_triage_label": "Resource-Exhaustion Guard"}'
@@ -104,6 +115,37 @@ class BlockerTriageTest(unittest.TestCase):
         self.assertEqual(result["first_layer_decision"], "Inconclusive")
         self.assertEqual(result["solver_action"], "run_solver")
         self.assertTrue(result["review_required"])
+
+    def test_generation_label_without_proven_path_becomes_inconclusive(self) -> None:
+        unsupported = VALID_TRIAGE_JSON.replace(
+            '"producer_path_status": "proven"',
+            '"producer_path_status": "insufficient"',
+        )
+        fake_llm = FakeLLM([unsupported])
+
+        with patch("llm_interface.llm_client.LLMClient", return_value=fake_llm):
+            result = run_triage_prompt("prompt", backend="test", model=None)
+
+        self.assertEqual(result["raw_refined_triage_label"], "Actionable Target Gap")
+        self.assertEqual(result["refined_triage_label"], "Inconclusive")
+        self.assertEqual(result["solver_action"], "run_solver")
+        self.assertFalse(result["evidence_contract_satisfied"])
+
+    def test_bounded_extreme_requires_practical_budget(self) -> None:
+        unsupported = VALID_TRIAGE_JSON.replace(
+            "Actionable Target Gap",
+            "Bounded Extreme Value",
+        ).replace(
+            '"practical_feasibility": "practical"',
+            '"practical_feasibility": "resource_failure"',
+        )
+        fake_llm = FakeLLM([unsupported])
+
+        with patch("llm_interface.llm_client.LLMClient", return_value=fake_llm):
+            result = run_triage_prompt("prompt", backend="test", model=None)
+
+        self.assertEqual(result["refined_triage_label"], "Inconclusive")
+        self.assertIn("practical feasibility", result["normalization_reason"])
 
 
 if __name__ == "__main__":

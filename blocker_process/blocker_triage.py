@@ -48,6 +48,16 @@ TRIAGE_LABEL_ROUTING = {
     # Insufficient evidence must not suppress a potentially solvable blocker.
     "Inconclusive": ("Inconclusive", "run_solver"),
 }
+PRODUCER_PATH_STATUSES = {"proven", "contradicted", "insufficient"}
+PRACTICAL_FEASIBILITY_STATUSES = {
+    "practical",
+    "resource_failure",
+    "environmental_failure",
+    "infeasible",
+    "internal_invariant",
+    "crash_before_observe",
+    "insufficient",
+}
 CLASSIFIER_AGREEMENT = {"agree", "disagree", "unclear", "not_provided"}
 C_KEYWORDS = {
     "if",
@@ -462,8 +472,35 @@ def normalize_triage_result(parsed: dict, *, response_text: str = "", prompt_pat
     raw_first_layer = result.get("first_layer_decision")
     raw_solver_action = result.get("solver_action")
     raw_label = result.get("refined_triage_label")
-    label = raw_label
-    if label not in TRIAGE_LABELS:
+    label = raw_label if raw_label in TRIAGE_LABELS else "Inconclusive"
+    producer_path_status = result.get("producer_path_status")
+    if producer_path_status not in PRODUCER_PATH_STATUSES:
+        producer_path_status = "insufficient"
+    practical_feasibility = result.get("practical_feasibility")
+    if practical_feasibility not in PRACTICAL_FEASIBILITY_STATUSES:
+        practical_feasibility = "insufficient"
+
+    evidence_issue = None
+    if label in {"Actionable Target Gap", "Bounded Extreme Value"}:
+        if producer_path_status != "proven":
+            evidence_issue = "Generation-solvable label requires a proven legal producer path."
+        elif practical_feasibility != "practical":
+            evidence_issue = "Generation-solvable label requires practical feasibility within the fuzzing budget."
+    elif label == "Resource-Exhaustion Guard" and practical_feasibility != "resource_failure":
+        evidence_issue = "Resource-Exhaustion Guard requires resource_failure feasibility evidence."
+    elif label == "Environmental Failure" and practical_feasibility != "environmental_failure":
+        evidence_issue = "Environmental Failure requires environmental_failure evidence."
+    elif label == "Internal Invariant Guard" and practical_feasibility != "internal_invariant":
+        evidence_issue = "Internal Invariant Guard requires internal_invariant evidence."
+    elif label in {"Generated Parser State", "Structurally Unreachable API Path"}:
+        if producer_path_status != "contradicted":
+            evidence_issue = "This non-generation label requires source evidence contradicting a legal producer path."
+    elif label == "Infeasible Counter Overflow" and practical_feasibility != "infeasible":
+        evidence_issue = "Infeasible Counter Overflow requires infeasible budget evidence."
+    elif label == "Crash-Revealing Path" and practical_feasibility != "crash_before_observe":
+        evidence_issue = "Crash-Revealing Path requires crash-before-observe runtime evidence."
+
+    if evidence_issue:
         label = "Inconclusive"
     first_layer, solver_action = TRIAGE_LABEL_ROUTING[label]
     legacy_routing_conflict = (
@@ -487,13 +524,19 @@ def normalize_triage_result(parsed: dict, *, response_text: str = "", prompt_pat
     result["routing_source"] = "deterministic_label_mapping"
     result["routing_derived"] = True
     result["normalization_applied"] = raw_label != label or legacy_routing_conflict
-    if raw_label != label:
+    if evidence_issue:
+        result["normalization_reason"] = evidence_issue
+    elif raw_label != label:
         result["normalization_reason"] = "Unknown label mapped to Inconclusive."
     elif legacy_routing_conflict:
         result["normalization_reason"] = "Legacy LLM routing fields were ignored; routing is derived from the label."
     else:
         result["normalization_reason"] = "N/A"
     result["review_required"] = label == "Inconclusive"
+    result["required_condition"] = str(result.get("required_condition") or "Not established.")
+    result["producer_path_status"] = producer_path_status
+    result["practical_feasibility"] = practical_feasibility
+    result["evidence_contract_satisfied"] = evidence_issue is None
     result["evidence_strength"] = evidence_strength
     result["classifier_agreement"] = classifier_agreement
     result["source_overrides_classifier"] = bool(result.get("source_overrides_classifier", False))
@@ -523,6 +566,9 @@ def default_inconclusive(reason: str) -> dict:
                 "[5. Triage decision]: Evidence is inconclusive; solver execution is preserved by fail-open routing.",
             ],
             "refined_triage_label": "Inconclusive",
+            "required_condition": "Not established.",
+            "producer_path_status": "insufficient",
+            "practical_feasibility": "insufficient",
             "required_solver_hint": "N/A",
             "evidence_strength": "C",
             "classifier_agreement": "unclear",
@@ -709,13 +755,15 @@ def run_triage_prompt(
         result.update(paths)
         return result
 
-    from llm_interface.llm_client import LLMClient
+    from llm_interface.llm_client import LLMClient, new_thread_id
 
     llm = LLMClient(
         backend=backend,
         model_name=model,
         temperature=getattr(config, "BLOCKER_TRIAGE_TEMPERATURE", config.BLOCKER_CLASSIFIER_TEMPERATURE),
     )
+    llm_thread_id = new_thread_id("blocker_triage", output_dir or "no_output_dir")
+    logging.info("Blocker triage LLM thread_id=%s", llm_thread_id)
     max_retries = max(0, int(getattr(config, "BLOCKER_TRIAGE_PARSE_MAX_RETRIES", 2)))
     retry_delay_sec = max(0.0, float(getattr(config, "BLOCKER_TRIAGE_PARSE_RETRY_DELAY_SEC", 2.0)))
     total_attempts = max_retries + 1
@@ -725,7 +773,7 @@ def run_triage_prompt(
     last_error = "Unknown triage response error."
 
     for attempt in range(1, total_attempts + 1):
-        response_text = llm.generate(current_prompt) or ""
+        response_text = llm.generate(current_prompt, thread_id=llm_thread_id) or ""
         if not response_text:
             last_error = "LLM returned an empty triage response."
         else:

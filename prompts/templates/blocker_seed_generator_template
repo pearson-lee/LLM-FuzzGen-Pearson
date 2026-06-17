@@ -112,6 +112,23 @@ This is dynamic evidence from a real execution path that reached the blocker.
 {cfg_source_codes}
 ```
 
+## Blocker function call sites
+Candidate direct call sites of the blocker function, each with a local source window.
+The pipeline has already filtered call sites proven `inactive` under the current build configuration;
+they may appear only in an audit-only filtered list and are not selectable. `active` means positive
+target-build evidence exists. `unknown` means presence in the target build is not proven, so do not
+silently treat it as active or infer compiler behavior yourself.
+The observed runtime route may use a call site whose guard is INCOMPATIBLE with the required
+predicate value (e.g. guarded by the negation of the predicate), in which case the blocked
+side cannot be reached from it. Examine every candidate, then choose a call site whose guard
+is compatible with `[0C Predicate Setter]`. `path_status` only says how the call site was
+discovered, not whether the blocked side is reachable. `local_context` may be incomplete (an
+enclosing guard could be farther up); if it is insufficient to decide, say `unknown` rather
+than assuming the call is unconditional.
+```text
+{blocker_call_sites}
+```
+
 ## Triggering input hint
 - Path or source: `{triggering_input_path}`
 ```text
@@ -169,7 +186,7 @@ that identifies the category. The primary family should use the category with th
 source evidence is missing or ambiguous, say `unknown` in the contract and make exploratory families explicit rather
 than presenting guesses as confirmed facts.
 
-You MUST include the following five contract items in `analysis_summary`, using these exact prefixes:
+You MUST include the following six contract items in `analysis_summary`, using these exact prefixes:
 
 1. `[0A API Anchor]` Name the fuzz target call site that eventually reaches the blocker. Identify the
    blocker-relevant API argument.
@@ -181,14 +198,43 @@ You MUST include the following five contract items in `analysis_summary`, using 
    token/production kind, field tag, marker, command, or handler key needed to select the target route. If several
    representation categories are plausible, list them separately and state which one is source-supported for the
    target route.
-4. `[0D Reader Path]` Describe the caller path that reads the required value at the blocked predicate. State
+4. `[0C2 Call-Site Reachability]` Setting the predicate value does NOT by itself guarantee the function that reads
+   the predicate is even called. For every function on the path from the API anchor to the blocked-side predicate
+   that is *conditionally called*, name the *independent input feature* required to make that call execute. This
+   caller-trigger condition may be orthogonal to `[0C]`: one input feature may select an optional encapsulation,
+   sub-operation, qualifier, or dispatch branch that reaches the call site, while a different feature sets the
+   predicate. Use the call chain and the call-site source to name each independent caller-trigger at the input
+   level (the syntax, token, field, qualifier, opcode, command, or option that causes the call). Use the
+   `## Blocker function call sites` section. Build status is deterministic evidence supplied by the pipeline:
+   do not infer or override it. Never select a filtered `inactive` call site. Prefer an `active` call site when its
+   guard is semantically compatible. An `unknown` call site remains a hypothesis, not proof that the code exists in
+   the target build; select it only when the output explicitly keeps `evidence_sufficient=false`. For selectable
+   call sites, examine each guard, REJECT any whose guard is the negation of (or otherwise conflicts with) the
+   required predicate value, and select a compatible one. Record the decision in the `callsite_decision` output
+   field. If the blocker function is called unconditionally once the API is invoked, state that explicitly. If the
+   listed call-site contexts are insufficient to decide, say `unknown` rather than assuming the function is reached.
+5. `[0D Reader Path]` Describe the caller path that reads the required value at the blocked predicate. State
    whether this is the same as the observed runtime path or a different semantic route.
-5. `[0E Survival Check]` Describe whether the value can survive from setter to reader. Check for reset, overwrite,
+6. `[0E Survival Check]` Describe whether the value can survive from setter to reader. Check for reset, overwrite,
    macro side effect, early return, longjmp, cleanup, parser ordering, state pop, and lifecycle constraints.
 
+When the predicate setter and a caller-trigger are independent elements in an ordered input sequence, do not assume
+that merely including both elements is sufficient. Preserve any ordering constraints proven by source. For any
+remaining relative order that source does not prove irrelevant and that may change parser, decoder, dispatcher, or
+state-machine state, generate both `setter_then_caller` and `caller_then_setter` variants in separately named seed
+families and let execution evidence decide which order works. This applies to text tokens and to ordered binary
+elements such as TLVs, chunks, bytecode instructions, or message sequences. Do not reorder fixed-offset or
+fixed-layout fields. If reordering structured elements changes lengths, offsets, checksums, or framing, recompute
+those values instead of swapping raw bytes.
+
+The primary ordering families must use the source-supported representation category for the setter and caller
+trigger. A representation whose route is unknown may appear only in a separately named exploratory family; do not
+describe it as proven and do not replace the source-supported primary representation with a semantic equivalent.
+
 Only after completing this contract should you design seed families. Every seed family must place the
-blocker-relevant content at the byte location described by `[0B Input Layout]`, trigger `[0C Predicate Setter]`,
-and reach `[0D Reader Path]`.
+blocker-relevant content at the byte location described by `[0B Input Layout]`, satisfy every independent
+caller-trigger named in `[0C2 Call-Site Reachability]`, trigger `[0C Predicate Setter]`, and reach
+`[0D Reader Path]`.
 
 # What To Infer
 
@@ -232,16 +278,30 @@ The JSON object must have exactly these keys:
 - `generator_filename`: string
 - `generator_code`: string
 - `sample_seeds`: array of strings
+- `callsite_decision`: object documenting the chosen blocker call site (structure below)
 
-The first five entries of `analysis_summary` MUST be the Step 0 contract entries, in this exact order:
+The first six entries of `analysis_summary` MUST be the Step 0 contract entries, in this exact order:
 
 1. `[0A API Anchor] ...`
 2. `[0B Input Layout] ...`
 3. `[0C Predicate Setter] ...`
-4. `[0D Reader Path] ...`
-5. `[0E Survival Check] ...`
+4. `[0C2 Call-Site Reachability] ...`
+5. `[0D Reader Path] ...`
+6. `[0E Survival Check] ...`
 
 If any contract item is unknown, say `unknown` and explain what context is missing. Do not silently guess.
+
+The `callsite_decision` object must have these fields (derived from the `## Blocker function call sites` section):
+
+- `selected_candidate_id`: the chosen call site id (e.g. `gencode.c:7238`), or `unknown`.
+- `observed_guard`: the guard condition at that call site as seen in its local context.
+- `compatibility_reason`: why that guard is compatible with the required `[0C Predicate Setter]` value.
+- `input_trigger`: the input-level feature/syntax that causes that call site to execute.
+- `evidence_sufficient`: boolean; `false` if the listed local context was insufficient to decide (then do
+  NOT assume the call is unconditional). It must also be `false` when selecting a call site whose
+  `build_status` is `unknown`.
+- `rejected_conflicting_callsites`: array of `{candidate_id, reason}` for the observed/current route and any call
+  site whose guard clearly conflicts with the predicate (need not be exhaustive).
 
 # Additional Constraints
 
@@ -257,6 +317,12 @@ If any contract item is unknown, say `unknown` and explain what context is missi
   why that path reaches the same blocked predicate.
 - Do not treat a setter as sufficient. A seed family must also reach a reader path where the predicate reads the
   required value.
+- A predicate setter is necessary but not sufficient for reachability. If the function that contains the blocked
+  predicate is only called under a separate input condition (see `[0C2 Call-Site Reachability]`), every seed family
+  MUST combine ALL independent caller-trigger features together with the predicate setter in the same input. The
+  caller-trigger and the setter may be orthogonal input features; a seed that sets the predicate but omits a
+  required caller-trigger will not reach the predicate at all. Do not drop a caller-trigger feature merely because
+  it looks unrelated to the predicate value.
 - Do not treat corpus-level branch reach as proof that generated seeds reached the branch. Seed families must be
   designed so their own representative seeds can reach the branch.
 - If the blocker-relevant argument is a slice of `Data`, every generated seed must place the intended content exactly

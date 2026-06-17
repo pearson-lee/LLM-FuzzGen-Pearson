@@ -1,0 +1,39 @@
+# Role
+
+Repair only the formatting and completeness of a fuzz target's Strategy Contract.
+
+# Validation Error
+
+```text
+{contract_error}
+```
+
+# Malformed Contract
+
+```text
+{malformed_contract}
+```
+
+# Requirements
+
+1. Preserve the meaning of every non-empty field already present.
+2. Do not redesign the blocker-solving strategy.
+3. Fill all four required fields with concrete, non-empty values:
+   - `required_state`
+   - `state_constructor`
+   - `trigger_api`
+   - `preserved_invariants`
+4. If `preserved_invariants` is missing, state that compile repair must preserve the required state, constructor/setter sequence, and trigger API.
+5. Use the exact canonical delimiters shown below.
+6. Return only the corrected comment inside one `<fuzz_target>` block. Do not return C/C++ code or prose.
+
+# Required Output
+
+<fuzz_target>
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: concrete predicate-relevant state that must hold
+state_constructor: API calls or input structure responsible for creating that state
+trigger_api: API call that reaches the blocker
+preserved_invariants: properties compile repair must not remove
+END_BLOCKER_STRATEGY_CONTRACT */
+</fuzz_target>

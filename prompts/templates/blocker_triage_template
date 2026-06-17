@@ -146,8 +146,10 @@ Choose exactly one `refined_triage_label`:
 2. Do not call a blocker non-generation-solvable merely because the current target
    cannot reach it. If a legal target/harness/API sequence is visible, it is an
    actionable target gap.
-3. Distinguish bounded extremes from infeasible overflow:
-   - finite, practical, legal edge value -> `Bounded Extreme Value`
+3. Distinguish bounded extremes from infeasible overflow. A finite mathematical
+   bound is not automatically practical. Estimate the required input size, memory,
+   operation count, and execution time against one normal fuzzing iteration:
+   - finite, practical, legal edge value within the budget -> `Bounded Extreme Value`
    - unsigned wraparound, billions of iterations, or impossible allocation scale
      -> `Infeasible Counter Overflow`
 4. If the classifier trace has the branch direction reversed, or reasons about the
@@ -165,15 +167,25 @@ Choose exactly one `refined_triage_label`:
    exhaustion, or a custom allocation helper returning NULL, choose
    `Resource-Exhaustion Guard` unless the source shows an explicit finite,
    practical non-failure bound that reaches the blocked side.
-7. For internal parser or scanner state variables managed by generated code or
-   opaque internal transitions, do not infer solvability from generic parser
-   theory alone. Choose `Generated Parser State` or `Structurally Unreachable
-   API Path` unless the provided source shows a visible legal public transition
-   that sets the required state and persists to the blocked-side read.
-8. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
+7. A setter is relevant only if it is on the observed or otherwise proven legal
+   public API call path. A different function assigning the desired value does not
+   prove reachability. Trace caller -> setter -> blocked-side read. If this path is
+   absent from the evidence, set `producer_path_status` to `insufficient`.
+8. For internal parser/scanner states or other opaque transitions, do not infer
+   solvability from generic parser theory. Use `Generated Parser State` or
+   `Structurally Unreachable API Path` only when source evidence contradicts a
+   legal producer path. If the transition is merely not shown, choose `Inconclusive`.
+9. Treat defensive `abort()`, `assert(0)`, `__builtin_unreachable`, or
    `/*NOTREACHED*/` paths as `Internal Invariant Guard` unless the source shows a
    legal public API/input sequence that intentionally constructs that state.
-9. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
+10. A source input influencing an internal IR field does not prove that arbitrary
+   values are legal. Identify the actual producer and its value domain. If the
+   producer only emits a bounded register, enum, index, or validated state, do not
+   treat the internal field as directly controllable input.
+11. A branch-line hit count proves only that the predicate was evaluated. It does
+   not prove that the condition was true. A zero blocked-side count means the
+   required branch outcome was not observed.
+12. If source/runtime evidence is incomplete, choose `Inconclusive` rather than
    inventing missing data. The pipeline derives routing from the label and keeps
    solver execution enabled for inconclusive cases.
 
@@ -188,10 +200,14 @@ Return one valid JSON object only. Begin directly with `{`.
     "[1. Source-first blocker interpretation]: ...",
     "[1b. Enclosing-block reachability]: List every if/for/while condition visible in the source snippet that encloses blocked-side line {blocked_side_line_number}. For each proposed path, state whether that enclosing condition is entered (true) or skipped (false). Eliminate any path where an enclosing block is not entered — the blocked-side line is not executed in that case.",
     "[2. Required blocked-side condition]: ...",
-    "[3. Solvability evidence]: ...",
+    "[2b. Producer-path proof]: Trace the legal caller -> setter/producer -> blocked-side read path. State whether it is proven, contradicted, or missing from the evidence.",
+    "[3. Practical feasibility]: Estimate required input size, memory, operations, and time. Finite alone is not practical.",
     "[4. Classifier conflict check]: ...",
     "[5. Triage decision]: ..."
   ],
+  "required_condition": "State the exact predicate value and all enclosing conditions required.",
+  "producer_path_status": "proven",
+  "practical_feasibility": "practical",
   "refined_triage_label": "Actionable Target Gap",
   "required_solver_hint": "Describe the target/seed/harness change needed, or say N/A.",
   "evidence_strength": "A",
@@ -204,6 +220,10 @@ Return one valid JSON object only. Begin directly with `{`.
 
 Allowed values:
 - `refined_triage_label`: choose exactly one label from the taxonomy above.
+- `producer_path_status`: `proven`, `contradicted`, `insufficient`
+- `practical_feasibility`: `practical`, `resource_failure`,
+  `environmental_failure`, `infeasible`, `internal_invariant`,
+  `crash_before_observe`, `insufficient`
 - `evidence_strength`: `A`, `B`, `C`
 - `classifier_agreement`: `agree`, `disagree`, `unclear`, `not_provided`
 

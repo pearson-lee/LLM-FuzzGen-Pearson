@@ -55,12 +55,19 @@ Output model:
 {blocked_window}
 ```
 
-## Additional source excerpt
+## Targeted symbol evidence
+```text
+{symbol_evidence}
+```
+
+Treat this section as structural source evidence, not a pre-selected solution. A declaration proves that an API exists with the shown signature; it does not prove that the API establishes the required state. `unknown` means evidence is incomplete and must not be treated as either active or absent.
+
+## Fallback source excerpt
 ```text
 {source_code}
 ```
 
-## Related headers
+## Fallback header excerpt
 ```text
 {header_code}
 ```
@@ -88,6 +95,13 @@ Output model:
 ```text
 {cfg_source_codes}
 ```
+
+## Candidate blocker call sites
+```text
+{blocker_call_sites}
+```
+
+Use build status and local guards to reject incompatible call sites. Prefer an active call site whose API path can legally establish the blocked-side condition; treat unknown build status as insufficient evidence, not as proof that the call site is active.
 
 # Optional Triggering Input
 
@@ -124,6 +138,16 @@ Use your findings to add minimal, direct API calls to your target that bypass th
 
 # Output Requirements
 
+- At the top of the returned target, include this concise comment block and fill it with the strategy used by the code:
+```text
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: concrete predicate-relevant state that must hold
+state_constructor: API calls or input structure responsible for creating that state
+trigger_api: API call that reaches the blocker
+preserved_invariants: properties compile repair must not remove
+END_BLOCKER_STRATEGY_CONTRACT */
+```
+- Keep the contract implementation-specific enough to distinguish the proposed state constructor from the known failing baseline state.
 - Return only the full refined fuzz target inside one `<fuzz_target>` block.
 - The code must compile as a complete fuzz target.
 - Add concise comments only for blocker-specific logic you introduce.

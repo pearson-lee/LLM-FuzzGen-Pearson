@@ -24,6 +24,15 @@ Your task is to repair the provided blocker-oriented fuzz target so it compiles 
 {iteration_feedback}
 ```
 
+# Strategy Contract
+
+The following contract records the blocker-solving semantics of the candidate.
+It is guidance for repair; actual success is decided later by runtime coverage.
+
+```text
+{strategy_contract}
+```
+
 # Compilation or Runtime/Build Error
 
 ```text
@@ -45,6 +54,9 @@ Your task is to repair the provided blocker-oriented fuzz target so it compiles 
 5. If the current candidate was intentionally using a realistic public API route with downstream exploration potential, preserve that design instead of replacing it with a shallower helper-only call.
 6. Do not drop important API calls or replace the harness with a trivial parser-only target unless the current code is fundamentally invalid.
 7. Keep the target deterministic, stateless, and memory-safe.
+8. Do not replace the state constructor, setter sequence, or trigger API with an easier-to-compile alternative unless the replacement preserves every required state property in the Strategy Contract.
+9. Compile success alone is insufficient. In particular, do not repair a specialized object or parser state back into the original baseline state that was already shown unable to cross the blocker.
+10. Preserve the `BLOCKER_STRATEGY_CONTRACT` comment in the returned target and update only implementation details; do not weaken its required state.
 
 # Output Requirements
 
