@@ -69,6 +69,8 @@ class HelperCommandResult:
 class OSSFuzz:
     LANG_EXT: dict[str, str] = {"c": ".c", "c++": ".cc", "cpp": ".cc"}
     DEFAULT_FUZZ_QUANTUM_SECONDS = 300 #per target fuzzing time slice for scheduled execution
+    DEFAULT_FUZZER_TIMEOUT_BUFFER_SECONDS = 120
+    DEFAULT_SCHEDULER_DRAIN_TIMEOUT_SECONDS = 120
 
     def __init__(self, oss_fuzz_dir: Path | None = None):
         self.oss_fuzz_dir: Path = oss_fuzz_dir or Path(__file__).parent / "oss-fuzz"
@@ -128,6 +130,16 @@ class OSSFuzz:
             return None
         remaining = deadline - time.monotonic()
         return remaining if remaining > 0 else 0
+
+    def _bounded_fuzzer_timeout(self, seconds: int, deadline: float | None) -> tuple[float, bool]:
+        per_fuzzer_timeout = max(1, seconds) + self.DEFAULT_FUZZER_TIMEOUT_BUFFER_SECONDS
+        if deadline is None:
+            return float(per_fuzzer_timeout), False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return 0.0, True
+        deadline_limited = remaining < per_fuzzer_timeout
+        return min(float(per_fuzzer_timeout), remaining), deadline_limited
 
     def _extract_build_error_message(self, output: str) -> str:
         """Extract relevant error message from compiler output."""
@@ -524,14 +536,13 @@ class OSSFuzz:
         corpus_dir = self.build_corpus_dir / proj_name / fuzzer_name
         corpus_dir.mkdir(parents=True, exist_ok=True)
 
-        timeout = None
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 logger.info(f"Skipping fuzzer {fuzzer_name}; deadline reached before execution.")
                 return CompilationResult(success=False, error="deadline reached")
             seconds = min(seconds, max(1, int(remaining)))
-            timeout = remaining
+        timeout, deadline_limited_timeout = self._bounded_fuzzer_timeout(seconds, deadline)
 
         helper_result = self._run_helper_command(
             [
@@ -549,12 +560,20 @@ class OSSFuzz:
             error_pattern = r"==\d+==\s*ERROR:.*"
             match = re.search(error_pattern, full_output, re.DOTALL)
             if helper_result.timed_out and match is None:
-                logger.info(
-                    "Fuzzer %s stopped at the wall-clock deadline after %.2fs.",
+                if deadline_limited_timeout:
+                    logger.info(
+                        "Fuzzer %s stopped at the wall-clock deadline after %.2fs.",
+                        fuzzer_name,
+                        timeout,
+                    )
+                    return CompilationResult(success=False, error="deadline reached")
+                logger.error(
+                    "Fuzzer %s timed out after %.2fs for a %ds slice.",
                     fuzzer_name,
-                    timeout if timeout is not None else 0.0,
+                    timeout,
+                    seconds,
                 )
-                return CompilationResult(success=False, error="deadline reached")
+                return CompilationResult(success=False, error="fuzzer timeout")
             error_message = match.group(0) if match else full_output
             logger.error(f"Failed to run fuzzer {fuzzer_name}: \n{error_message}")
             return CompilationResult(success=False, error=error_message)
@@ -684,79 +703,98 @@ class OSSFuzz:
             quantum_seconds,
         )
 
+        executor = ThreadPoolExecutor(max_workers)
+        should_wait_for_executor = True
         try:
-            with ThreadPoolExecutor(max_workers) as executor:
-                in_flight: dict = {}
+            in_flight: dict = {}
 
-                def schedule_one() -> bool:
-                    remaining = effective_deadline - time.monotonic()
-                    if remaining <= 1:
-                        return False
-                    available = [name for name in fuzzers_to_run if name not in in_flight.values()]
-                    if not available:
-                        return False
-                    next_fuzzer = min(available, key=lambda name: (served_seconds.get(name, 0.0), name))
-                    slice_seconds = max(1, min(quantum_seconds, int(remaining)))
+            def schedule_one() -> bool:
+                remaining = effective_deadline - time.monotonic()
+                if remaining <= 1:
+                    return False
+                available = [name for name in fuzzers_to_run if name not in in_flight.values()]
+                if not available:
+                    return False
+                next_fuzzer = min(available, key=lambda name: (served_seconds.get(name, 0.0), name))
+                slice_seconds = max(1, min(quantum_seconds, int(remaining)))
+                logger.info(
+                    "Dispatching %s for %ds (served_so_far=%.2fs, remaining_chunk_budget=%.2fs)",
+                    next_fuzzer,
+                    slice_seconds,
+                    served_seconds.get(next_fuzzer, 0.0),
+                    remaining,
+                )
+                future = executor.submit(
+                    self._run_fuzzer_time_slice,
+                    project_name,
+                    next_fuzzer,
+                    slice_seconds,
+                    effective_deadline,
+                )
+                in_flight[future] = next_fuzzer
+                return True
+
+            while len(in_flight) < max_workers and schedule_one():
+                pass
+
+            while in_flight:
+                timeout = max(0.1, effective_deadline - time.monotonic())
+                done, _ = wait(in_flight.keys(), timeout=timeout, return_when=FIRST_COMPLETED)
+                if not done:
                     logger.info(
-                        "Dispatching %s for %ds (served_so_far=%.2fs, remaining_chunk_budget=%.2fs)",
-                        next_fuzzer,
-                        slice_seconds,
-                        served_seconds.get(next_fuzzer, 0.0),
-                        remaining,
-                    )
-                    future = executor.submit(
-                        self._run_fuzzer_time_slice,
+                        "Reached wall-clock barrier for %s with %d fuzzer task(s) still draining.",
                         project_name,
-                        next_fuzzer,
-                        slice_seconds,
-                        effective_deadline,
+                        len(in_flight),
                     )
-                    in_flight[future] = next_fuzzer
-                    return True
-
+                    drain_timeout = float(self.DEFAULT_SCHEDULER_DRAIN_TIMEOUT_SECONDS)
+                    done, not_done = wait(in_flight.keys(), timeout=drain_timeout, return_when=ALL_COMPLETED)
+                    if not_done:
+                        stuck_fuzzers = sorted(in_flight[future] for future in not_done)
+                        logger.error(
+                            "Fuzzer drain timeout for %s after %.2fs; abandoning %d still-running slice(s): %s",
+                            project_name,
+                            drain_timeout,
+                            len(stuck_fuzzers),
+                            ", ".join(stuck_fuzzers),
+                        )
+                        for future in not_done:
+                            future.cancel()
+                        should_wait_for_executor = False
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        return
+                for future in done:
+                    fuzzer_name = in_flight.pop(future)
+                    try:
+                        slice_result = future.result()
+                        served_seconds[fuzzer_name] = served_seconds.get(fuzzer_name, 0.0) + slice_result.actual_seconds
+                        logger.info(
+                            "Completed slice for %s: requested=%ds actual=%.2fs cumulative=%.2fs success=%s",
+                            fuzzer_name,
+                            slice_result.requested_seconds,
+                            slice_result.actual_seconds,
+                            served_seconds[fuzzer_name],
+                            slice_result.success,
+                        )
+                        if not slice_result.success and slice_result.error != "deadline reached":
+                            logger.error("Fuzzer %s slice failed: %s", fuzzer_name, slice_result.error)
+                    except BaseException as exc:
+                        logger.error(f"Fuzzer execution generated an exception: {exc}")
                 while len(in_flight) < max_workers and schedule_one():
                     pass
 
-                while in_flight:
-                    timeout = max(0.1, effective_deadline - time.monotonic())
-                    done, _ = wait(in_flight.keys(), timeout=timeout, return_when=FIRST_COMPLETED)
-                    if not done:
-                        logger.info(
-                            "Reached wall-clock barrier for %s with %d fuzzer task(s) still draining.",
-                            project_name,
-                            len(in_flight),
-                        )
-                        done, _ = wait(in_flight.keys(), return_when=ALL_COMPLETED)
-                    for future in done:
-                        fuzzer_name = in_flight.pop(future)
-                        try:
-                            slice_result = future.result()
-                            served_seconds[fuzzer_name] = served_seconds.get(fuzzer_name, 0.0) + slice_result.actual_seconds
-                            logger.info(
-                                "Completed slice for %s: requested=%ds actual=%.2fs cumulative=%.2fs success=%s",
-                                fuzzer_name,
-                                slice_result.requested_seconds,
-                                slice_result.actual_seconds,
-                                served_seconds[fuzzer_name],
-                                slice_result.success,
-                            )
-                            if not slice_result.success and slice_result.error != "deadline reached":
-                                logger.error("Fuzzer %s slice failed: %s", fuzzer_name, slice_result.error)
-                        except BaseException as exc:
-                            logger.error(f"Fuzzer execution generated an exception: {exc}")
-                    while len(in_flight) < max_workers and schedule_one():
-                        pass
-
-                logger.info(
-                    "Finished wall-clock fuzzing chunk for %s. Top least-served targets: %s",
-                    project_name,
-                    ", ".join(
-                        f"{name}={served_seconds[name]:.2f}s"
-                        for name in sorted(served_seconds, key=lambda item: (served_seconds[item], item))[:5]
-                    ),
-                )
+            logger.info(
+                "Finished wall-clock fuzzing chunk for %s. Top least-served targets: %s",
+                project_name,
+                ", ".join(
+                    f"{name}={served_seconds[name]:.2f}s"
+                    for name in sorted(served_seconds, key=lambda item: (served_seconds[item], item))[:5]
+                ),
+            )
         except KeyboardInterrupt:
             logger.info("Fuzzing interrupted by user. Shutting down...")
+        finally:
+            if should_wait_for_executor:
+                executor.shutdown(wait=True)
 
     def coverage(
         self,

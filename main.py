@@ -2135,11 +2135,10 @@ def _parse_args() -> argparse.Namespace:
         subparser.add_argument(
             "--coverage-interval",
             type=int,
-            default=0,
+            default=3600,
             metavar="SECONDS",
             help=(
                 "Record coverage every N seconds during fuzzing. "
-                "Default 0 disables periodic snapshots and keeps the original single final coverage run."
             ),
         )
         subparser.add_argument(
@@ -2151,7 +2150,7 @@ def _parse_args() -> argparse.Namespace:
         subparser.add_argument(
             "--coverage-stagnation-window",
             type=int,
-            default=3,
+            default=1,
             help="Warn after this many consecutive coverage intervals have no meaningful line coverage growth. Default 3.",
         )
         subparser.add_argument(
