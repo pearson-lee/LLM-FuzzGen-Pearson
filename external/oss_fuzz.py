@@ -71,6 +71,13 @@ class OSSFuzz:
     DEFAULT_FUZZ_QUANTUM_SECONDS = 300 #per target fuzzing time slice for scheduled execution
     DEFAULT_FUZZER_TIMEOUT_BUFFER_SECONDS = 120
     DEFAULT_SCHEDULER_DRAIN_TIMEOUT_SECONDS = 120
+    FUZZER_OUTPUT_ARTIFACT_MARKERS = (
+        "_crash-",
+        "_oom-",
+        "_timeout-",
+        "_leak-",
+        "_slow-unit-",
+    )
 
     def __init__(self, oss_fuzz_dir: Path | None = None):
         self.oss_fuzz_dir: Path = oss_fuzz_dir or Path(__file__).parent / "oss-fuzz"
@@ -195,7 +202,19 @@ class OSSFuzz:
         build_dir = self.build_out_dir / proj_name
         if not build_dir.exists():
             return False
-        return any(path.is_file() and path.name.startswith("llm_fuzzgen") and not path.suffix for path in build_dir.iterdir())
+        return any(self._is_llm_fuzzer_binary(path) for path in build_dir.iterdir())
+
+    def _is_llm_fuzzer_binary(self, path: Path) -> bool:
+        name = path.name
+        if not path.is_file():
+            return False
+        if not name.startswith("llm_fuzzgen"):
+            return False
+        if path.suffix:
+            return False
+        if any(marker in name for marker in self.FUZZER_OUTPUT_ARTIFACT_MARKERS):
+            return False
+        return os.access(path, os.X_OK)
 
     def _has_built_symcc_library_artifact(self, proj_name: str, variant: str) -> bool:
         if not variant.startswith("symcc_library"):
@@ -585,9 +604,7 @@ class OSSFuzz:
         fuzzer_dir = self.build_out_dir / project_name
         if not fuzzer_dir.exists():
             return []
-        return sorted(
-            f.name for f in fuzzer_dir.iterdir() if f.is_file() and f.name.startswith("llm_fuzzgen") and not f.suffix
-        )
+        return sorted(f.name for f in fuzzer_dir.iterdir() if self._is_llm_fuzzer_binary(f))
 
     def _sync_project_fuzzer_stats(self, project_name: str, fuzzers_to_run: list[str]) -> dict[str, float]:
         served = self._fuzzer_served_seconds.setdefault(project_name, {})

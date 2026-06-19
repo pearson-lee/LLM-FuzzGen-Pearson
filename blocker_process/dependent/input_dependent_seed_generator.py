@@ -34,7 +34,7 @@ OUTPUT_ROOT = MODULE_ROOT / "generated_generators"
 OSS_FUZZ_IMAGE_PREFIX = "gcr.io/oss-fuzz"
 FAMILY_TAG_RE = re.compile(r"^(F\d+_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)_(\d+)$")
 FAMILY_FALLBACK_RE = re.compile(r"^(.*?)(?:_(\d+))?$")
-MAX_GENERATOR_ITERATIONS = 3
+MAX_GENERATOR_ITERATIONS = config.BLOCKER_MAX_ITERATIONS
 MAX_GENERATOR_FIX_ATTEMPTS = 2
 DEFAULT_REPRESENTATIVE_SEEDS_PER_NEW_FAMILY = 2
 DEFAULT_REPRESENTATIVE_SEEDS_PER_EXISTING_FAMILY = 1
@@ -2613,7 +2613,7 @@ def main() -> None:
     parser.add_argument("--blocker-call-sites", default=None)
     parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
-    parser.add_argument("--max-iterations", type=int, default=3)
+    parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--generator-timeout-sec", type=float, default=DEFAULT_GENERATOR_TIMEOUT_SEC)
     parser.add_argument("--max-seed-size-bytes", type=int, default=MAX_SEED_SIZE_BYTES)

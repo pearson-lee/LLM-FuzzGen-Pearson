@@ -48,12 +48,24 @@ def setup_logging(
     logging.info("=== Configuration ===")
     logging.info(f"Project Name: {project_name}")
     logging.info(f"Model: {model_name or config.MODEL_NAME}")
-    logging.info(f"Iteration loop: {config.ITERATION_LOOP}")
+    logging.info(f"Coverage iteration loop: {config.COVERAGE_ITERATION_LOOP}")
+    logging.info(f"Blocker max iterations: {config.BLOCKER_MAX_ITERATIONS}")
     logging.info(f"Fuzz Target Temperature: {config.FUZZ_TARGET_TEMPERATURE}")
     logging.info(f"Blocker Classifier Temperature: {config.BLOCKER_CLASSIFIER_TEMPERATURE}")
     logging.info(f"Seed Generator Initial Temperature: {config.SEED_GENERATOR_INITIAL_TEMPERATURE}")
     logging.info(f"Seed Generator Later Temperature: {config.SEED_GENERATOR_LATER_TEMPERATURE}")
     logging.info(f"Max Tokens: {config.MAX_TOKENS}")
     logging.info(f"Think Budget Tokens: {config.THINK_BUDGET_TOKEN}")
-    logging.info(f"Max Compiler Attempts: {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}")
+    logging.info(
+        f"Coverage max compiler attempts: {config.COVERAGE_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}"
+    )
+    logging.info(
+        f"Blocker max compiler attempts: {config.BLOCKER_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS}"
+    )
+    logging.info(
+        f"Coverage no-growth threshold: {config.COVERAGE_NO_GROWTH_STOP_THRESHOLD}"
+    )
+    logging.info(
+        f"Blocker no-growth threshold: {config.BLOCKER_NO_GROWTH_STOP_THRESHOLD}"
+    )
     logging.info("=====================")

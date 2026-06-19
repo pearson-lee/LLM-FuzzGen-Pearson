@@ -6,6 +6,32 @@ from external.oss_fuzz import OSSFuzz
 
 
 class OSSFuzzTargetCleanupTest(unittest.TestCase):
+    def test_project_fuzzer_listing_excludes_libfuzzer_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            oss_fuzz = OSSFuzz()
+            oss_fuzz.oss_fuzz_dir = root / "oss-fuzz"
+            oss_fuzz.build_out_dir = oss_fuzz.oss_fuzz_dir / "build" / "out"
+
+            out_dir = oss_fuzz.build_out_dir / "demo"
+            out_dir.mkdir(parents=True)
+
+            real_fuzzer = out_dir / "llm_fuzzgen_real"
+            crash_artifact = out_dir / "llm_fuzzgen_real_crash-da39a3ee"
+            oom_artifact = out_dir / "llm_fuzzgen_real_oom-deadbeef"
+            options_file = out_dir / "llm_fuzzgen_real.options"
+            non_executable = out_dir / "llm_fuzzgen_nonexec"
+
+            for path in (real_fuzzer, crash_artifact, oom_artifact, options_file, non_executable):
+                path.write_text("x", encoding="utf-8")
+
+            real_fuzzer.chmod(real_fuzzer.stat().st_mode | 0o111)
+            crash_artifact.chmod(crash_artifact.stat().st_mode | 0o111)
+            oom_artifact.chmod(oom_artifact.stat().st_mode | 0o111)
+
+            self.assertEqual(oss_fuzz._list_project_fuzzers("demo"), ["llm_fuzzgen_real"])
+            self.assertTrue(oss_fuzz._has_built_llm_targets("demo"))
+
     def test_remove_target_cleans_sources_binaries_and_corpus(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

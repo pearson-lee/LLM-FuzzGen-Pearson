@@ -673,7 +673,7 @@ def run_blocker_pipeline(
     blocker_index: int = 0,
     blocker_record: dict | None = None,
     blocker_top_k: int = 12,
-    blocker_max_iterations: int = 3,
+    blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
@@ -1151,7 +1151,7 @@ def run_blocker_session(
     blocker_start_index: int = 0,
     blocker_session_size: int = 1,
     blocker_top_k: int = 12,
-    blocker_max_iterations: int = 3,
+    blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
@@ -1545,7 +1545,7 @@ def run_blocker_once(
     blocker_json_path: Path | None = None,
     blocker_index: int = 0,
     blocker_top_k: int = 12,
-    blocker_max_iterations: int = 3,
+    blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
@@ -1759,7 +1759,7 @@ def run_fuzzers_and_get_coverage(
     blocker_index: int = 0,
     blocker_top_k: int = 12,
     blocker_session_size: int = 1,
-    blocker_max_iterations: int = 3,
+    blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
@@ -1940,7 +1940,7 @@ def run_all_fuzzer(
     blocker_index: int = 0,
     blocker_top_k: int = 12,
     blocker_session_size: int = 1,
-    blocker_max_iterations: int = 3,
+    blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
@@ -2303,8 +2303,11 @@ def _parse_args() -> argparse.Namespace:
     parser_run.add_argument(
         "--blocker-max-iterations",
         type=int,
-        default=3,
-        help="Maximum iterations for the blocker pipeline. Default 3.",
+        default=config.BLOCKER_MAX_ITERATIONS,
+        help=(
+            "Maximum iterations for the blocker pipeline. "
+            f"Default {config.BLOCKER_MAX_ITERATIONS}."
+        ),
     )
     parser_run.add_argument(
         "--blocker-fuzz-seconds",
@@ -2405,7 +2408,12 @@ def _parse_args() -> argparse.Namespace:
     )
     parser_blocker.add_argument("--blocker-index", type=int, default=0, help="Which ranked blocker to solve. Default 0.")
     parser_blocker.add_argument("--blocker-top-k", type=int, default=12, help="How many blockers to consider. Default 12.")
-    parser_blocker.add_argument("--blocker-max-iterations", type=int, default=3, help="Maximum blocker iterations.")
+    parser_blocker.add_argument(
+        "--blocker-max-iterations",
+        type=int,
+        default=config.BLOCKER_MAX_ITERATIONS,
+        help=f"Maximum blocker iterations. Default {config.BLOCKER_MAX_ITERATIONS}.",
+    )
     parser_blocker.add_argument("--blocker-fuzz-seconds", type=int, default=15, help="Fuzzing seconds per iteration.")
     parser_blocker.add_argument(
         "--blocker-reset-corpus-per-iteration",
@@ -2538,9 +2546,12 @@ def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
     langgraph_threadid = int(time.time())
     is_first_attempt = True
 
-    for attempt in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
+    for attempt in range(1, config.COVERAGE_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
         compilation_attempts += 1
-        logger.info(f"Build attempt {attempt}/{config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} for '{project_name}'.")
+        logger.info(
+            f"Build attempt {attempt}/{config.COVERAGE_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} "
+            f"for '{project_name}'."
+        )
 
         fuzz_file = None  # Initialize fuzz_file to None for safety
         try:
@@ -2590,7 +2601,9 @@ def build_fuzz_target(project_name: str, prompt: str) -> Path | None:
             is_first_attempt = True
             langgraph_threadid = int(time.time())
 
-    logger.warning(f"All {config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} attempts failed for '{project_name}'.")
+    logger.warning(
+        f"All {config.COVERAGE_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS} attempts failed for '{project_name}'."
+    )
     return None
 
 
@@ -2708,8 +2721,8 @@ def process_project(
             seconds=seconds,
             use_dict=use_dict,
             use_seeds=use_seeds,
-            iteration_budget=config.ITERATION_LOOP,
-            no_growth_stop_threshold=config.NO_GROWTH_STOP_THRESHOLD,
+            iteration_budget=config.COVERAGE_ITERATION_LOOP,
+            no_growth_stop_threshold=config.COVERAGE_NO_GROWTH_STOP_THRESHOLD,
         )
 
         if use_dict:
@@ -2728,10 +2741,12 @@ def process_project(
 
         no_growth_count = 0
         # Iterative improvement loop
-        for iteration in range(config.ITERATION_LOOP):
-            if no_growth_count >= config.NO_GROWTH_STOP_THRESHOLD:
+        for iteration in range(config.COVERAGE_ITERATION_LOOP):
+            if no_growth_count >= config.COVERAGE_NO_GROWTH_STOP_THRESHOLD:
                 logger.warning(
-                    f"Stopping iteration for {project_name} due to {config.NO_GROWTH_STOP_THRESHOLD} consecutive iterations with no coverage growth."
+                    f"Stopping iteration for {project_name} due to "
+                    f"{config.COVERAGE_NO_GROWTH_STOP_THRESHOLD} consecutive iterations "
+                    "with no coverage growth."
                 )
                 break
             previous_cov_summary = iterator.latest_cov()
@@ -2804,7 +2819,10 @@ def process_project(
                 logger.warning(f"Fuzz target's coverage did not improve in iteration {iteration + 1}")
                 fuzz_target = None  # set fuzz_target to None so that it can be regenerated in the next iteration
                 no_growth_count += 1
-                logger.info(f"No growth count: {no_growth_count}/{config.NO_GROWTH_STOP_THRESHOLD}")
+                logger.info(
+                    f"No growth count: {no_growth_count}/"
+                    f"{config.COVERAGE_NO_GROWTH_STOP_THRESHOLD}"
+                )
                 _log_experiment_event(
                     "candidate_rejected",
                     iteration=iteration + 1,
@@ -2825,7 +2843,9 @@ def process_project(
             )
 
             no_growth_count = 0
-            logger.info(f"No growth count reset, 0/{config.NO_GROWTH_STOP_THRESHOLD}")
+            logger.info(
+                f"No growth count reset, 0/{config.COVERAGE_NO_GROWTH_STOP_THRESHOLD}"
+            )
             # Record successful growth statistics (based on line coverage)
             if is_regeneration:
                 regeneration_growth.append(line_growth)

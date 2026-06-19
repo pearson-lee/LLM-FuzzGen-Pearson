@@ -1167,7 +1167,7 @@ def main():
     parser.add_argument("--cfg-collection-error", default="")
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--seed", action="append", default=[])
-    parser.add_argument("--max-iterations", type=int, default=3)
+    parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument(

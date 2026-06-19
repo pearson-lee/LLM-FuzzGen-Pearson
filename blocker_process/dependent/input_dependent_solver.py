@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 from external.oss_fuzz import OSSFuzz  # noqa: E402
+import config.config as config  # noqa: E402
 
 SEED_GENERATOR = MODULE_ROOT / "input_dependent_seed_generator.py"
 HARNESS_GENERATOR = MODULE_ROOT / "input_dependent_harness_generator.py"
@@ -709,7 +710,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--seed", action="append", default=[])
-    parser.add_argument("--max-iterations", type=int, default=5)
+    parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--seed-generator-timeout-sec", type=float, default=None)
     parser.add_argument("--max-seed-size-bytes", type=int, default=None)

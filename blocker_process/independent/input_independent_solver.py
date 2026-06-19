@@ -766,7 +766,10 @@ def delete_generated_target(oss_fuzz: OSSFuzz, project_name: str, target_path: s
 
 def summarize_compile_failure(iteration_index: int, build_info: dict) -> str:
     error = (build_info.get("error") or "Unknown compile error.").strip()
-    compile_attempts = build_info.get("compile_attempts", config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS)
+    compile_attempts = build_info.get(
+        "compile_attempts",
+        config.BLOCKER_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
+    )
     return (
         f"Iteration {iteration_index} failed to compile after {compile_attempts} compile-fix attempts. "
         f"Last compile error: {error}"
@@ -885,8 +888,12 @@ def generate_and_build_target(
     saw_nonempty_code = False
     compile_api_diagnostics: list[dict[str, str]] = []
 
-    for attempt in range(1, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
-        logging.info("Compilation-oriented generation attempt %d/%d", attempt, config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS)
+    for attempt in range(1, config.BLOCKER_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS + 1):
+        logging.info(
+            "Compilation-oriented generation attempt %d/%d",
+            attempt,
+            config.BLOCKER_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
+        )
         write_text(iteration_dir / f"prompt_attempt_{attempt:02d}.txt", current_prompt)
         code = strip_standalone_markdown_fences(
             llm.generate(current_prompt, thread_id=thread_id) or ""
@@ -995,7 +1002,7 @@ def generate_and_build_target(
         "success": False,
         "error": last_build_error or "Failed to generate a compiling fuzz target.",
         "last_code": previous_code,
-        "compile_attempts": config.FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
+        "compile_attempts": config.BLOCKER_FUZZ_TARGET_COMPILER_MAX_ATTEMPTS,
         "strategy_contract": strategy_contract,
         "strategy_contract_explicit": strategy_contract_explicit,
         "strategy_anchors": strategy_anchors,
@@ -1046,7 +1053,7 @@ def run_strategy_iterations(
     preserve_seed_compatibility: bool,
     max_iterations: int,
     baseline_evaluation: dict | None = None,
-    no_growth_threshold: int = config.NO_GROWTH_STOP_THRESHOLD,
+    no_growth_threshold: int = config.BLOCKER_NO_GROWTH_STOP_THRESHOLD,
     initial_iteration_note: str = "",
 ) -> dict:
     iterations: list[dict] = []
@@ -1385,7 +1392,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
         }
 
     reference_guided_prompt = prompt_generator.blocker_reference_guided_prompt(**prompt_context)
-    iteration_budget = max(1, int(getattr(args, "max_iterations", config.ITERATION_LOOP)))
+    iteration_budget = max(1, int(getattr(args, "max_iterations", config.BLOCKER_MAX_ITERATIONS)))
 
     reference_guided_result = run_strategy_iterations(
         args=args,
@@ -1398,7 +1405,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
         preserve_seed_compatibility=True,
         max_iterations=iteration_budget,
         baseline_evaluation=baseline_evaluation,
-        no_growth_threshold=config.NO_GROWTH_STOP_THRESHOLD,
+        no_growth_threshold=config.BLOCKER_NO_GROWTH_STOP_THRESHOLD,
     )
     reference_guided_iterations = reference_guided_result["iterations"]
     if any(item.get("success") for item in reference_guided_iterations):
@@ -1439,7 +1446,7 @@ def run_input_independent_solver(args: argparse.Namespace) -> dict:
         preserve_seed_compatibility=False,
         max_iterations=iteration_budget,
         baseline_evaluation=reference_guided_result["accepted_evaluation"],
-        no_growth_threshold=config.NO_GROWTH_STOP_THRESHOLD,
+        no_growth_threshold=config.BLOCKER_NO_GROWTH_STOP_THRESHOLD,
         initial_iteration_note=ref_handoff_summary,
     )
     dedicated_generation_iterations = dedicated_generation_result["iterations"]
@@ -1515,7 +1522,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--seed", action="append", default=[])
-    parser.add_argument("--max-iterations", type=int, default=config.ITERATION_LOOP)
+    parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument("--output-root", default=None,
