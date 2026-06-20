@@ -593,13 +593,16 @@ _CALL_SITE_NOISE_DIRS = (
 _C_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hpp", ".hh", ".hxx")
 
 
-def _macro_fact_source_roots(project_name: str) -> List[str]:
+def _macro_fact_source_roots(project_name: str, source_root: Optional[str] = None) -> List[str]:
     out = get_project_out_dir(project_name)
-    return [os.path.join(out, "src"), os.path.join(out, "source_code")]
+    roots = [os.path.join(out, "src"), os.path.join(out, "source_code")]
+    if source_root:
+        roots.insert(0, source_root)
+    return roots
 
 
-@lru_cache(maxsize=32)
-def _load_build_macro_facts(project_name: str) -> dict:
+@lru_cache(maxsize=64)
+def _load_build_macro_facts(project_name: str, source_root: Optional[str] = None) -> dict:
     """Collect conservative macro facts from generated build configuration headers.
 
     Absence is not treated as undefined because a compiler command line may still
@@ -607,7 +610,7 @@ def _load_build_macro_facts(project_name: str) -> dict:
     """
     observations: dict[str, List[dict]] = {}
     config_files: List[str] = []
-    for root in _macro_fact_source_roots(project_name):
+    for root in _macro_fact_source_roots(project_name, source_root):
         if not os.path.isdir(root):
             continue
         for dirpath, dirs, names in os.walk(root):
@@ -793,20 +796,27 @@ def _build_evidence_for_conditions(conditions: List[str], macro_facts: dict) -> 
     return evidence
 
 
-def project_source_roots(project_name: str) -> List[str]:
+def project_source_roots(project_name: str, source_root: Optional[str] = None) -> List[str]:
     out = get_project_out_dir(project_name)
-    return [
+    roots = [
         os.path.join(out, "source_code"),
         os.path.join(out, "src", project_name),
         os.path.join(out, "src"),
     ]
+    if source_root:
+        roots.insert(0, source_root)
+    return roots
 
 
-def _call_site_source_roots(project_name: str) -> List[str]:
-    return project_source_roots(project_name)
+def _call_site_source_roots(project_name: str, source_root: Optional[str] = None) -> List[str]:
+    return project_source_roots(project_name, source_root)
 
 
-def resolve_project_source_file(project_name: str, source_file: Optional[str]) -> Optional[str]:
+def resolve_project_source_file(
+    project_name: str,
+    source_file: Optional[str],
+    source_root: Optional[str] = None,
+) -> Optional[str]:
     """Best-effort resolve a (possibly /src/...) path to an on-disk mirror file."""
     if not source_file:
         return None
@@ -815,10 +825,22 @@ def resolve_project_source_file(project_name: str, source_file: Optional[str]) -
     norm = str(source_file).replace("\\", "/")
     base = os.path.basename(norm)
     rel = norm.split("/src/", 1)[1] if "/src/" in norm else base
-    for root in project_source_roots(project_name):
-        for cand in (os.path.join(root, rel), os.path.join(root, base)):
+    roots = project_source_roots(project_name, source_root)
+    for root in roots:
+        project_relative = rel
+        if project_name and rel.startswith(project_name + "/"):
+            project_relative = rel[len(project_name) + 1 :]
+        for cand in (
+            os.path.join(root, rel),
+            os.path.join(root, project_relative),
+            os.path.join(root, base),
+        ):
             if os.path.isfile(cand):
                 return cand
+    if source_root and os.path.isdir(source_root):
+        for dirpath, _dirs, files in os.walk(source_root):
+            if base in files:
+                return os.path.join(dirpath, base)
     sc = os.path.join(get_project_out_dir(project_name), "source_code")
     if os.path.isdir(sc):
         for dirpath, _dirs, files in os.walk(sc):
@@ -827,8 +849,12 @@ def resolve_project_source_file(project_name: str, source_file: Optional[str]) -
     return None
 
 
-def _resolve_in_mirror(project_name: str, source_file: Optional[str]) -> Optional[str]:
-    return resolve_project_source_file(project_name, source_file)
+def _resolve_in_mirror(
+    project_name: str,
+    source_file: Optional[str],
+    source_root: Optional[str] = None,
+) -> Optional[str]:
+    return resolve_project_source_file(project_name, source_file, source_root)
 
 
 def display_project_source_path(path: str, project_name: str) -> str:
@@ -925,10 +951,13 @@ def _render_call_site_window(lines: List[str], idx: int) -> str:
     )
 
 
-def collect_project_source_files(project_name: str) -> tuple[List[str], List[str]]:
+def collect_project_source_files(
+    project_name: str,
+    source_root: Optional[str] = None,
+) -> tuple[List[str], List[str]]:
     errors: List[str] = []
     files: List[str] = []
-    roots = [r for r in project_source_roots(project_name) if os.path.isdir(r)]
+    roots = [r for r in project_source_roots(project_name, source_root) if os.path.isdir(r)]
     if not roots:
         errors.append("no source mirror directory found")
         return files, errors
@@ -946,13 +975,17 @@ def collect_project_source_files(project_name: str) -> tuple[List[str], List[str
     return files, errors
 
 
-def _collect_mirror_sources(project_name: str, source_file: Optional[str]) -> tuple[List[str], List[str]]:
+def _collect_mirror_sources(
+    project_name: str,
+    source_file: Optional[str],
+    source_root: Optional[str] = None,
+) -> tuple[List[str], List[str]]:
     del source_file
-    return collect_project_source_files(project_name)
+    return collect_project_source_files(project_name, source_root)
 
 
-def load_build_macro_facts(project_name: str) -> dict:
-    return _load_build_macro_facts(project_name)
+def load_build_macro_facts(project_name: str, source_root: Optional[str] = None) -> dict:
+    return _load_build_macro_facts(project_name, source_root)
 
 
 def preprocessor_context_by_line(lines: List[str], macro_facts: dict) -> List[dict]:
@@ -967,6 +1000,7 @@ def enumerate_textual_call_sites(
     project_name: str,
     function_name: str,
     source_file: Optional[str],
+    source_root: Optional[str] = None,
 ) -> dict:
     """Find candidate DIRECT call sites of function_name from source text.
 
@@ -987,7 +1021,7 @@ def enumerate_textual_call_sites(
 
     # Narrow scope by linkage: a `static` (internal-linkage) function can only be
     # called within its defining translation unit -> search that file only.
-    defn_file = _resolve_in_mirror(project_name, source_file)
+    defn_file = _resolve_in_mirror(project_name, source_file, source_root)
     is_static = False
     if defn_file:
         try:
@@ -999,7 +1033,7 @@ def enumerate_textual_call_sites(
     if is_static and defn_file:
         search_files = [defn_file]
     else:
-        search_files, errs = _collect_mirror_sources(project_name, source_file)
+        search_files, errs = _collect_mirror_sources(project_name, source_file, source_root)
         result["collection_errors"].extend(errs)
 
     if not search_files:
@@ -1007,7 +1041,7 @@ def enumerate_textual_call_sites(
         return result
 
     pat = re.compile(r"\b" + re.escape(function_name) + r"\s*\(")
-    macro_facts = _load_build_macro_facts(project_name)
+    macro_facts = _load_build_macro_facts(project_name, source_root)
     entries: List[dict] = []
     for f in search_files:
         try:
@@ -1173,12 +1207,16 @@ def extract_blocker_callchain_info(
     project_name: str,
     use_gdb: bool = True,
     max_gdb_inputs: int = 0,
+    source_root: Optional[str] = None,
 ) -> dict:
     # Textual call-site enumeration is independent of Introspector/CFG and must run
     # on every return path below, or it would never execute when no calltree .data
     # exists (the current situation). calltree only enriches it.
     call_sites = enumerate_textual_call_sites(
-        project_name, blocker.get("function_name", ""), blocker.get("source_file")
+        project_name,
+        blocker.get("function_name", ""),
+        blocker.get("source_file"),
+        source_root,
     )
 
     if not INTROSPECTOR_AVAILABLE:

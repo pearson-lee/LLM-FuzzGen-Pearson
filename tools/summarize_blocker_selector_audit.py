@@ -4,7 +4,7 @@ import csv
 import json
 from pathlib import Path
 
-VALID_LABELS = {"resource_guard", "non_resource_nullable", "unknown"}
+VALID_LABELS = {"resource_guard", "non_resource_guard", "unknown"}
 
 
 def _rank_at_most(raw: str, top_k: int) -> bool:
@@ -23,7 +23,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
-    with args.audit_csv.open(encoding="utf-8", newline="") as handle:
+    # utf-8-sig accepts both BOM and regular UTF-8 audit files.
+    with args.audit_csv.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
 
     invalid = [
@@ -33,7 +34,7 @@ def main() -> None:
     ]
     if invalid:
         raise SystemExit(
-            "Every row must use resource_guard, non_resource_nullable, or unknown. "
+            "Every row must use resource_guard, non_resource_guard, or unknown. "
             f"Missing/invalid rows: {', '.join(invalid[:10])}"
         )
 
@@ -45,7 +46,7 @@ def main() -> None:
     resource_rows = [row for row in rows if row["manual_label"] == "resource_guard"]
     resource_with_strong = [row for row in resource_rows if row.get("evidence_grade") == "strong"]
     false_downrank = [
-        row for row in strong if row["manual_label"] == "non_resource_nullable"
+        row for row in strong if row["manual_label"] == "non_resource_guard"
     ]
 
     report = {

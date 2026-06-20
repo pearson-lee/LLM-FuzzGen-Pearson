@@ -240,10 +240,45 @@ def _find_null_checked_variables(snippet: str) -> set[str]:
     return checked
 
 
+def _extract_if_statement(lines: List[str], branch_line: int, max_lines: int = 8) -> str:
+    """Extract the current if predicate, including conservative multiline conditions."""
+    if branch_line <= 0 or branch_line > len(lines):
+        return ""
+    candidate = "\n".join(lines[branch_line - 1 : branch_line - 1 + max_lines])
+    match = re.search(r"\bif\s*\(", candidate)
+    if not match:
+        return lines[branch_line - 1]
+
+    open_paren = candidate.find("(", match.start())
+    depth = 0
+    quote = ""
+    escaped = False
+    for index in range(open_paren, len(candidate)):
+        char = candidate[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+        if char in {'"', "'"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return candidate[match.start() : index + 1]
+    return lines[branch_line - 1]
+
+
 def _analyze_snippet_solvability(
     branch_line_text: str,
     branch_snippet: str,
     blocked_side_snippet: str = "",
+    assignment_snippet: Optional[str] = None,
 ) -> tuple:
     combined_snippet = "\n".join((branch_snippet, blocked_side_snippet))
     hints = [hint for pattern, hint in _AUDIT_HINTS if pattern.search(combined_snippet)]
@@ -254,14 +289,17 @@ def _analyze_snippet_solvability(
             "pattern": "generated_skeleton_variable",
         }
 
+    assignment_source = assignment_snippet if assignment_snippet is not None else branch_snippet
     assignments = [
         {
             "variable": match.group("var"),
             "callee": match.group("callee"),
         }
-        for match in _PAT_CALL_ASSIGNMENT.finditer(branch_snippet)
+        for match in _PAT_CALL_ASSIGNMENT.finditer(assignment_source)
     ]
-    checked_variables = _find_null_checked_variables(branch_snippet)
+    # Attribution rule: the NULL check must be the current blocker's predicate.
+    # Nearby branches are context only and cannot supply the checked variable.
+    checked_variables = _find_null_checked_variables(branch_line_text)
     same_variable = [
         item for item in assignments if item["variable"] in checked_variables
     ]
@@ -380,14 +418,20 @@ def _enrich_with_snippet_solvability(
                 code_cache[source_file] = stripped.splitlines()
             code_lines = code_cache[source_file]
 
-            branch_line_text = code_lines[branch_line - 1] if 0 < branch_line <= len(code_lines) else ""
+            branch_line_text = _extract_if_statement(code_lines, branch_line)
             branch_snippet = _extract_range(code_lines, branch_line, radius=4)
             blocked_side_snippet = _extract_range(code_lines, blocked_side_line, radius=4)
+            assignment_start = max(0, branch_line - 1 - 4)
+            assignment_snippet = "\n".join(
+                code_lines[assignment_start : branch_line - 1]
+            )
+            assignment_snippet = "\n".join((assignment_snippet, branch_line_text))
 
             solv, reason, hints, evidence = _analyze_snippet_solvability(
                 branch_line_text,
                 branch_snippet,
                 blocked_side_snippet,
+                assignment_snippet=assignment_snippet,
             )
             blocker["solvability_evidence"] = evidence
             blocker["source_evidence_locations"] = {

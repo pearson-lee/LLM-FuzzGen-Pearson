@@ -415,8 +415,10 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
 
     yaml_file = getattr(args, "yaml_file", None) or infer_introspector_yaml_path(args.project_name)
     if not Path(yaml_file).exists():
-        logging.info("Skipping auto call-path collection because YAML is missing: %s", yaml_file)
-        return args
+        logging.info(
+            "Introspector YAML is missing; continuing with runtime and textual call-site collection: %s",
+            yaml_file,
+        )
 
     blocker = {
         "function_name": args.function_name,
@@ -442,6 +444,7 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
         yaml_file=yaml_file,
         project_name=args.project_name,
         max_gdb_inputs=getattr(args, "max_gdb_inputs", 0),
+        source_root=getattr(args, "callpath_source_root", None),
     )
 
     gdb_result = extraction_result.get("gdb_result", {})
@@ -1105,6 +1108,11 @@ def main():
     parser.add_argument("--header-file", default=None, help="Path to related header file to embed")
     parser.add_argument("--target-name", default=None, help="Optional fuzz target executable name used for auto-resolving fuzz target source")
     parser.add_argument("--yaml-file", default=None, help="Optional introspector exe_to_fuzz_introspector_logs.yaml path for auto call-path collection")
+    parser.add_argument(
+        "--callpath-source-root",
+        default=None,
+        help="Optional stable source root used for textual call-site collection.",
+    )
     parser.add_argument(
         "--skip-input-dependent-pipeline",
         action="store_true",

@@ -1,0 +1,25 @@
+{
+  "audited_count": 28,
+  "label_counts": {
+    "non_resource_guard": 22,
+    "resource_guard": 3,
+    "unknown": 3
+  },
+  "strong_evidence_count": 1,
+  "strong_evidence_decided_count": 1,
+  "strong_evidence_precision": 1.0,
+  "resource_guard_recall": 0.3333333333333333,
+  "false_downrank_count": 0,
+  "false_downrank_blockers": [],
+  "unknown_count": 3,
+  "top_k": {
+    "10": {
+      "old_resource_guard_count": 1,
+      "new_resource_guard_count": 0
+    },
+    "20": {
+      "old_resource_guard_count": 3,
+      "new_resource_guard_count": 0
+    }
+  }
+}

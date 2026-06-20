@@ -72,6 +72,28 @@ def test_calltree_evidence_upgrades_non_inactive_callsite_to_active():
     assert entry["callsite_path_status"] == "present_in_target_calltree"
 
 
+def test_textual_callsite_uses_explicit_session_source_root(tmp_path):
+    source_root = tmp_path / "source_root"
+    source_file = source_root / "src" / "sample.c"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text(
+        "void caller(void) {\n"
+        "    blocker_api(1);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    call_sites = enumerate_textual_call_sites(
+        "missing-live-project",
+        "blocker_api",
+        "/src/missing-live-project/src/sample.c",
+        str(source_root),
+    )
+
+    assert call_sites["total_candidates"] == 1
+    assert call_sites["entries"][0]["file"].endswith("sample.c")
+
+
 def test_libpcap_inactive_callsite_is_filtered_when_build_artifacts_exist():
     source = "external/oss-fuzz/build/out/libpcap/source_code/gencode.c"
     if not Path(source).is_file():

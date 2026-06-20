@@ -4,6 +4,7 @@ from blocker_process.global_blocker_selector import (
     _analyze_snippet_solvability,
     _compute_actionability_score,
     _compute_impact_score,
+    _extract_if_statement,
     _select_source_evidence_candidates,
     _strip_comments_preserve_strings,
 )
@@ -71,6 +72,39 @@ def test_unlinked_resource_text_is_only_weak_evidence() -> None:
     assert score == 1.0
     assert reason == "normal"
     assert evidence["grade"] == "weak"
+
+
+def test_nearby_null_check_is_not_attributed_to_current_branch() -> None:
+    branch = """
+LUT = cmsPipelineDup(xform->Lut);
+if (LUT == NULL) return NULL;
+if ((xform->EntryColorSpace == cmsSigLabData) && (Version < 4.0)) {
+    insert_conversion_stage(LUT);
+}
+"""
+
+    score, reason, _hints, evidence = _analyze_snippet_solvability(
+        "if ((xform->EntryColorSpace == cmsSigLabData) && (Version < 4.0))",
+        branch,
+        "insert_conversion_stage(LUT);",
+    )
+
+    assert score == 1.0
+    assert reason == "normal"
+    assert evidence["grade"] == "none"
+
+
+def test_multiline_if_statement_is_extracted_from_branch_line() -> None:
+    lines = [
+        "if ((ptr == NULL) ||",
+        "    failed_to_initialize(ptr)) {",
+        "    return ERROR;",
+        "}",
+    ]
+
+    predicate = _extract_if_statement(lines, 1)
+
+    assert predicate == "if ((ptr == NULL) ||\n    failed_to_initialize(ptr))"
 
 
 def test_comments_are_removed_but_resource_strings_are_preserved() -> None:

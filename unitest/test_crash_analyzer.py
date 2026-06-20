@@ -1,13 +1,5 @@
 import unittest
-import sys
-import types
 
-sys.modules.setdefault("prompts", types.ModuleType("prompts"))
-sys.modules.setdefault("prompts.prompt_generator", types.ModuleType("prompts.prompt_generator"))
-sys.modules.setdefault("external.oss_fuzz", types.ModuleType("external.oss_fuzz"))
-sys.modules["external.oss_fuzz"].OSSFuzz = object
-sys.modules.setdefault("llm_interface.llm_client", types.ModuleType("llm_interface.llm_client"))
-sys.modules["llm_interface.llm_client"].LLMClient = object
 from crash_analyzer.crash_analyzer import CrashAnalyzer, CrashHeuristicTriage
 
 

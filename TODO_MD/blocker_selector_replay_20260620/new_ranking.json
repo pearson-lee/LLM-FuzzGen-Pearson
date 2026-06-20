@@ -928,12 +928,8 @@
     "function_coverage_evidence_freshness": "introspector_snapshot_may_be_stale",
     "sides_hitcount_diff_role": "audit_only",
     "solvability_evidence": {
-      "grade": "unknown",
-      "pattern": "same_variable_call_null_check_without_resource_evidence",
-      "assigned_variable": "LUT",
-      "checked_variable": "LUT",
-      "callee": "cmsPipelineDup",
-      "resource_terms": []
+      "grade": "none",
+      "pattern": "none"
     },
     "source_evidence_locations": {
       "source_file": "/src/lcms/src/cmsvirt.c",

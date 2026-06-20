@@ -4,6 +4,8 @@ import sys
 import time
 import argparse
 import json
+import os
+import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -42,7 +44,12 @@ class BlockerRuntimeState:
     sessions_run: int = 0
     total_blockers_attempted: int = 0
     total_blockers_succeeded: int = 0
-    last_artifact_refresh_elapsed: int | None = None
+    last_artifact_refresh_elapsed: float | None = None
+    max_full_refresh_elapsed: float | None = None
+    max_light_refresh_elapsed: float | None = None
+    max_coverage_elapsed: float | None = None
+    max_blocker_attempt_elapsed: float | None = None
+    last_artifact_refresh_skip_reason: str | None = None
     last_stall_elapsed: int | None = None
     artifact_branch_covered_baseline: int | None = None
     artifact_target_fingerprint: str | None = None
@@ -58,8 +65,26 @@ class BlockerCoverageContext:
     target_reports: dict[str, str]
 
 
+@dataclass(frozen=True)
+class BlockerSessionArtifacts:
+    root: Path
+    blocker_json: Path
+    all_functions_js: Path | None = None
+    summary_json: Path | None = None
+    yaml_file: Path | None = None
+    source_root: Path | None = None
+    cfg_data_files: dict[str, Path] = field(default_factory=dict)
+
+
 BLOCKER_FULL_REFRESH_TARGET_THRESHOLD = 3
 BLOCKER_FULL_REFRESH_SESSION_INTERVAL = 3
+BLOCKER_FULL_REFRESH_BOOTSTRAP_SECONDS = 1200.0
+BLOCKER_LIGHT_REFRESH_BOOTSTRAP_SECONDS = 600.0
+BLOCKER_ATTEMPT_BOOTSTRAP_SECONDS = 600.0
+BLOCKER_COVERAGE_BOOTSTRAP_SECONDS = 180.0
+BLOCKER_SCHEDULING_OVERHEAD_SECONDS = 120.0
+BLOCKER_REFRESH_SAFETY_MULTIPLIER = 1.20
+BLOCKER_REFRESH_SAFETY_BUFFER_SECONDS = 60.0
 
 
 def _live_revalidate_blocker_before_classify(
@@ -194,6 +219,215 @@ def _resolve_blocker_json_path(project_name: str, explicit_path: Path | None) ->
     return None
 
 
+def _update_max_elapsed(current: float | None, elapsed: float) -> float:
+    return max(float(current or 0.0), float(elapsed))
+
+
+def _record_coverage_elapsed(state: BlockerRuntimeState, elapsed: float) -> None:
+    state.max_coverage_elapsed = _update_max_elapsed(state.max_coverage_elapsed, elapsed)
+
+
+def _coverage_with_timing(
+    project_name: str,
+    state: BlockerRuntimeState,
+    *,
+    deadline: float | None,
+) -> TotalCoverageSummary | None:
+    started_at = time.perf_counter()
+    summary = oss_fuzz.coverage(project_name, deadline=deadline)
+    _record_coverage_elapsed(state, time.perf_counter() - started_at)
+    return summary
+
+
+def _minimum_blocker_attempt_reserve(
+    state: BlockerRuntimeState,
+    blocker_fuzz_seconds: int,
+) -> float:
+    attempt_estimate = max(
+        float(state.max_blocker_attempt_elapsed or 0.0) * BLOCKER_REFRESH_SAFETY_MULTIPLIER,
+        BLOCKER_ATTEMPT_BOOTSTRAP_SECONDS,
+        float(max(1, blocker_fuzz_seconds)),
+    )
+    return attempt_estimate + BLOCKER_SCHEDULING_OVERHEAD_SECONDS
+
+
+def _minimum_post_refresh_reserve(
+    state: BlockerRuntimeState,
+    blocker_fuzz_seconds: int,
+) -> float:
+    coverage_estimate = max(
+        float(state.max_coverage_elapsed or 0.0) * BLOCKER_REFRESH_SAFETY_MULTIPLIER,
+        BLOCKER_COVERAGE_BOOTSTRAP_SECONDS,
+    )
+    return _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds) + coverage_estimate
+
+
+def _refresh_elapsed_estimate(state: BlockerRuntimeState, refresh_mode: str) -> float:
+    if refresh_mode == "light_refresh":
+        observed = state.max_light_refresh_elapsed
+        bootstrap = BLOCKER_LIGHT_REFRESH_BOOTSTRAP_SECONDS
+    else:
+        observed = state.max_full_refresh_elapsed
+        bootstrap = BLOCKER_FULL_REFRESH_BOOTSTRAP_SECONDS
+    base = max(float(observed or 0.0), bootstrap)
+    return base * BLOCKER_REFRESH_SAFETY_MULTIPLIER + BLOCKER_REFRESH_SAFETY_BUFFER_SECONDS
+
+
+def _session_artifact_root(project_name: str, session_number: int) -> Path:
+    if experiment_dir is not None:
+        return experiment_dir / "blocker_sessions" / project_name / f"session_{session_number:03d}"
+    return Path("/tmp/llm-fuzzgen-session-artifacts") / str(os.getpid()) / project_name / (
+        f"session_{session_number:03d}"
+    )
+
+
+def _copy_tree_snapshot(source: Path, destination: Path) -> None:
+    try:
+        shutil.copytree(source, destination, copy_function=os.link)
+    except OSError:
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.copytree(source, destination, copy_function=shutil.copy2)
+
+
+def _first_existing_file(candidates: list[Path]) -> Path | None:
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _first_existing_dir(candidates: list[Path]) -> Path | None:
+    return next((path for path in candidates if path.is_dir()), None)
+
+
+def _create_blocker_session_artifacts(
+    project_name: str,
+    session_number: int,
+    blocker_json_path: Path,
+    candidate_blockers: list[dict],
+) -> BlockerSessionArtifacts | None:
+    """Snapshot static session evidence outside mutable OSS-Fuzz build output."""
+    final_root = _session_artifact_root(project_name, session_number)
+    temporary_root = final_root.with_name(f".{final_root.name}.tmp")
+    shutil.rmtree(temporary_root, ignore_errors=True)
+    temporary_root.mkdir(parents=True, exist_ok=True)
+
+    build_out = oss_fuzz.build_out_dir / project_name
+    inspector_dir = build_out / "inspector"
+    manifest: dict[str, object] = {
+        "project_name": project_name,
+        "session_number": session_number,
+        "source_blocker_json": str(blocker_json_path),
+        "candidate_targets": [],
+        "copied_cfg_targets": [],
+        "missing_cfg_targets": [],
+    }
+
+    try:
+        cached_blocker_json = temporary_root / "branch-blockers.json"
+        shutil.copy2(blocker_json_path, cached_blocker_json)
+
+        all_functions_source = _first_existing_file(
+            [blocker_json_path.parent / "all_functions.js", inspector_dir / "all_functions.js"]
+        )
+        cached_all_functions = None
+        if all_functions_source:
+            cached_all_functions = temporary_root / "all_functions.js"
+            shutil.copy2(all_functions_source, cached_all_functions)
+
+        summary_source = _first_existing_file(
+            [
+                blocker_json_path.parent / "summary_exclude_target.json",
+                blocker_json_path.parent / "summary.json",
+                inspector_dir / "summary_exclude_target.json",
+                inspector_dir / "summary.json",
+            ]
+        )
+        cached_summary = None
+        if summary_source:
+            cached_summary = temporary_root / summary_source.name
+            shutil.copy2(summary_source, cached_summary)
+
+        yaml_source = inspector_dir / "exe_to_fuzz_introspector_logs.yaml"
+        cached_yaml = None
+        copied_cfg_files: dict[str, Path] = {}
+        candidate_targets = sorted(
+            {
+                str(blocker.get("best_target") or "").strip()
+                for blocker in candidate_blockers
+                if str(blocker.get("best_target") or "").strip()
+            }
+        )
+        manifest["candidate_targets"] = candidate_targets
+        if yaml_source.is_file():
+            cached_yaml = temporary_root / yaml_source.name
+            shutil.copy2(yaml_source, cached_yaml)
+            from blocker_process.blocker_callpath_extractor import get_data_file_for_target
+
+            for target_name in candidate_targets:
+                data_file = get_data_file_for_target(str(yaml_source), target_name)
+                source_data = Path(data_file) if data_file else None
+                if source_data and source_data.is_file():
+                    destination = temporary_root / source_data.name
+                    shutil.copy2(source_data, destination)
+                    copied_cfg_files[target_name] = destination
+                    manifest["copied_cfg_targets"].append(target_name)
+                else:
+                    manifest["missing_cfg_targets"].append(target_name)
+
+        source_root_source = _first_existing_dir(
+            [
+                build_out / "source_code",
+                inspector_dir / "source-code",
+                build_out / "src" / project_name,
+                build_out / "src",
+            ]
+        )
+        cached_source_root = None
+        if source_root_source:
+            cached_source_root = temporary_root / "source_root"
+            _copy_tree_snapshot(source_root_source, cached_source_root)
+            manifest["source_root"] = str(source_root_source)
+
+        (temporary_root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        final_root.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(final_root, ignore_errors=True)
+        temporary_root.replace(final_root)
+
+        def final_path(path: Path | None) -> Path | None:
+            return final_root / path.name if path is not None else None
+
+        return BlockerSessionArtifacts(
+            root=final_root,
+            blocker_json=final_root / cached_blocker_json.name,
+            all_functions_js=final_path(cached_all_functions),
+            summary_json=final_path(cached_summary),
+            yaml_file=final_path(cached_yaml),
+            source_root=final_root / "source_root" if cached_source_root else None,
+            cfg_data_files={target: final_root / path.name for target, path in copied_cfg_files.items()},
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to create blocker session artifact cache for %s: %s", project_name, exc)
+        shutil.rmtree(temporary_root, ignore_errors=True)
+        return None
+
+
+def _resolve_cached_blocker_source(
+    project_name: str,
+    source_file: str | None,
+    session_artifacts: BlockerSessionArtifacts | None,
+) -> str | None:
+    if not session_artifacts or not session_artifacts.source_root or not source_file:
+        return None
+    from blocker_process.blocker_callpath_extractor import resolve_project_source_file
+
+    return resolve_project_source_file(
+        project_name,
+        source_file,
+        str(session_artifacts.source_root),
+    )
+
+
 def _branch_blocker_snapshot_path(project_name: str, stage: str | None = None) -> Path:
     run_id = experiment_logger.run_id if experiment_logger is not None else datetime.now().strftime("%Y%m%d_%H%M%S")
     if experiment_dir is not None:
@@ -275,9 +509,12 @@ def ensure_blocker_artifacts(
     force_refresh: bool = False,
     prefer_full_refresh: bool = False,
     deadline: float | None = None,
+    post_refresh_reserve_seconds: float = 0.0,
 ) -> bool:
+    state.last_artifact_refresh_skip_reason = None
     if deadline is not None and deadline - time.monotonic() <= 0:
         logger.info("Skipping blocker artifact refresh for %s because the fuzzing deadline was reached.", project_name)
+        state.last_artifact_refresh_skip_reason = "deadline_reached"
         return False
 
     blocker_json_path = _resolve_blocker_json_path(project_name, None)
@@ -287,6 +524,23 @@ def ensure_blocker_artifacts(
 
     use_light_refresh = state.artifacts_ready and force_refresh and not prefer_full_refresh
     refresh_mode = "light_refresh" if use_light_refresh else "full_refresh"
+    refresh_deadline = deadline
+    if deadline is not None and post_refresh_reserve_seconds > 0:
+        refresh_deadline = deadline - max(0.0, post_refresh_reserve_seconds)
+        available = refresh_deadline - time.monotonic()
+        estimate = _refresh_elapsed_estimate(state, refresh_mode)
+        if available <= 0 or estimate > available:
+            state.last_artifact_refresh_skip_reason = "insufficient_time_budget"
+            logger.info(
+                "Skipping blocker artifact refresh for %s: mode=%s estimate=%.2fs available=%.2fs "
+                "post_refresh_reserve=%.2fs.",
+                project_name,
+                refresh_mode,
+                estimate,
+                max(0.0, available),
+                post_refresh_reserve_seconds,
+            )
+            return False
 
     logger.info(
         "Refreshing blocker artifacts for %s (mode=%s, force_refresh=%s, report_seconds=%s).",
@@ -297,16 +551,45 @@ def ensure_blocker_artifacts(
     )
     started_at = time.perf_counter()
     if use_light_refresh:
-        success = oss_fuzz.refresh_blocker_report_from_existing_introspector(project_name, deadline=deadline)
+        success = oss_fuzz.refresh_blocker_report_from_existing_introspector(
+            project_name,
+            deadline=refresh_deadline,
+        )
         if not success:
             logger.warning(
                 "Light blocker artifact refresh failed for %s; retrying with full refresh.",
                 project_name,
             )
             refresh_mode = "full_refresh_fallback"
-            success = oss_fuzz.generate_report(project_name, seconds=report_seconds, clean=False, deadline=deadline)
+            fallback_available = (refresh_deadline - time.monotonic()) if refresh_deadline is not None else None
+            fallback_estimate = _refresh_elapsed_estimate(state, "full_refresh")
+            if (
+                post_refresh_reserve_seconds > 0
+                and fallback_available is not None
+                and fallback_estimate > fallback_available
+            ):
+                state.last_artifact_refresh_skip_reason = "insufficient_time_for_full_refresh_fallback"
+                logger.info(
+                    "Skipping full blocker artifact refresh fallback for %s: estimate=%.2fs available=%.2fs.",
+                    project_name,
+                    fallback_estimate,
+                    max(0.0, fallback_available),
+                )
+                success = False
+            else:
+                success = oss_fuzz.generate_report(
+                    project_name,
+                    seconds=report_seconds,
+                    clean=False,
+                    deadline=refresh_deadline,
+                )
     else:
-        success = oss_fuzz.generate_report(project_name, seconds=report_seconds, clean=force_refresh, deadline=deadline)
+        success = oss_fuzz.generate_report(
+            project_name,
+            seconds=report_seconds,
+            clean=force_refresh,
+            deadline=refresh_deadline,
+        )
     elapsed = time.perf_counter() - started_at
     _log_experiment_event(
         "blocker_artifacts_refresh_finished",
@@ -323,7 +606,11 @@ def ensure_blocker_artifacts(
 
     state.artifacts_ready = True
     state.artifacts_dirty = False
-    state.last_artifact_refresh_elapsed = report_seconds
+    state.last_artifact_refresh_elapsed = elapsed
+    if refresh_mode.startswith("full_refresh"):
+        state.max_full_refresh_elapsed = _update_max_elapsed(state.max_full_refresh_elapsed, elapsed)
+    else:
+        state.max_light_refresh_elapsed = _update_max_elapsed(state.max_light_refresh_elapsed, elapsed)
     current_fingerprint = _get_project_target_fingerprint(project_name)
     if refresh_mode.startswith("full_refresh"):
         state.artifact_target_fingerprint = current_fingerprint
@@ -342,7 +629,7 @@ def ensure_blocker_artifacts(
         coverage_context = _load_blocker_coverage_context(
             project_name,
             resolved_json_path,
-            deadline=deadline,
+            deadline=refresh_deadline,
             repair_missing=True,
         )
         if coverage_context is None:
@@ -682,6 +969,7 @@ def run_blocker_pipeline(
     skip_input_independent_pipeline: bool = False,
     enable_blocker_triage: bool = False,
     deadline: float | None = None,
+    session_artifacts: BlockerSessionArtifacts | None = None,
 ) -> dict:
     if deadline is not None:
         remaining = deadline - time.monotonic()
@@ -869,6 +1157,11 @@ def run_blocker_pipeline(
         )
         else None
     )
+    cached_source_file = _resolve_cached_blocker_source(
+        project_name,
+        blocker.get("source_file"),
+        session_artifacts,
+    )
     args = argparse.Namespace(
         backend=llm_backend,
         model=model_name,
@@ -878,12 +1171,17 @@ def run_blocker_pipeline(
         blocked_side_line_number=blocked_side_line_number,
         blocker_json=None,
         blocker_json_file=str(resolved_json_path),
-        source_file=None,
+        source_file=cached_source_file,
         source_api_file=blocker.get("source_file"),
         fuzz_file=None,
         header_file=None,
         target_name=blocker.get("best_target"),
-        yaml_file=None,
+        yaml_file=(str(session_artifacts.yaml_file) if session_artifacts and session_artifacts.yaml_file else None),
+        callpath_source_root=(
+            str(session_artifacts.source_root)
+            if session_artifacts and session_artifacts.source_root
+            else None
+        ),
         max_gdb_inputs=0,
         runtime_blocker_segment_file=None,
         runtime_blocker_segment_source_codes_file=None,
@@ -1172,6 +1470,28 @@ def run_blocker_session(
 
     state.sessions_run += 1
     state.last_stall_elapsed = elapsed_seconds
+    post_refresh_reserve = _minimum_post_refresh_reserve(state, blocker_fuzz_seconds)
+    if deadline is not None and deadline - time.monotonic() <= post_refresh_reserve:
+        logger.info(
+            "Skipping blocker session for %s because %.2fs remaining is not enough for one blocker attempt "
+            "and coverage validation (reserve=%.2fs).",
+            project_name,
+            max(0.0, deadline - time.monotonic()),
+            post_refresh_reserve,
+        )
+        _log_blocker_session_skipped(
+            project_name,
+            state,
+            "insufficient_time_for_blocker_attempt",
+            elapsed_seconds,
+            post_refresh_reserve_seconds=post_refresh_reserve,
+        )
+        return {
+            "success": False,
+            "attempted": 0,
+            "succeeded": 0,
+            "reason": "insufficient_time_for_blocker_attempt",
+        }
     current_target_fingerprint = _get_project_target_fingerprint(project_name)
     target_fingerprint_changed = (
         state.artifact_target_fingerprint is not None
@@ -1207,29 +1527,41 @@ def run_blocker_session(
         and state.artifacts_ready
         and state.artifact_branch_covered_baseline is not None
     ):
-        refresh_probe_summary = oss_fuzz.coverage(project_name, deadline=deadline)
-        current_branch_covered = _get_coverage_count(refresh_probe_summary, "branches")
-        branch_growth = current_branch_covered - state.artifact_branch_covered_baseline
-        branch_growth_ratio = branch_growth / max(
-            state.artifact_branch_covered_baseline,
-            blocker_refresh_branch_growth_floor,
+        probe_estimate = max(
+            float(state.max_coverage_elapsed or 0.0) * BLOCKER_REFRESH_SAFETY_MULTIPLIER,
+            BLOCKER_COVERAGE_BOOTSTRAP_SECONDS,
         )
-        logger.info(
-            "Blocker artifact refresh check for %s: baseline=%d current=%d delta=%d ratio=%.4f threshold=%.4f.",
-            project_name,
-            state.artifact_branch_covered_baseline,
-            current_branch_covered,
-            branch_growth,
-            branch_growth_ratio,
-            blocker_refresh_branch_growth_threshold,
-        )
-        if branch_growth_ratio >= blocker_refresh_branch_growth_threshold:
-            force_refresh = True
-            state.artifacts_dirty = True
+        if deadline is None or deadline - time.monotonic() > post_refresh_reserve + probe_estimate:
+            probe_deadline = deadline - post_refresh_reserve if deadline is not None else None
+            refresh_probe_summary = _coverage_with_timing(project_name, state, deadline=probe_deadline)
+            current_branch_covered = _get_coverage_count(refresh_probe_summary, "branches")
+            branch_growth = current_branch_covered - state.artifact_branch_covered_baseline
+            branch_growth_ratio = branch_growth / max(
+                state.artifact_branch_covered_baseline,
+                blocker_refresh_branch_growth_floor,
+            )
             logger.info(
-                "Refreshing blocker artifacts for %s because covered branch growth ratio %.4f reached the threshold.",
+                "Blocker artifact refresh check for %s: baseline=%d current=%d delta=%d ratio=%.4f threshold=%.4f.",
                 project_name,
+                state.artifact_branch_covered_baseline,
+                current_branch_covered,
+                branch_growth,
                 branch_growth_ratio,
+                blocker_refresh_branch_growth_threshold,
+            )
+            if branch_growth_ratio >= blocker_refresh_branch_growth_threshold:
+                force_refresh = True
+                state.artifacts_dirty = True
+                logger.info(
+                    "Refreshing blocker artifacts for %s because covered branch growth ratio %.4f reached the threshold.",
+                    project_name,
+                    branch_growth_ratio,
+                )
+        else:
+            logger.info(
+                "Skipping blocker refresh coverage probe for %s to preserve %.2fs for blocker work.",
+                project_name,
+                post_refresh_reserve,
             )
     if target_fingerprint_changed:
         force_refresh = True
@@ -1248,18 +1580,30 @@ def run_blocker_session(
         force_refresh=force_refresh,
         prefer_full_refresh=prefer_full_refresh,
         deadline=deadline,
+        post_refresh_reserve_seconds=post_refresh_reserve,
     ):
         _log_blocker_session_skipped(
             project_name,
             state,
-            "artifact_refresh_failed",
+            state.last_artifact_refresh_skip_reason or "artifact_refresh_failed",
             elapsed_seconds,
             force_refresh=force_refresh,
             prefer_full_refresh=prefer_full_refresh,
         )
-        return {"success": False, "attempted": 0, "succeeded": 0, "reason": "artifact_refresh_failed"}
+        return {
+            "success": False,
+            "attempted": 0,
+            "succeeded": 0,
+            "reason": state.last_artifact_refresh_skip_reason or "artifact_refresh_failed",
+        }
     if refreshed_artifacts:
-        baseline_summary = oss_fuzz.coverage(project_name, deadline=deadline)
+        attempt_reserve = _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
+        baseline_coverage_deadline = deadline - attempt_reserve if deadline is not None else None
+        baseline_summary = _coverage_with_timing(
+            project_name,
+            state,
+            deadline=baseline_coverage_deadline,
+        )
         state.artifact_branch_covered_baseline = _get_coverage_count(baseline_summary, "branches")
         logger.info(
             "Updated blocker artifact branch baseline for %s to %d covered branches.",
@@ -1278,10 +1622,15 @@ def run_blocker_session(
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_blocker_json"}
 
+    selection_deadline = (
+        deadline - _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
+        if deadline is not None
+        else None
+    )
     coverage_context = _load_blocker_coverage_context(
         project_name,
         resolved_json_path,
-        deadline=deadline,
+        deadline=selection_deadline,
         repair_missing=True,
     )
     if coverage_context is None:
@@ -1323,6 +1672,25 @@ def run_blocker_session(
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_blockers"}
 
+    session_artifacts = _create_blocker_session_artifacts(
+        project_name=project_name,
+        session_number=state.sessions_run,
+        blocker_json_path=resolved_json_path,
+        candidate_blockers=blockers,
+    )
+    if session_artifacts is not None:
+        resolved_json_path = session_artifacts.blocker_json
+        logger.info(
+            "Using immutable blocker session artifacts for %s from %s.",
+            project_name,
+            session_artifacts.root,
+        )
+    else:
+        logger.warning(
+            "Blocker session artifact cache is unavailable for %s; preserving the initial queue if live reranking fails.",
+            project_name,
+        )
+
     attempted = 0
     succeeded = 0
     pipeline_errors = 0
@@ -1358,6 +1726,7 @@ def run_blocker_session(
         blocker_artifact_report_seconds=blocker_artifact_report_seconds,
         artifacts_ready=state.artifacts_ready,
         artifacts_dirty=state.artifacts_dirty,
+        session_artifact_root=str(session_artifacts.root) if session_artifacts else None,
     )
 
     if not selected_blockers:
@@ -1377,11 +1746,22 @@ def run_blocker_session(
         if deadline is not None and deadline - time.monotonic() <= 0:
             logger.info("Stopping blocker session for %s because the fuzzing deadline was reached.", project_name)
             break
+        if (
+            deadline is not None
+            and deadline - time.monotonic()
+            <= _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
+        ):
+            logger.info(
+                "Stopping blocker session for %s because the remaining budget cannot fit another blocker attempt.",
+                project_name,
+            )
+            break
         if not selected_blockers:
             break
         blocker = selected_blockers.pop(0)
         blocker_key = _blocker_identity(blocker)
         session_seen_blocker_keys.add(blocker_key)
+        attempt_started_at = time.perf_counter()
         pipeline_result = run_blocker_pipeline(
             project_name=project_name,
             llm_backend=llm_backend,
@@ -1398,6 +1778,11 @@ def run_blocker_session(
             skip_input_independent_pipeline=skip_input_independent_pipeline,
             enable_blocker_triage=enable_blocker_triage,
             deadline=deadline,
+            session_artifacts=session_artifacts,
+        )
+        state.max_blocker_attempt_elapsed = _update_max_elapsed(
+            state.max_blocker_attempt_elapsed,
+            time.perf_counter() - attempt_started_at,
         )
         attempt_result = pipeline_result.get("attempt_result")
         if not _should_persist_blocker_attempt(pipeline_result):
@@ -1434,7 +1819,17 @@ def run_blocker_session(
         if deadline is not None and deadline - time.monotonic() <= 0:
             logger.info("Skipping post-blocker coverage for %s because the fuzzing deadline was reached.", project_name)
             break
-        post_summary = oss_fuzz.coverage(project_name, deadline=deadline)
+        next_attempt_reserve = (
+            _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
+            if attempted < blocker_session_size
+            else 0.0
+        )
+        post_coverage_deadline = deadline - next_attempt_reserve if deadline is not None else None
+        post_summary = _coverage_with_timing(
+            project_name,
+            state,
+            deadline=post_coverage_deadline,
+        )
         _log_experiment_event(
             "coverage_after_blocker_attempt",
             project_name=project_name,
@@ -1473,7 +1868,10 @@ def run_blocker_session(
         current_pre_blocker_coverage = post_summary
 
         if attempted < blocker_session_size:
+            prior_queue = list(selected_blockers)
+            refreshed_within_session = False
             if state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker":
+                post_refresh_reserve = _minimum_post_refresh_reserve(state, blocker_fuzz_seconds)
                 if not ensure_blocker_artifacts(
                     project_name=project_name,
                     report_seconds=blocker_artifact_report_seconds,
@@ -1484,15 +1882,18 @@ def run_blocker_session(
                         or state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
                     ),
                     deadline=deadline,
+                    post_refresh_reserve_seconds=post_refresh_reserve,
                 ):
                     break
-                resolved_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
-                if resolved_json_path is None:
+                refreshed_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
+                if refreshed_json_path is None:
                     logger.warning(
                         "Blocker session stopped for %s because branch-blockers.json disappeared after refresh.",
                         project_name,
                     )
                     break
+                resolved_json_path = refreshed_json_path
+                refreshed_within_session = True
             coverage_context = _load_blocker_coverage_context(
                 project_name,
                 resolved_json_path,
@@ -1501,22 +1902,65 @@ def run_blocker_session(
             )
             if coverage_context is None:
                 logger.warning(
-                    "Stopping blocker session for %s because blocker coverage context is incomplete after rerank refresh.",
+                    "Keeping the existing blocker queue for %s because coverage context is incomplete after rerank.",
                     project_name,
                 )
-                break
-            reranked = _select_project_blockers(
-                project_name,
-                resolved_json_path,
-                blocker_top_k,
-                coverage_context,
-            )
+                selected_blockers = prior_queue
+                _log_experiment_event(
+                    "blocker_session_rerank_fallback",
+                    project_name=project_name,
+                    session_number=state.sessions_run,
+                    reason="coverage_context_unavailable",
+                    retained_queue_size=len(selected_blockers),
+                )
+                continue
+            try:
+                if not resolved_json_path.is_file():
+                    raise FileNotFoundError(resolved_json_path)
+                reranked = _select_project_blockers(
+                    project_name,
+                    resolved_json_path,
+                    blocker_top_k,
+                    coverage_context,
+                )
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Keeping the existing blocker queue for %s because reranking could not read its artifacts: %s",
+                    project_name,
+                    exc,
+                )
+                selected_blockers = prior_queue
+                _log_experiment_event(
+                    "blocker_session_rerank_fallback",
+                    project_name=project_name,
+                    session_number=state.sessions_run,
+                    reason="artifact_read_failed",
+                    error=str(exc),
+                    retained_queue_size=len(selected_blockers),
+                )
+                continue
             selected_blockers = [
                 candidate
                 for candidate in reranked
                 if _blocker_identity(candidate) not in state.attempted_blocker_keys
                 and _blocker_identity(candidate) not in session_seen_blocker_keys
             ]
+            if refreshed_within_session:
+                refreshed_session_artifacts = _create_blocker_session_artifacts(
+                    project_name=project_name,
+                    session_number=state.sessions_run,
+                    blocker_json_path=resolved_json_path,
+                    candidate_blockers=reranked,
+                )
+                if refreshed_session_artifacts is not None:
+                    session_artifacts = refreshed_session_artifacts
+                    resolved_json_path = session_artifacts.blocker_json
+                elif session_artifacts is not None:
+                    logger.warning(
+                        "Failed to replace the session artifact cache after refresh for %s; retaining the previous cache.",
+                        project_name,
+                    )
+                    resolved_json_path = session_artifacts.blocker_json
 
     _log_experiment_event(
         "blocker_session_finished",

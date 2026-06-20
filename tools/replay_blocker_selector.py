@@ -78,6 +78,18 @@ def _write_audit_csv(
     source_root: Path | None,
     top_k: int,
 ) -> None:
+    existing_manual: dict[str, dict[str, str]] = {}
+    if path.is_file():
+        with path.open("r", encoding="utf-8-sig", newline="") as existing_handle:
+            for row in csv.DictReader(existing_handle):
+                key = row.get("blocker_key", "").strip()
+                if key:
+                    existing_manual[key] = {
+                        "manual_label": row.get("manual_label", ""),
+                        "manual_reason": row.get("manual_reason", ""),
+                        "reviewer": row.get("reviewer", ""),
+                    }
+
     old_ranks = _rank_map(old_blockers)
     new_ranks = _rank_map(new_blockers)
     by_key = {_key(blocker): blocker for blocker in old_blockers + new_blockers}
@@ -119,7 +131,8 @@ def _write_audit_csv(
     ]
     old_by_key = {_key(blocker): blocker for blocker in old_blockers}
 
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    # UTF-8 BOM lets Excel detect Chinese text correctly when opening the CSV directly.
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for key in ordered_keys:
@@ -131,6 +144,7 @@ def _write_audit_csv(
                 blocker,
                 source_root,
             )
+            manual = existing_manual.get(key, {})
             writer.writerow(
                 {
                     "blocker_key": key,
@@ -164,9 +178,9 @@ def _write_audit_csv(
                     ),
                     "branch_context": branch_context,
                     "blocked_side_context": blocked_context,
-                    "manual_label": "",
-                    "manual_reason": "",
-                    "reviewer": "",
+                    "manual_label": manual.get("manual_label", ""),
+                    "manual_reason": manual.get("manual_reason", ""),
+                    "reviewer": manual.get("reviewer", ""),
                 }
             )
 
