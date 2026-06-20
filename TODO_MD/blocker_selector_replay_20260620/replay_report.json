@@ -1,0 +1,422 @@
+{
+  "snapshot": "experiments/20260618_213959_run_all_fuzzer/branch_blockers/lcms_initial_introspector_refresh.json",
+  "project_name": "lcms",
+  "source_root": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/lcms/source_code",
+  "top_k": 20,
+  "thresholds": {
+    "10000": {
+      "top_k_strong_evidence_count": 0,
+      "known_success_ranks": {
+        "cmsDetectBlackPoint:267:0": {
+          "old_rank": 3,
+          "new_rank": 1
+        },
+        "_cmsReadDevicelinkLUT:745:0": {
+          "old_rank": 2,
+          "new_rank": 3
+        },
+        "cmsDeleteContext:979:0": {
+          "old_rank": 5,
+          "new_rank": 4
+        },
+        "cmsWriteTag:1787:0": {
+          "old_rank": 7,
+          "new_rank": 24
+        },
+        "AddMLUBlock:150:0": {
+          "old_rank": 10,
+          "new_rank": 12
+        }
+      },
+      "top_k": [
+        {
+          "rank": 1,
+          "blocker_key": "cmsDetectBlackPoint:267:0",
+          "score": 7.2305631534092925,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 7.2305631534092925,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 2,
+          "blocker_key": "cmsDetectDestinationBlackPoint:403:1",
+          "score": 6.023357340170453,
+          "reach_confidence": 0.9069347960849279,
+          "coverage_benefit": 6.641444750132191,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 3,
+          "blocker_key": "_cmsReadDevicelinkLUT:745:0",
+          "score": 5.313205979041787,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 5.313205979041787,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 4,
+          "blocker_key": "cmsDeleteContext:979:0",
+          "score": 4.804021044733257,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 4.804021044733257,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 5,
+          "blocker_key": "cmsTransform2DeviceLink:1094:0",
+          "score": 4.714843793070351,
+          "reach_confidence": 0.8849386967155239,
+          "coverage_benefit": 5.327876168789581,
+          "solvability_score": 1.0,
+          "evidence_grade": "unknown"
+        },
+        {
+          "rank": 6,
+          "blocker_key": "Type_LUTB2A_Write:2986:0",
+          "score": 4.382026634673881,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 4.382026634673881,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 7,
+          "blocker_key": "WriteInputMatrixShaper:980:0",
+          "score": 4.380834352377899,
+          "reach_confidence": 0.9997279153242594,
+          "coverage_benefit": 4.382026634673881,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 8,
+          "blocker_key": "cmsDetectTAC:491:1",
+          "score": 3.897293818735835,
+          "reach_confidence": 0.8749416153549134,
+          "coverage_benefit": 4.454347296253507,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 9,
+          "blocker_key": "_cmsReadFloatInputTag:272:1",
+          "score": 3.8794408023711826,
+          "reach_confidence": 0.6960230873211533,
+          "coverage_benefit": 5.573724310356336,
+          "solvability_score": 1.0,
+          "evidence_grade": "unknown"
+        },
+        {
+          "rank": 10,
+          "blocker_key": "BuildRGBOutputMatrixShaper:496:0",
+          "score": 3.7612001156935624,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.7612001156935624,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 11,
+          "blocker_key": "cmsWriteTag:1869:0",
+          "score": 3.5553480614894135,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.5553480614894135,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 12,
+          "blocker_key": "AddMLUBlock:150:0",
+          "score": 3.5263605246161616,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.5263605246161616,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 13,
+          "blocker_key": "cmsDeleteTransform:162:0",
+          "score": 3.5263605246161616,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.5263605246161616,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 14,
+          "blocker_key": "ComputeAbsoluteIntent:263:1",
+          "score": 3.5253569848677495,
+          "reach_confidence": 0.8376923318673932,
+          "coverage_benefit": 4.208415011999673,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 15,
+          "blocker_key": "GetTable:1098:0",
+          "score": 3.4339872044851463,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.4339872044851463,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 16,
+          "blocker_key": "SaveDescription:3401:1",
+          "score": 3.4339872044851463,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.4339872044851463,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 17,
+          "blocker_key": "Type_LUTA2B_Write:2804:0",
+          "score": 3.311333625416099,
+          "reach_confidence": 0.75566259666574,
+          "coverage_benefit": 4.382026634673881,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 18,
+          "blocker_key": "_cmsContextGetClientChunk:769:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 19,
+          "blocker_key": "_cmsNewTag:675:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 20,
+          "blocker_key": "WriteStr:1730:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        }
+      ]
+    },
+    "100000": {
+      "top_k_strong_evidence_count": 0,
+      "known_success_ranks": {
+        "cmsDetectBlackPoint:267:0": {
+          "old_rank": 3,
+          "new_rank": 1
+        },
+        "_cmsReadDevicelinkLUT:745:0": {
+          "old_rank": 2,
+          "new_rank": 3
+        },
+        "cmsDeleteContext:979:0": {
+          "old_rank": 5,
+          "new_rank": 4
+        },
+        "cmsWriteTag:1787:0": {
+          "old_rank": 7,
+          "new_rank": 21
+        },
+        "AddMLUBlock:150:0": {
+          "old_rank": 10,
+          "new_rank": 12
+        }
+      },
+      "top_k": [
+        {
+          "rank": 1,
+          "blocker_key": "cmsDetectBlackPoint:267:0",
+          "score": 6.601766158298733,
+          "reach_confidence": 0.9130362349695992,
+          "coverage_benefit": 7.2305631534092925,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 2,
+          "blocker_key": "cmsDetectDestinationBlackPoint:403:1",
+          "score": 5.482851942772469,
+          "reach_confidence": 0.8255510885132845,
+          "coverage_benefit": 6.641444750132191,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 3,
+          "blocker_key": "_cmsReadDevicelinkLUT:745:0",
+          "score": 5.313205979041787,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 5.313205979041787,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 4,
+          "blocker_key": "cmsDeleteContext:979:0",
+          "score": 4.804021044733257,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 4.804021044733257,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 5,
+          "blocker_key": "cmsTransform2DeviceLink:1094:0",
+          "score": 4.304679039262885,
+          "reach_confidence": 0.8079540332561534,
+          "coverage_benefit": 5.327876168789581,
+          "solvability_score": 1.0,
+          "evidence_grade": "unknown"
+        },
+        {
+          "rank": 6,
+          "blocker_key": "Type_LUTB2A_Write:2986:0",
+          "score": 4.03208709711306,
+          "reach_confidence": 0.9201420788290429,
+          "coverage_benefit": 4.382026634673881,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 7,
+          "blocker_key": "WriteInputMatrixShaper:980:0",
+          "score": 3.942887643311484,
+          "reach_confidence": 0.8997863253756606,
+          "coverage_benefit": 4.382026634673881,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 8,
+          "blocker_key": "_cmsReadFloatInputTag:272:1",
+          "score": 3.6609338032704692,
+          "reach_confidence": 0.6568200361952278,
+          "coverage_benefit": 5.573724310356336,
+          "solvability_score": 1.0,
+          "evidence_grade": "unknown"
+        },
+        {
+          "rank": 9,
+          "blocker_key": "BuildRGBOutputMatrixShaper:496:0",
+          "score": 3.64300313192615,
+          "reach_confidence": 0.9685746623067896,
+          "coverage_benefit": 3.7612001156935624,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 10,
+          "blocker_key": "cmsDetectTAC:491:1",
+          "score": 3.5632831298440797,
+          "reach_confidence": 0.7999562882851793,
+          "coverage_benefit": 4.454347296253507,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 11,
+          "blocker_key": "cmsWriteTag:1869:0",
+          "score": 3.5553480614894135,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.5553480614894135,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 12,
+          "blocker_key": "AddMLUBlock:150:0",
+          "score": 3.5263605246161616,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.5263605246161616,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 13,
+          "blocker_key": "cmsDeleteTransform:162:0",
+          "score": 3.5263605246161616,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.5263605246161616,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 14,
+          "blocker_key": "GetTable:1098:0",
+          "score": 3.4339872044851463,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.4339872044851463,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 15,
+          "blocker_key": "_cmsContextGetClientChunk:769:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 16,
+          "blocker_key": "_cmsNewTag:675:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 17,
+          "blocker_key": "WriteStr:1730:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 18,
+          "blocker_key": "cmsBuildParametricToneCurve:879:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "unknown"
+        },
+        {
+          "rank": 19,
+          "blocker_key": "cmsStageAllocCLut16bitGranular:556:0",
+          "score": 3.295836866004329,
+          "reach_confidence": 1.0,
+          "coverage_benefit": 3.295836866004329,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        },
+        {
+          "rank": 20,
+          "blocker_key": "ComputeAbsoluteIntent:263:1",
+          "score": 3.241138444903815,
+          "reach_confidence": 0.7701565638517561,
+          "coverage_benefit": 4.208415011999673,
+          "solvability_score": 1.0,
+          "evidence_grade": "none"
+        }
+      ]
+    }
+  }
+}

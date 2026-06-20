@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import math
 import os
@@ -44,20 +45,77 @@ _PAT_GENERATED_SKELETON = re.compile(
     r"|YY_CURRENT_BUFFER(?:_LVALUE)?"
     r")\b"
 )
-_PAT_OOM_ALLOC = re.compile(
-    r"\b(\w{3,})\s*=\s*(?:malloc|calloc|realloc|g_try_malloc|zmalloc)\s*\("
+_PAT_CALL_ASSIGNMENT = re.compile(
+    r"\b(?P<var>[A-Za-z_]\w*)\s*=\s*"
+    r"(?:\([^;=()]*\)\s*)?"
+    r"(?P<callee>[A-Za-z_]\w*)\s*\("
 )
-_PAT_OOM_NULL_CHECK = re.compile(
-    r"\bif\s*\(\s*(?:!\s*(\w+)|(\w+)\s*==\s*NULL)\s*\)"
+_PAT_NULL_CHECKS = (
+    re.compile(r"\bif\s*\(\s*!\s*(?P<var>[A-Za-z_]\w*)\s*\)"),
+    re.compile(
+        r"\bif\s*\(\s*(?P<var>[A-Za-z_]\w*)\s*==\s*(?:NULL|nullptr)\s*\)"
+    ),
+    re.compile(
+        r"\bif\s*\(\s*(?:NULL|nullptr)\s*==\s*(?P<var>[A-Za-z_]\w*)\s*\)"
+    ),
 )
+_PAT_RESOURCE_FAILURE = re.compile(
+    r"\bENOMEM\b"
+    r"|out\s+of\s+memory"
+    r"|not\s+enough\s+memory"
+    r"|cannot\s+allocate\s+memory"
+    r"|allocation(?:\s+|_)(?:failed|failure)",
+    re.I,
+)
+_STANDARD_ALLOCATORS: frozenset[str] = frozenset({
+    "malloc",
+    "calloc",
+    "realloc",
+    "aligned_alloc",
+    "posix_memalign",
+    "g_try_malloc",
+    "zmalloc",
+})
+_HIT_SATURATION_THRESHOLD = 100_000
+_SOURCE_SCORE_POOL_SIZE = 20
+_SOURCE_BENEFIT_POOL_SIZE = 10
+_SOURCE_EVIDENCE_POOL_CAP = 30
+_SOURCE_EVIDENCE_MAX_PASSES = 3
+_STATE_PRIORITY = {
+    "stalled_at_branch": 2,
+    "unreached_branch": 1,
+    "resolved": 0,
+}
 _AUDIT_HINTS: List = [
     (re.compile(r"\b(yychar|yytable|yyreduce)\b"), "possible_parser_var"),
     (re.compile(r"\b(NOTREACHED|UNREACHABLE|ASSERT\s*\(\s*(?:false|0)\s*\))"), "possible_assertion_macro"),
-    (re.compile(r'"(?:out of memory|not enough memory|ENOMEM)"', re.I), "possible_oom_string"),
+    (_PAT_RESOURCE_FAILURE, "possible_resource_failure"),
 ]
 
 
-def _fetch_file_lines(project_name: str, source_file: str) -> List[str]:
+def _source_root_candidates(
+    source_root: Path,
+    project_name: str,
+    source_file: str,
+) -> List[Path]:
+    relative = Path(source_file.lstrip("/"))
+    candidates = [source_root / relative]
+
+    parts = relative.parts
+    project_prefix = ("src", project_name)
+    if project_name and parts[:2] == project_prefix:
+        project_relative = Path(*parts[2:])
+        candidates.extend((source_root / project_relative, source_root / "src" / project_relative))
+
+    candidates.append(source_root / relative.name)
+    return candidates
+
+
+def _fetch_file_lines(
+    project_name: str,
+    source_file: str,
+    source_root: Optional[str] = None,
+) -> List[str]:
     def _read(p: Path) -> List[str]:
         return p.read_text(encoding="utf-8", errors="replace").splitlines()
 
@@ -73,15 +131,27 @@ def _fetch_file_lines(project_name: str, source_file: str) -> List[str]:
     # FuzzIntrospector copies source files preserving the full container path structure,
     # so /src/foo/bar.c maps to .../inspector/source-code/src/foo/bar.c on the host.
     if project_name:
-        mirrored = (
-            Path(f"external/oss-fuzz/build/out/{project_name}/inspector/source-code")
-            / source_file.lstrip("/")
+        project_roots = (
+            Path(f"external/oss-fuzz/build/out/{project_name}/inspector/source-code"),
+            Path(f"external/oss-fuzz/build/out/{project_name}/source_code"),
+            Path(f"external/oss-fuzz/build/out/{project_name}/src"),
         )
-        if mirrored.is_file():
-            try:
-                return _read(mirrored)
-            except OSError:
-                pass
+        for root in project_roots:
+            for mirrored in _source_root_candidates(root, project_name, source_file):
+                if mirrored.is_file():
+                    try:
+                        return _read(mirrored)
+                    except OSError:
+                        continue
+
+    # Strategy 1.75: explicit source root, used by offline replay of archived builds.
+    if source_root:
+        for candidate in _source_root_candidates(Path(source_root), project_name, source_file):
+            if candidate.is_file():
+                try:
+                    return _read(candidate)
+                except OSError:
+                    continue
 
     # Strategy 2: Introspector API (network, fallback)
     try:
@@ -103,67 +173,278 @@ def _extract_range(lines: List[str], center: int, radius: int) -> str:
     return "\n".join(lines[lo:hi])
 
 
+def _strip_comments_preserve_strings(source: str) -> str:
+    """Remove C/C++ comments while preserving strings and line numbers."""
+    output: List[str] = []
+    index = 0
+    state = "code"
+    quote = ""
+
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+
+        if state == "code":
+            if char == "/" and nxt == "/":
+                output.extend((" ", " "))
+                index += 2
+                state = "line_comment"
+                continue
+            if char == "/" and nxt == "*":
+                output.extend((" ", " "))
+                index += 2
+                state = "block_comment"
+                continue
+            if char in {'"', "'"}:
+                quote = char
+                state = "string"
+            output.append(char)
+            index += 1
+            continue
+
+        if state == "line_comment":
+            if char == "\n":
+                output.append(char)
+                state = "code"
+            else:
+                output.append(" ")
+            index += 1
+            continue
+
+        if state == "block_comment":
+            if char == "*" and nxt == "/":
+                output.extend((" ", " "))
+                index += 2
+                state = "code"
+                continue
+            output.append("\n" if char == "\n" else " ")
+            index += 1
+            continue
+
+        output.append(char)
+        if char == "\\" and index + 1 < len(source):
+            output.append(source[index + 1])
+            index += 2
+            continue
+        if char == quote:
+            state = "code"
+        index += 1
+
+    return "".join(output)
+
+
+def _find_null_checked_variables(snippet: str) -> set[str]:
+    checked: set[str] = set()
+    for pattern in _PAT_NULL_CHECKS:
+        checked.update(match.group("var") for match in pattern.finditer(snippet))
+    return checked
+
+
+def _analyze_snippet_solvability(
+    branch_line_text: str,
+    branch_snippet: str,
+    blocked_side_snippet: str = "",
+) -> tuple:
+    combined_snippet = "\n".join((branch_snippet, blocked_side_snippet))
+    hints = [hint for pattern, hint in _AUDIT_HINTS if pattern.search(combined_snippet)]
+
+    if _PAT_GENERATED_SKELETON.search(branch_line_text):
+        return 0.20, "generated_skeleton_state", hints, {
+            "grade": "strong",
+            "pattern": "generated_skeleton_variable",
+        }
+
+    assignments = [
+        {
+            "variable": match.group("var"),
+            "callee": match.group("callee"),
+        }
+        for match in _PAT_CALL_ASSIGNMENT.finditer(branch_snippet)
+    ]
+    checked_variables = _find_null_checked_variables(branch_snippet)
+    same_variable = [
+        item for item in assignments if item["variable"] in checked_variables
+    ]
+    resource_terms = sorted({
+        match.group(0) for match in _PAT_RESOURCE_FAILURE.finditer(blocked_side_snippet)
+    })
+
+    for item in same_variable:
+        direct_allocator = item["callee"] in _STANDARD_ALLOCATORS
+        if resource_terms or direct_allocator:
+            pattern = (
+                "same_variable_call_null_check_resource_failure"
+                if resource_terms
+                else "same_variable_standard_allocator_null_check"
+            )
+            return 0.25, "resource_guard_strong", hints, {
+                "grade": "strong",
+                "pattern": pattern,
+                "assigned_variable": item["variable"],
+                "checked_variable": item["variable"],
+                "callee": item["callee"],
+                "resource_terms": resource_terms,
+            }
+
+    if same_variable:
+        item = same_variable[0]
+        return 1.0, "normal", hints, {
+            "grade": "unknown",
+            "pattern": "same_variable_call_null_check_without_resource_evidence",
+            "assigned_variable": item["variable"],
+            "checked_variable": item["variable"],
+            "callee": item["callee"],
+            "resource_terms": resource_terms,
+        }
+
+    allocator_like = sorted({
+        item["callee"] for item in assignments if "alloc" in item["callee"].lower()
+    })
+    if resource_terms or allocator_like:
+        return 1.0, "normal", hints, {
+            "grade": "weak",
+            "pattern": "unlinked_resource_hint",
+            "allocator_like_callees": allocator_like,
+            "resource_terms": resource_terms,
+        }
+
+    return 1.0, "normal", hints, {
+        "grade": "none",
+        "pattern": "none",
+    }
+
+
 def _apply_snippet_solvability(
     branch_line_text: str,
     branch_snippet: str,
+    blocked_side_snippet: str = "",
 ) -> tuple:
-    hints: List[str] = []
-    for pat, hint in _AUDIT_HINTS:
-        if pat.search(branch_snippet):
-            hints.append(hint)
-
-    # P1: generated-parser/lexer skeleton variable in the branch condition itself.
-    # yyerrstatus/yyerrlab (bison) and yy_fill_buffer/YY_CURRENT_BUFFER (flex) are
-    # self-certifying — they only exist in bison/flex generated code.
-    if _PAT_GENERATED_SKELETON.search(branch_line_text):
-        return 0.20, "generated_skeleton_state", hints
-
-    # P2: OOM null check requires same variable name in alloc call and null check
-    alloc_vars = {m.group(1) for m in _PAT_OOM_ALLOC.finditer(branch_snippet)}
-    if alloc_vars:
-        for m in _PAT_OOM_NULL_CHECK.finditer(branch_snippet):
-            checked = m.group(1) or m.group(2)
-            if checked in alloc_vars:
-                return 0.25, "oom_null_check", hints
-
-    return 1.0, "normal", hints
+    solvability, reason, hints, _ = _analyze_snippet_solvability(
+        branch_line_text,
+        branch_snippet,
+        blocked_side_snippet,
+    )
+    return solvability, reason, hints
 
 
 def _enrich_with_snippet_solvability(
     scored: List[Dict[str, Any]],
     project_name: str,
     top_k: Optional[int],
+    source_root: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    cap = min(len(scored), (top_k or 10) * 2, 30)
     file_cache: Dict[str, List[str]] = {}
+    code_cache: Dict[str, List[str]] = {}
+    evaluated: set[tuple[str, str, str]] = set()
 
-    for blocker in scored[:cap]:
-        source_file = blocker.get("source_file", "")
-        branch_line = _safe_int(blocker.get("branch_line_number", 0), 0)
-        if not source_file or branch_line <= 0:
-            continue
+    for _pass in range(_SOURCE_EVIDENCE_MAX_PASSES):
+        candidates = [
+            blocker
+            for blocker in _select_source_evidence_candidates(scored)
+            if _blocker_key(blocker) not in evaluated
+        ]
+        if not candidates:
+            break
 
-        if source_file not in file_cache:
-            file_cache[source_file] = _fetch_file_lines(project_name, source_file)
-        file_lines = file_cache[source_file]
-        if not file_lines:
-            continue
+        for blocker in candidates:
+            evaluated.add(_blocker_key(blocker))
+            source_file = blocker.get("source_file", "")
+            branch_line = _safe_int(blocker.get("branch_line_number", 0), 0)
+            blocked_side_line = _safe_int(
+                blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)),
+                0,
+            )
+            if not source_file or branch_line <= 0 or blocked_side_line <= 0:
+                blocker["solvability_evidence"] = {
+                    "grade": "not_evaluated",
+                    "pattern": "missing_source_location",
+                }
+                continue
 
-        branch_line_text = file_lines[branch_line - 1] if 0 < branch_line <= len(file_lines) else ""
-        branch_snippet = _extract_range(file_lines, branch_line, radius=3)
+            if source_file not in file_cache:
+                file_cache[source_file] = _fetch_file_lines(
+                    project_name,
+                    source_file,
+                    source_root=source_root,
+                )
+            file_lines = file_cache[source_file]
+            if not file_lines:
+                blocker["solvability_evidence"] = {
+                    "grade": "not_evaluated",
+                    "pattern": "source_unavailable",
+                }
+                continue
 
-        solv, reason, hints = _apply_snippet_solvability(branch_line_text, branch_snippet)
-        if solv < blocker.get("solvability_score", 1.0):
-            blocker["solvability_score"] = round(solv, 4)
-            blocker["solvability_reason"] = reason
-            blocker["score_components"]["solvability_score"] = round(solv, 4)
-            blocker["score"] = (
-                blocker.get("actionability_score", 0.0) + blocker.get("impact_score", 0.0)
-            ) * solv
-        if hints:
-            blocker["solvability_hints"] = hints
+            if source_file not in code_cache:
+                stripped = _strip_comments_preserve_strings("\n".join(file_lines))
+                code_cache[source_file] = stripped.splitlines()
+            code_lines = code_cache[source_file]
+
+            branch_line_text = code_lines[branch_line - 1] if 0 < branch_line <= len(code_lines) else ""
+            branch_snippet = _extract_range(code_lines, branch_line, radius=4)
+            blocked_side_snippet = _extract_range(code_lines, blocked_side_line, radius=4)
+
+            solv, reason, hints, evidence = _analyze_snippet_solvability(
+                branch_line_text,
+                branch_snippet,
+                blocked_side_snippet,
+            )
+            blocker["solvability_evidence"] = evidence
+            blocker["source_evidence_locations"] = {
+                "source_file": source_file,
+                "branch_line_number": branch_line,
+                "blocked_side_line_number": blocked_side_line,
+            }
+            if solv < blocker.get("solvability_score", 1.0):
+                blocker["solvability_score"] = round(solv, 4)
+                blocker["solvability_reason"] = reason
+                blocker["score_components"]["solvability_score"] = round(solv, 4)
+                blocker["score"] = (
+                    blocker.get("reach_confidence", blocker.get("actionability_score", 0.0))
+                    * blocker.get("coverage_benefit", blocker.get("impact_score", 0.0))
+                    * solv
+                )
+            if hints:
+                blocker["solvability_hints"] = hints
+
+        scored.sort(key=_selector_state_sort_key, reverse=True)
 
     return scored
+
+
+def _blocker_key(blocker: Dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(blocker.get("source_file", "")),
+        str(blocker.get("branch_line_number", "")),
+        str(blocker.get("blocked_side", "")),
+    )
+
+
+def _select_source_evidence_candidates(
+    scored: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Union hot/utility candidates with high-benefit candidates before source checks."""
+    primary = scored[:_SOURCE_SCORE_POOL_SIZE]
+    by_benefit = sorted(
+        scored,
+        key=lambda blocker: (
+            blocker.get("coverage_benefit", blocker.get("impact_score", 0.0)),
+            blocker.get("score", 0.0),
+        ),
+        reverse=True,
+    )[:_SOURCE_BENEFIT_POOL_SIZE]
+
+    selected: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for blocker in primary + by_benefit:
+        key = _blocker_key(blocker)
+        if key in seen:
+            continue
+        selected.append(blocker)
+        seen.add(key)
+        if len(selected) >= _SOURCE_EVIDENCE_POOL_CAP:
+            break
+    return selected
 
 
 def _read_json(path: str) -> Any:
@@ -406,28 +687,140 @@ def _summarize_blocker_file(
     }
 
 
-def _compute_actionability_score(blocker: Dict[str, Any]) -> float:
+def _compute_actionability_score(
+    blocker: Dict[str, Any],
+    hit_saturation_threshold: int = _HIT_SATURATION_THRESHOLD,
+) -> float:
     branch_hit_count = _safe_int(blocker.get("project_branch_hit_count", 0), 0)
-    branch_target_count = _safe_int(blocker.get("project_branch_reached_target_count", 0), 0)
-    side_gap = _safe_int(blocker.get("sides_hitcount_diff", 0), 0)
-
-    return (
-        math.log1p(branch_hit_count)
-        + 0.75 * math.log1p(branch_target_count)
-        + 0.3 * math.log1p(max(0, side_gap))
+    threshold = max(1, hit_saturation_threshold)
+    saturated_hotness = min(
+        1.0,
+        math.log1p(max(0, branch_hit_count)) / math.log1p(threshold),
     )
+    return 0.5 + 0.5 * saturated_hotness
 
 
 def _compute_impact_score(blocker: Dict[str, Any]) -> float:
-    return (
-        1.2 * math.log1p(_safe_int(blocker.get("blocked_unique_not_covered_complexity", 0), 0))
-        + 0.8 * math.log1p(_safe_int(blocker.get("blocked_not_covered_complexity", 0), 0))
-        + 0.8 * math.log1p(_safe_int(blocker.get("blocked_unique_reachable_complexity", 0), 0))
-        + 0.5 * math.log1p(_safe_int(blocker.get("blocked_reachable_complexity", 0), 0))
-        + _safe_float(blocker.get("project_function_coverage_signal", 0.0), 0.0)
-        + _safe_float(blocker.get("project_file_coverage_signal", 0.0), 0.0)
-        + 0.5 * math.log1p(_safe_int(blocker.get("occurrence_count", 0), 0))
+    not_covered = max(
+        0,
+        _safe_int(blocker.get("blocked_unique_not_covered_complexity", 0), 0),
     )
+    reachable = max(
+        0,
+        _safe_int(blocker.get("blocked_unique_reachable_complexity", 0), 0),
+    )
+    unlock_ratio = min(1.0, not_covered / max(reachable, 1))
+    base_benefit = math.log1p(not_covered) * (0.5 + 0.5 * unlock_ratio)
+
+    # Keep this secondary and bounded because all_functions.js may be stale between
+    # Introspector refreshes. It only preserves small semantic unlocks.
+    globally_unhit = max(
+        0,
+        _safe_int(blocker.get("globally_unhit_function_count", 0), 0),
+    )
+    globally_unhit_bonus = 0.25 * min(globally_unhit, 4)
+    return base_benefit + globally_unhit_bonus
+
+
+def _compute_unlock_ratio(blocker: Dict[str, Any]) -> float:
+    not_covered = max(
+        0,
+        _safe_int(blocker.get("blocked_unique_not_covered_complexity", 0), 0),
+    )
+    reachable = max(
+        0,
+        _safe_int(blocker.get("blocked_unique_reachable_complexity", 0), 0),
+    )
+    return min(1.0, not_covered / max(reachable, 1))
+
+
+def _apply_expected_utility_score(
+    blocker: Dict[str, Any],
+    hit_saturation_threshold: int = _HIT_SATURATION_THRESHOLD,
+) -> Dict[str, Any]:
+    reach_confidence = _compute_actionability_score(
+        blocker,
+        hit_saturation_threshold=hit_saturation_threshold,
+    )
+    coverage_benefit = _compute_impact_score(blocker)
+    unlock_ratio = _compute_unlock_ratio(blocker)
+    static_solvability, static_reason = _compute_static_solvability(blocker)
+    globally_unhit_bonus = 0.25 * min(
+        max(0, _safe_int(blocker.get("globally_unhit_function_count", 0), 0)),
+        4,
+    )
+
+    blocker["score_model"] = "reach_x_solvability_x_coverage_benefit_v1"
+    blocker["score_components"] = {
+        "reach_confidence": round(reach_confidence, 4),
+        "coverage_benefit": round(coverage_benefit, 4),
+        "unlock_ratio": round(unlock_ratio, 4),
+        "globally_unhit_function_bonus": round(globally_unhit_bonus, 4),
+        "solvability_score": round(static_solvability, 4),
+        "hit_saturation_threshold": hit_saturation_threshold,
+    }
+    # Keep the old field names for downstream compatibility, but their semantics
+    # are now bounded reach and marginal coverage benefit.
+    blocker["actionability_score"] = reach_confidence
+    blocker["impact_score"] = coverage_benefit
+    blocker["reach_confidence"] = reach_confidence
+    blocker["coverage_benefit"] = coverage_benefit
+    blocker["unlock_ratio"] = unlock_ratio
+    blocker["solvability_score"] = round(static_solvability, 4)
+    blocker["solvability_reason"] = static_reason
+    blocker["score"] = reach_confidence * coverage_benefit * static_solvability
+    blocker["function_coverage_evidence_freshness"] = "introspector_snapshot_may_be_stale"
+    blocker["sides_hitcount_diff_role"] = "audit_only"
+    return blocker
+
+
+def _selector_sort_key(blocker: Dict[str, Any]) -> tuple:
+    return (
+        blocker.get("score", 0.0),
+        blocker.get("coverage_benefit", blocker.get("impact_score", 0.0)),
+        blocker.get("reach_confidence", blocker.get("actionability_score", 0.0)),
+        blocker.get("globally_unhit_function_count", 0),
+        blocker.get("blocked_unique_not_covered_complexity", 0),
+    )
+
+
+def _selector_state_sort_key(blocker: Dict[str, Any]) -> tuple:
+    return (
+        _STATE_PRIORITY.get(str(blocker.get("project_blocker_state")), -1),
+        *_selector_sort_key(blocker),
+    )
+
+
+def rescore_existing_blockers(
+    blockers: List[Dict[str, Any]],
+    project_name: str,
+    source_root: Optional[str] = None,
+    hit_saturation_threshold: int = _HIT_SATURATION_THRESHOLD,
+    top_k: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Re-score an archived selector snapshot without rerunning coverage."""
+    rescored = []
+    for original in blockers:
+        blocker = copy.deepcopy(original)
+        blocker.pop("solvability_evidence", None)
+        blocker.pop("source_evidence_locations", None)
+        _apply_expected_utility_score(
+            blocker,
+            hit_saturation_threshold=hit_saturation_threshold,
+        )
+        rescored.append(blocker)
+
+    rescored.sort(key=_selector_state_sort_key, reverse=True)
+    rescored = _enrich_with_snippet_solvability(
+        rescored,
+        project_name=project_name,
+        top_k=top_k,
+        source_root=source_root,
+    )
+    rescored.sort(key=_selector_state_sort_key, reverse=True)
+    if top_k is not None and top_k > 0:
+        return rescored[:top_k]
+    return rescored
 
 
 def aggregate_and_score_blockers(
@@ -530,36 +923,10 @@ def aggregate_and_score_blockers(
         gb.update(function_signal)
         gb.update(file_signal)
 
-        actionability_score = _compute_actionability_score(gb)
-        impact_score = _compute_impact_score(gb)
-        static_solv, static_reason = _compute_static_solvability(gb)
-
-        gb["score_components"] = {
-            "actionability_score": round(actionability_score, 4),
-            "impact_score": round(impact_score, 4),
-            "solvability_score": round(static_solv, 4),
-        }
-        gb["actionability_score"] = actionability_score
-        gb["impact_score"] = impact_score
-        gb["solvability_score"] = round(static_solv, 4)
-        gb["solvability_reason"] = static_reason
-        gb["score"] = (actionability_score + impact_score) * static_solv
+        _apply_expected_utility_score(gb)
         result.append(gb)
 
-    result.sort(
-        key=lambda x: (
-            x["score"],
-            x["actionability_score"],
-            x["impact_score"],
-            x["globally_unhit_function_count"],
-            x["sum_blocked_function_undiscovered_complexity"],
-            x["blocked_unique_not_covered_complexity"],
-            x["blocked_unique_reachable_complexity"],
-            x["blocked_not_covered_complexity"],
-            x["blocked_reachable_complexity"],
-        ),
-        reverse=True,
-    )
+    result.sort(key=_selector_sort_key, reverse=True)
     if top_k is not None and top_k > 0:
         return result[:top_k]
     return result
@@ -835,58 +1202,19 @@ def aggregate_score_and_revalidate_blockers(
             enriched.update(function_signal)
             enriched.update(file_signal)
 
-            actionability_score = _compute_actionability_score(enriched)
-            impact_score = _compute_impact_score(enriched)
-            static_solv, static_reason = _compute_static_solvability(enriched)
-            enriched["score_components"] = {
-                "actionability_score": round(actionability_score, 4),
-                "impact_score": round(impact_score, 4),
-                "solvability_score": round(static_solv, 4),
-            }
-            enriched["actionability_score"] = actionability_score
-            enriched["impact_score"] = impact_score
-            enriched["solvability_score"] = round(static_solv, 4)
-            enriched["solvability_reason"] = static_reason
-            enriched["score"] = (actionability_score + impact_score) * static_solv
+            _apply_expected_utility_score(enriched)
             scored.append(enriched)
         inline_score_elapsed = time.perf_counter() - inline_score_started_at
     else:
         inline_score_elapsed = 0.0
 
-    state_priority = {
-        "stalled_at_branch": 2,
-        "unreached_branch": 1,
-        "resolved": 0,
-    }
     sort_started_at = time.perf_counter()
-    scored.sort(
-        key=lambda blocker: (
-            state_priority.get(str(blocker.get("project_blocker_state")), -1),
-            blocker.get("score", 0.0),
-            blocker.get("actionability_score", 0.0),
-            blocker.get("impact_score", 0.0),
-            blocker.get("project_branch_hit_count", 0),
-            blocker.get("globally_unhit_function_count", 0),
-            blocker.get("sum_blocked_function_undiscovered_complexity", 0),
-        ),
-        reverse=True,
-    )
+    scored.sort(key=_selector_state_sort_key, reverse=True)
 
     snippet_started_at = time.perf_counter()
     if project_name is not None:
         scored = _enrich_with_snippet_solvability(scored, project_name, top_k)
-        scored.sort(
-            key=lambda blocker: (
-                state_priority.get(str(blocker.get("project_blocker_state")), -1),
-                blocker.get("score", 0.0),
-                blocker.get("actionability_score", 0.0),
-                blocker.get("impact_score", 0.0),
-                blocker.get("project_branch_hit_count", 0),
-                blocker.get("globally_unhit_function_count", 0),
-                blocker.get("sum_blocked_function_undiscovered_complexity", 0),
-            ),
-            reverse=True,
-        )
+        scored.sort(key=_selector_state_sort_key, reverse=True)
     snippet_elapsed = time.perf_counter() - snippet_started_at
     sort_elapsed = snippet_started_at - sort_started_at
     total_elapsed = time.perf_counter() - started_at

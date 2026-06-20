@@ -115,14 +115,14 @@ if [ "$SYMCC_LIBRARY_ENABLED" != "1" ]; then
   make -j$(nproc) check
 fi
 
-for f in $(find $SRC -name '*_fuzzer.cc'); do
+for f in $(find "$SRC" -maxdepth 1 -type f -name '*_fuzzer.cc'); do
     b=$(basename -s .cc $f)
     $CXX $CXXFLAGS -std=c++11 -I. $f -o $OUT/$b $LIB_FUZZING_ENGINE -Wl,--whole-archive ./libz.a -Wl,--no-whole-archive
 done
 
 zip $OUT/seed_corpus.zip *.*
 
-for f in $(find $SRC -name '*_fuzzer.c'); do
+for f in $(find "$SRC" -maxdepth 1 -type f -name '*_fuzzer.c'); do
     b=$(basename -s .c $f)
     $CC $CFLAGS -I. $f -c -o /tmp/$b.o
     $CXX $CXXFLAGS -o $OUT/$b /tmp/$b.o -stdlib=libc++ $LIB_FUZZING_ENGINE -Wl,--whole-archive ./libz.a -Wl,--no-whole-archive

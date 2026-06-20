@@ -11,10 +11,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.global_blocker_selector import (
-    _compute_actionability_score,
-    _compute_impact_score,
-    _compute_static_solvability,
+    _apply_expected_utility_score,
     _infer_project_artifact_paths,
+    _selector_sort_key,
     _summarize_blocked_functions,
     _summarize_blocker_file,
     aggregate_blockers,
@@ -226,26 +225,13 @@ def _score_and_sort_blockers(blockers: list[dict], blocker_json_path: Path) -> l
         enriched.update(_summarize_blocked_functions(enriched.get("blocked_unique_functions", []), function_coverage_map))
         enriched.update(_summarize_blocker_file(enriched.get("source_file", ""), file_coverage_map))
 
-        actionability_score = _compute_actionability_score(enriched)
-        impact_score = _compute_impact_score(enriched)
-        static_solv, static_reason = _compute_static_solvability(enriched)
-
-        enriched["actionability_score"] = actionability_score
-        enriched["impact_score"] = impact_score
-        enriched["solvability_score"] = round(static_solv, 4)
-        enriched["solvability_reason"] = static_reason
-        enriched["score"] = (actionability_score + impact_score) * static_solv
+        _apply_expected_utility_score(enriched)
         scored.append(enriched)
 
     scored.sort(
         key=lambda b: (
             _STATE_PRIORITY.get(str(b.get("project_blocker_state")), -1),
-            b.get("score", 0.0),
-            b.get("actionability_score", 0.0),
-            b.get("impact_score", 0.0),
-            b.get("project_branch_hit_count", 0),
-            b.get("globally_unhit_function_count", 0),
-            b.get("sum_blocked_function_undiscovered_complexity", 0),
+            *_selector_sort_key(b),
         ),
         reverse=True,
     )

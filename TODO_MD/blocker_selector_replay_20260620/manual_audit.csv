@@ -1,0 +1,477 @@
+blocker_key,function_name,branch_line_number,blocked_side_line_number,source_file,old_rank,new_rank,old_score,new_score,reach_confidence,coverage_benefit,unlock_ratio,solvability_score,solvability_reason,evidence_grade,evidence_pattern,evidence_callee,evidence_variable,resource_terms,project_branch_hit_count,blocked_unique_not_covered_complexity,blocked_unique_reachable_complexity,blocked_unique_functions,branch_context,blocked_side_context,manual_label,manual_reason,reviewer
+_cmsContextGetClientChunk:769:0,_cmsContextGetClientChunk,769,771,/src/lcms/src/cmsplugin.c,1,15,40.02568025744955,3.295836866004329,1.0,3.295836866004329,1.0,1.0,normal,none,none,,,,110000000,26,26,cmsSignalError,"{
+    struct _cmsContext_struct* ctx;
+    void *ptr;
+
+    if ((int) mc < 0 || mc >= MemoryClientMax) {
+        
+           cmsSignalError(ContextID, cmsERROR_INTERNAL, ""Bad context client -- possible corruption"");
+
+           // This is catastrophic. Should never reach here","    void *ptr;
+
+    if ((int) mc < 0 || mc >= MemoryClientMax) {
+        
+           cmsSignalError(ContextID, cmsERROR_INTERNAL, ""Bad context client -- possible corruption"");
+
+           // This is catastrophic. Should never reach here
+           _cmsAssert(0);
+",,,
+cmsDetectBlackPoint:267:0,cmsDetectBlackPoint,267,270,/src/lcms/src/cmssamp.c,3,1,36.37469009723412,6.601766158298733,0.9130362349695992,7.2305631534092925,1.0,1.0,normal,none,none,,,,13500,1380,1380,BlackPointUsingPerceptualBlack,"
+    // That is about v2 profiles.
+
+    // If output profile, discount ink-limiting and that's all
+    if (Intent == INTENT_RELATIVE_COLORIMETRIC &&
+        (cmsGetDeviceClass(hProfile) == cmsSigOutputClass) &&
+        (cmsGetColorSpace(hProfile)  == cmsSigCmykData))
+        return BlackPointUsingPerceptualBlack(BlackPoint, hProfile);
+","    // If output profile, discount ink-limiting and that's all
+    if (Intent == INTENT_RELATIVE_COLORIMETRIC &&
+        (cmsGetDeviceClass(hProfile) == cmsSigOutputClass) &&
+        (cmsGetColorSpace(hProfile)  == cmsSigCmykData))
+        return BlackPointUsingPerceptualBlack(BlackPoint, hProfile);
+
+    // Nope, compute BP using current intent.
+    return BlackPointAsDarkerColorant(hProfile, Intent, BlackPoint, dwFlags);
+}",,,
+_cmsReadDevicelinkLUT:745:0,_cmsReadDevicelinkLUT,745,748,/src/lcms/src/cmsio1.c,2,3,37.082194035841354,5.313205979041787,1.0,5.313205979041787,1.0,1.0,normal,none,none,,,,125000,202,202,_cmsReadFloatDevicelinkTag,"        return NULL;
+    }
+
+
+    if (cmsIsTag(hProfile, tagFloat)) {  // Float tag takes precedence
+
+        // Floating point LUT are always V
+        return _cmsReadFloatDevicelinkTag(hProfile, tagFloat);
+    }","
+    if (cmsIsTag(hProfile, tagFloat)) {  // Float tag takes precedence
+
+        // Floating point LUT are always V
+        return _cmsReadFloatDevicelinkTag(hProfile, tagFloat);
+    }
+
+    tagFloat = Device2PCSFloat[0];
+    if (cmsIsTag(hProfile, tagFloat)) {",,,
+cmsDetectDestinationBlackPoint:403:1,cmsDetectDestinationBlackPoint,403,416,/src/lcms/src/cmssamp.c,4,2,36.17541000028503,5.482851942772469,0.8255510885132845,6.641444750132191,0.8359469240048251,1.0,normal,none,none,,,,1800,1386,1658,CreateRoundtripXForm | RootOfLeastSquaresFitQuadraticCurve | cmsDeleteTransform | cmsDoTransform | cmsLab2XYZ | cmsXYZ2Lab,"
+
+    // Check if the profile is lut based and gray, rgb or cmyk (7.2 in Adobe's document)
+    ColorSpace = cmsGetColorSpace(hProfile);
+    if (!cmsIsCLUT(hProfile, Intent, LCMS_USED_AS_OUTPUT ) ||
+        (ColorSpace != cmsSigGrayData &&
+         ColorSpace != cmsSigRgbData  &&
+         ColorSpace != cmsSigCmykData)) {
+","    // It is one of the valid cases!, use Adobe algorithm
+
+    
+    // Set a first guess, that should work on good profiles.
+    if (Intent == INTENT_RELATIVE_COLORIMETRIC) {
+
+        cmsCIEXYZ IniXYZ;
+
+        // calculate initial Lab as source black point",,,
+cmsDeleteContext:979:0,cmsDeleteContext,979,981,/src/lcms/src/cmsplugin.c,5,4,35.68163663775521,4.804021044733257,1.0,4.804021044733257,1.0,1.0,normal,none,none,,,,113000,121,121,cmsUnregisterPlugins,"// and destroys the context placeholder. 
+// The ContextID can no longer be used in any THR operation.  
+void CMSEXPORT cmsDeleteContext(cmsContext ContextID)
+{
+    if (ContextID == NULL) {
+
+        cmsUnregisterPlugins();
+        if (globalContext.MemPool != NULL)
+            _cmsSubAllocDestroy(globalContext.MemPool);","void CMSEXPORT cmsDeleteContext(cmsContext ContextID)
+{
+    if (ContextID == NULL) {
+
+        cmsUnregisterPlugins();
+        if (globalContext.MemPool != NULL)
+            _cmsSubAllocDestroy(globalContext.MemPool);
+        globalContext.MemPool = NULL;
+    }",,,
+cmsTransform2DeviceLink:1094:0,cmsTransform2DeviceLink,1094,1096,/src/lcms/src/cmsvirt.c,23,5,30.63056584649823,4.304679039262885,0.8079540332561534,5.327876168789581,1.0,1.0,normal,unknown,same_variable_call_null_check_without_resource_evidence,cmsPipelineDup,LUT,,1200,205,205,_cmsStageAllocLabV2ToV4curves,"    LUT = cmsPipelineDup(xform ->Lut);
+    if (LUT == NULL) return NULL;
+
+    // Time to fix the Lab2/Lab4 issue.
+    if ((xform ->EntryColorSpace == cmsSigLabData) && (Version < 4.0)) {
+
+        if (!cmsPipelineInsertStage(LUT, cmsAT_BEGIN, _cmsStageAllocLabV2ToV4curves(ContextID)))
+            goto Error;
+    }","
+    // Time to fix the Lab2/Lab4 issue.
+    if ((xform ->EntryColorSpace == cmsSigLabData) && (Version < 4.0)) {
+
+        if (!cmsPipelineInsertStage(LUT, cmsAT_BEGIN, _cmsStageAllocLabV2ToV4curves(ContextID)))
+            goto Error;
+    }
+
+    // On the output side too. Note that due to V2/V4 PCS encoding on lab we cannot fix white misalignments",,,
+AddToList:1274:0,AddToList,1274,1276,/src/lcms/src/cmscgats.c,6,42,35.639903389441415,0.8584968011212866,1.0,3.4339872044851463,1.0,0.25,resource_guard_strong,strong,same_variable_call_null_check_resource_failure,AllocChunk,p,out of memory,5760000,30,30,SynError,"        last = p;
+
+        // Allocate the container
+        p = (KEYVALUE*) AllocChunk(it8, sizeof(KEYVALUE));
+        if (p == NULL)
+        {
+            SynError(it8, ""AddToList: out of memory"");
+            return NULL;
+        }","        // Allocate the container
+        p = (KEYVALUE*) AllocChunk(it8, sizeof(KEYVALUE));
+        if (p == NULL)
+        {
+            SynError(it8, ""AddToList: out of memory"");
+            return NULL;
+        }
+
+        // Store name and value",,,
+Type_LUTB2A_Write:2986:0,Type_LUTB2A_Write,2986,2987,/src/lcms/src/cmstypes.c,32,6,28.569353418647598,4.03208709711306,0.9201420788290429,4.382026634673881,1.0,1.0,normal,none,none,,,,15900,79,79,WriteCLUT,"        offsetA = io ->Tell(io) - BaseOffset;
+        if (!WriteSetOfCurves(self, io, cmsSigParametricCurveType, A)) return FALSE;
+    }
+
+    if (CLUT != NULL) {
+        offsetC = io ->Tell(io) - BaseOffset;
+        if (!WriteCLUT(self, io, (Lut ->SaveAs8Bits ? 1U : 2U), CLUT)) return FALSE;
+
+    }","        if (!WriteSetOfCurves(self, io, cmsSigParametricCurveType, A)) return FALSE;
+    }
+
+    if (CLUT != NULL) {
+        offsetC = io ->Tell(io) - BaseOffset;
+        if (!WriteCLUT(self, io, (Lut ->SaveAs8Bits ? 1U : 2U), CLUT)) return FALSE;
+
+    }
+    if (M != NULL) {",,,
+WriteInputMatrixShaper:980:0,WriteInputMatrixShaper,980,982,/src/lcms/src/cmsps2.c,26,7,29.738259323795155,3.942887643311484,0.8997863253756606,4.382026634673881,1.0,1.0,normal,none,none,,,,9950,79,79,EmitCIEBasedA,"    ColorSpace = cmsGetColorSpace(hProfile);
+
+    cmsDetectBlackPoint(&BlackPointAdaptedToD50, hProfile, INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    if (ColorSpace == cmsSigGrayData) {
+
+        cmsToneCurve** ShaperCurve = _cmsStageGetPtrToCurveSet(Shaper);
+        rc = EmitCIEBasedA(m, ShaperCurve[0], &BlackPointAdaptedToD50);
+","    cmsDetectBlackPoint(&BlackPointAdaptedToD50, hProfile, INTENT_RELATIVE_COLORIMETRIC, 0);
+
+    if (ColorSpace == cmsSigGrayData) {
+
+        cmsToneCurve** ShaperCurve = _cmsStageGetPtrToCurveSet(Shaper);
+        rc = EmitCIEBasedA(m, ShaperCurve[0], &BlackPointAdaptedToD50);
+
+    }
+    else",,,
+cmsWriteTag:1787:0,cmsWriteTag,1787,1790,/src/lcms/src/cmsio0.c,7,21,35.56428792845944,3.1832767527288937,1.0,3.1832767527288937,0.7906976744186046,1.0,normal,not_evaluated,,,,,1380000,34,43,_cmsDeleteTagByPos | _cmsSearchTag,"
+    if (!_cmsLockMutex(Icc->ContextID, Icc ->UsrMutex)) return FALSE;
+
+    // To delete tags.
+    if (data == NULL) {
+
+         // Delete the tag
+         i = _cmsSearchTag(Icc, sig, FALSE);
+         if (i >= 0) {","    // To delete tags.
+    if (data == NULL) {
+
+         // Delete the tag
+         i = _cmsSearchTag(Icc, sig, FALSE);
+         if (i >= 0) {
+                
+             // Use zero as a mark of deleted 
+             _cmsDeleteTagByPos(Icc, i);",,,
+GetTable:1098:0,GetTable,1098,1100,/src/lcms/src/cmscgats.c,8,14,35.54258287213379,3.4339872044851463,1.0,3.4339872044851463,1.0,1.0,normal,none,none,,,,5340000,30,30,SynError,"
+static
+TABLE* GetTable(cmsIT8* it8)
+{
+   if ((it8 -> nTable >= it8 ->TablesCount)) {
+
+           SynError(it8, ""Table %d out of sequence"", it8 -> nTable);
+           return it8 -> Tab;
+   }","TABLE* GetTable(cmsIT8* it8)
+{
+   if ((it8 -> nTable >= it8 ->TablesCount)) {
+
+           SynError(it8, ""Table %d out of sequence"", it8 -> nTable);
+           return it8 -> Tab;
+   }
+
+   return it8 ->Tab + it8 ->nTable;",,,
+_cmsReadFloatInputTag:272:1,_cmsReadFloatInputTag,272,276,/src/lcms/src/cmsio1.c,44,8,26.746227638246417,3.6609338032704692,0.6568200361952278,5.573724310356336,0.9038961038961039,1.0,normal,unknown,same_variable_call_null_check_without_resource_evidence,cmsPipelineDup,Lut,,36,348,385,_cmsStageNormalizeFromLabFloat | _cmsStageNormalizeFromXyzFloat | _cmsStageNormalizeToLabFloat | _cmsStageNormalizeToXyzFloat | cmsPipelineFree | cmsPipelineInsertStage,"    cmsPipeline* Lut           = cmsPipelineDup((cmsPipeline*) cmsReadTag(hProfile, tagFloat));
+    cmsColorSpaceSignature spc = cmsGetColorSpace(hProfile);
+    cmsColorSpaceSignature PCS = cmsGetPCS(hProfile);
+    
+    if (Lut == NULL) return NULL;
+    
+    // input and output of transform are in lcms 0..1 encoding.  If XYZ or Lab spaces are used, 
+    //  these need to be normalized into the appropriate ranges (Lab = 100,0,0, XYZ=1.0,1.0,1.0)
+    if ( spc == cmsSigLabData)","    if (Lut == NULL) return NULL;
+    
+    // input and output of transform are in lcms 0..1 encoding.  If XYZ or Lab spaces are used, 
+    //  these need to be normalized into the appropriate ranges (Lab = 100,0,0, XYZ=1.0,1.0,1.0)
+    if ( spc == cmsSigLabData)
+    {
+        if (!cmsPipelineInsertStage(Lut, cmsAT_BEGIN, _cmsStageNormalizeToLabFloat(ContextID)))
+            goto Error;
+    }",,,
+BuildRGBOutputMatrixShaper:496:0,BuildRGBOutputMatrixShaper,496,498,/src/lcms/src/cmsio1.c,22,9,30.640315871557235,3.64300313192615,0.9685746623067896,3.7612001156935624,1.0,1.0,normal,none,none,,,,48500,42,42,_cmsStageAllocLab2XYZ,"
+        // Note that it is certainly possible a single profile would have a LUT based
+        // tag for output working in lab and a matrix-shaper for the fallback cases. 
+        // This is not allowed by the spec, but this code is tolerant to those cases    
+        if (cmsGetPCS(hProfile) == cmsSigLabData) {
+
+            if (!cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocLab2XYZ(ContextID)))
+                goto Error;
+        }","        // tag for output working in lab and a matrix-shaper for the fallback cases. 
+        // This is not allowed by the spec, but this code is tolerant to those cases    
+        if (cmsGetPCS(hProfile) == cmsSigLabData) {
+
+            if (!cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocLab2XYZ(ContextID)))
+                goto Error;
+        }
+
+        if (!cmsPipelineInsertStage(Lut, cmsAT_END, cmsStageAllocMatrix(ContextID, 3, 3, (cmsFloat64Number*) &Inv, NULL)) ||",,,
+cmsWriteTag:1869:0,cmsWriteTag,1869,1871,/src/lcms/src/cmsio0.c,9,11,35.133492831701936,3.5553480614894135,1.0,3.5553480614894135,1.0,1.0,normal,none,none,,,,1370000,34,34,_cmsTagSignature2String | cmsSignalError,"    LocalTypeHandler.ContextID  = Icc ->ContextID;
+    LocalTypeHandler.ICCVersion = Icc ->Version;
+    Icc ->TagPtrs[i]            = LocalTypeHandler.DupPtr(&LocalTypeHandler, data, TagDescriptor ->ElemCount);
+
+    if (Icc ->TagPtrs[i] == NULL)  {
+
+        _cmsTagSignature2String(TypeString, (cmsTagSignature) Type);
+        _cmsTagSignature2String(SigString,  sig);
+        cmsSignalError(Icc ->ContextID, cmsERROR_CORRUPTION_DETECTED, ""Malformed struct in type '%s' for tag '%s'"", TypeString, SigString);","    Icc ->TagPtrs[i]            = LocalTypeHandler.DupPtr(&LocalTypeHandler, data, TagDescriptor ->ElemCount);
+
+    if (Icc ->TagPtrs[i] == NULL)  {
+
+        _cmsTagSignature2String(TypeString, (cmsTagSignature) Type);
+        _cmsTagSignature2String(SigString,  sig);
+        cmsSignalError(Icc ->ContextID, cmsERROR_CORRUPTION_DETECTED, ""Malformed struct in type '%s' for tag '%s'"", TypeString, SigString);
+
+        goto Error;",,,
+AddMLUBlock:150:0,AddMLUBlock,150,151,/src/lcms/src/cmsnamed.c,10,12,34.34401450024062,3.5263605246161616,1.0,3.5263605246161616,1.0,1.0,normal,none,none,,,,740000,33,33,GrowMLUtable,"    // Sanity check
+    if (mlu == NULL) return FALSE;
+
+    // Is there any room available?
+    if (mlu ->UsedEntries >= mlu ->AllocatedEntries) {
+        if (!GrowMLUtable(mlu)) return FALSE;
+    }
+
+    // Only one ASCII string","    if (mlu == NULL) return FALSE;
+
+    // Is there any room available?
+    if (mlu ->UsedEntries >= mlu ->AllocatedEntries) {
+        if (!GrowMLUtable(mlu)) return FALSE;
+    }
+
+    // Only one ASCII string
+    if (SearchMLUEntry(mlu, LanguageCode, CountryCode) >= 0) return FALSE;  // Only one  is allowed!",,,
+cmsDetectTAC:491:1,cmsDetectTAC,491,494,/src/lcms/src/cmsgmt.c,53,10,25.05139265071483,3.5632831298440797,0.7999562882851793,4.454347296253507,1.0,1.0,normal,none,none,,,,998,85,85,cmsDeleteTransform | cmsSliceSpace16,"    bp.hRoundTrip = cmsCreateTransformTHR(ContextID, hLab, TYPE_Lab_16,
+                                          hProfile, dwFormatter, INTENT_PERCEPTUAL, cmsFLAGS_NOOPTIMIZE|cmsFLAGS_NOCACHE);
+
+    cmsCloseProfile(hLab);
+    if (bp.hRoundTrip == NULL) return 0;
+
+    // For L* we only need black and white. For C* we need many points
+    GridPoints[0] = 6;
+    GridPoints[1] = 74;","    cmsCloseProfile(hLab);
+    if (bp.hRoundTrip == NULL) return 0;
+
+    // For L* we only need black and white. For C* we need many points
+    GridPoints[0] = 6;
+    GridPoints[1] = 74;
+    GridPoints[2] = 74;
+
+",,,
+_cmsNewTag:675:0,_cmsNewTag,675,676,/src/lcms/src/cmsio0.c,11,16,33.73712555071182,3.295836866004329,1.0,3.295836866004329,1.0,1.0,normal,none,none,,,,1110000,26,26,cmsSignalError,"    }
+    else  {
+
+        // No, make a new one
+        if (Icc -> TagCount >= MAX_TABLE_TAG) {
+            cmsSignalError(Icc ->ContextID, cmsERROR_RANGE, ""Too many tags (%d)"", MAX_TABLE_TAG);
+            return FALSE;
+        }
+","    else  {
+
+        // No, make a new one
+        if (Icc -> TagCount >= MAX_TABLE_TAG) {
+            cmsSignalError(Icc ->ContextID, cmsERROR_RANGE, ""Too many tags (%d)"", MAX_TABLE_TAG);
+            return FALSE;
+        }
+
+        *NewPos = (int) Icc ->TagCount;",,,
+cmsStageSampleCLut16bit:792:0,cmsStageSampleCLut16bit,792,793,/src/lcms/src/cmslut.c,12,45,33.72919864760544,0.0,1.0,0.0,0.0,1.0,normal,not_evaluated,,,,,2990000000,0,0,,"            for (t = 0; t < (int)nOutputs; t++)
+                Out[t] = clut->Tab.T[index + t];
+        }
+
+        if (!Sampler(In, Out, Cargo))
+            return FALSE;
+
+        if (!(dwFlags & SAMPLER_INSPECT)) {
+","                Out[t] = clut->Tab.T[index + t];
+        }
+
+        if (!Sampler(In, Out, Cargo))
+            return FALSE;
+
+        if (!(dwFlags & SAMPLER_INSPECT)) {
+
+            if (clut ->Tab.T != NULL) {",,,
+WriteStr:1730:0,WriteStr,1730,1732,/src/lcms/src/cmscgats.c,13,17,33.33940102895161,3.295836866004329,1.0,3.295836866004329,1.0,1.0,normal,none,none,,,,2930000,26,26,cmsSignalError,"    else {  // Or to a memory block?
+
+        if (f ->Base) {   // Am I just counting the bytes?
+
+            if (f ->Used > f ->Max) {
+
+                 cmsSignalError(0, cmsERROR_WRITE, ""Write to memory overflows in CGATS parser"");
+                 return;
+            }","        if (f ->Base) {   // Am I just counting the bytes?
+
+            if (f ->Used > f ->Max) {
+
+                 cmsSignalError(0, cmsERROR_WRITE, ""Write to memory overflows in CGATS parser"");
+                 return;
+            }
+
+            memmove(f ->Ptr, str, len);",,,
+cmsDeleteTransform:162:0,cmsDeleteTransform,162,163,/src/lcms/src/cmsxform.c,18,13,31.961537141519546,3.5263605246161616,1.0,3.5263605246161616,1.0,1.0,normal,none,none,,,,107000,33,33,cmsFreeNamedColorList,"
+    if (p ->InputColorant)
+        cmsFreeNamedColorList(p ->InputColorant);
+
+    if (p -> OutputColorant)
+        cmsFreeNamedColorList(p ->OutputColorant);
+
+    if (p ->Sequence)
+        cmsFreeProfileSequenceDescription(p ->Sequence);","    if (p ->InputColorant)
+        cmsFreeNamedColorList(p ->InputColorant);
+
+    if (p -> OutputColorant)
+        cmsFreeNamedColorList(p ->OutputColorant);
+
+    if (p ->Sequence)
+        cmsFreeProfileSequenceDescription(p ->Sequence);
+",,,
+BuildRGBInputMatrixShaper:246:0,BuildRGBInputMatrixShaper,246,248,/src/lcms/src/cmsio1.c,14,28,33.01506554711993,2.793345508662962,1.0,2.793345508662962,0.45918367346938777,1.0,normal,not_evaluated,,,,,160000,45,98,_cmsStageAllocXYZ2Lab | cmsPipelineFree | cmsPipelineInsertStage,"
+        // Note that it is certainly possible a single profile would have a LUT based
+        // tag for output working in lab and a matrix-shaper for the fallback cases. 
+        // This is not allowed by the spec, but this code is tolerant to those cases    
+        if (cmsGetPCS(hProfile) == cmsSigLabData) {
+
+            if (!cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocXYZ2Lab(ContextID)))
+                goto Error;
+        }","        // tag for output working in lab and a matrix-shaper for the fallback cases. 
+        // This is not allowed by the spec, but this code is tolerant to those cases    
+        if (cmsGetPCS(hProfile) == cmsSigLabData) {
+
+            if (!cmsPipelineInsertStage(Lut, cmsAT_END, _cmsStageAllocXYZ2Lab(ContextID)))
+                goto Error;
+        }
+
+    }",,,
+_cmsWriteUInt16Number:275:0,_cmsWriteUInt16Number,275,276,/src/lcms/src/cmsplugin.c,15,46,32.923086865534714,0.0,1.0,0.0,0.0,1.0,normal,not_evaluated,,,,,6540000000,0,0,,"
+    _cmsAssert(io != NULL);
+
+    tmp = _cmsAdjustEndianess16(n);
+    if (io -> Write(io, sizeof(cmsUInt16Number), &tmp) != 1)
+            return FALSE;
+
+    return TRUE;
+}","    _cmsAssert(io != NULL);
+
+    tmp = _cmsAdjustEndianess16(n);
+    if (io -> Write(io, sizeof(cmsUInt16Number), &tmp) != 1)
+            return FALSE;
+
+    return TRUE;
+}
+",,,
+DefaultEvalParametricFn:513:0,DefaultEvalParametricFn,513,514,/src/lcms/src/cmsgamma.c,16,47,32.85015434684156,0.0,1.0,0.0,0.0,1.0,normal,not_evaluated,,,,,3430000000,0,0,,"    case -4:
+    {
+
+        e = Params[1] * Params[4] + Params[2];
+        if (e < 0)
+            disc = 0;
+        else
+            disc = pow(e, Params[0]);
+","    {
+
+        e = Params[1] * Params[4] + Params[2];
+        if (e < 0)
+            disc = 0;
+        else
+            disc = pow(e, Params[0]);
+
+        if (R >= disc) {",,,
+cmsBuildParametricToneCurve:879:0,cmsBuildParametricToneCurve,879,880,/src/lcms/src/cmsgamma.c,17,18,32.14076996308177,3.295836866004329,1.0,3.295836866004329,1.0,1.0,normal,unknown,same_variable_call_null_check_without_resource_evidence,GetParametricCurveByType,c,,357000,26,26,cmsSignalError,"    _cmsParametricCurvesCollection* c = GetParametricCurveByType(ContextID, Type, &Pos);
+
+    _cmsAssert(Params != NULL);
+
+    if (c == NULL) {
+        cmsSignalError(ContextID, cmsERROR_UNKNOWN_EXTENSION, ""Invalid parametric curve type %d"", Type);
+        return NULL;
+    }
+","
+    _cmsAssert(Params != NULL);
+
+    if (c == NULL) {
+        cmsSignalError(ContextID, cmsERROR_UNKNOWN_EXTENSION, ""Invalid parametric curve type %d"", Type);
+        return NULL;
+    }
+
+    memset(&Seg0, 0, sizeof(Seg0));",,,
+cmsOpenIOhandlerFromMem:260:0,cmsOpenIOhandlerFromMem,260,262,/src/lcms/src/cmsio0.c,19,31,31.832288912276674,2.1579884241695013,1.0,2.1579884241695013,0.30952380952380953,1.0,normal,not_evaluated,,,,,117000,26,84,_cmsFree | cmsSignalError,"            goto Error;
+        }
+
+        fm ->Block = (cmsUInt8Number*) _cmsMalloc(ContextID, size);
+        if (fm ->Block == NULL) {
+
+            _cmsFree(ContextID, fm);
+            _cmsFree(ContextID, iohandler);
+            cmsSignalError(ContextID, cmsERROR_READ, ""Couldn't allocate %ld bytes for profile"", (long) size);","
+        fm ->Block = (cmsUInt8Number*) _cmsMalloc(ContextID, size);
+        if (fm ->Block == NULL) {
+
+            _cmsFree(ContextID, fm);
+            _cmsFree(ContextID, iohandler);
+            cmsSignalError(ContextID, cmsERROR_READ, ""Couldn't allocate %ld bytes for profile"", (long) size);
+            return NULL;
+        }",,,
+cmsStageAllocCLut16bitGranular:556:0,cmsStageAllocCLut16bitGranular,556,557,/src/lcms/src/cmslut.c,25,19,30.196775705945022,3.295836866004329,1.0,3.295836866004329,1.0,1.0,normal,none,none,,,,108000,26,26,cmsSignalError,"    cmsStage* NewMPE;
+
+    _cmsAssert(clutPoints != NULL);
+
+    if (inputChan > MAX_INPUT_DIMENSIONS) {
+        cmsSignalError(ContextID, cmsERROR_RANGE, ""Too many input channels (%d channels, max=%d)"", inputChan, MAX_INPUT_DIMENSIONS);
+        return NULL;
+    }
+","
+    _cmsAssert(clutPoints != NULL);
+
+    if (inputChan > MAX_INPUT_DIMENSIONS) {
+        cmsSignalError(ContextID, cmsERROR_RANGE, ""Too many input channels (%d channels, max=%d)"", inputChan, MAX_INPUT_DIMENSIONS);
+        return NULL;
+    }
+
+    NewMPE = _cmsStageAllocPlaceholder(ContextID, cmsSigCLutElemType, inputChan, outputChan,",,,
+ComputeAbsoluteIntent:263:1,ComputeAbsoluteIntent,263,275,/src/lcms/src/cmscnvrt.c,48,20,25.898667431923027,3.241138444903815,0.7701565638517561,4.208415011999673,0.7941176470588235,1.0,normal,none,none,,,,502,108,136,CHAD2Temp | Temp2CHAD | _cmsMAT3identity | _cmsMAT3inverse | _cmsMAT3isIdentity | _cmsMAT3per,"    // TODO: Follow Marc Mahy's recommendation to check if CHAD is same by using M1*M2 == M2*M1. If so, do nothing.
+    // TODO: Add support for ArgyllArts tag
+
+    // Adaptation state
+    if (AdaptationState == 1.0) {
+
+        // Observer is fully adapted. Keep chromatic adaptation.
+        // That is the standard V4 behaviour
+        _cmsVEC3init(&m->v[0], WhitePointIn->X / WhitePointOut->X, 0, 0);","    }
+    else  {
+
+        // Incomplete adaptation. This is an advanced feature.
+        _cmsVEC3init(&Scale.v[0], WhitePointIn->X / WhitePointOut->X, 0, 0);
+        _cmsVEC3init(&Scale.v[1], 0,  WhitePointIn->Y / WhitePointOut->Y, 0);
+        _cmsVEC3init(&Scale.v[2], 0, 0,  WhitePointIn->Z / WhitePointOut->Z);
+
+",,,
+DefaultICCintents:616:0,DefaultICCintents,616,617,/src/lcms/src/cmscnvrt.c,20,48,31.468677560372896,0.0,1.0,0.0,0.0,1.0,normal,not_evaluated,,,,,325000,0,0,,"            }
+        }
+
+        // Concatenate to the output LUT
+        if (!cmsPipelineCat(Result, Lut))
+            goto Error;
+
+        cmsPipelineFree(Lut);
+        Lut = NULL;","        }
+
+        // Concatenate to the output LUT
+        if (!cmsPipelineCat(Result, Lut))
+            goto Error;
+
+        cmsPipelineFree(Lut);
+        Lut = NULL;
+",,,
