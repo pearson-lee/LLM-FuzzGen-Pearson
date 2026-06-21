@@ -5,5 +5,8 @@
   "native_archive_filename": "liblcms2.a",
   "native_archive_include_dirs": [
     "source_code/include"
+  ],
+  "extra_ldflags": [
+    "-lm"
   ]
 }

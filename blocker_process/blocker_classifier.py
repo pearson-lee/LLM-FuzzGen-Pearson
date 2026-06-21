@@ -842,12 +842,21 @@ def log_collection_status(args: argparse.Namespace) -> None:
 def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
     oss_fuzz = OSSFuzz()
     api_filepath = getattr(args, "source_api_file", None) or to_api_filepath(args.source_file or "")
+    local_filepath = getattr(args, "source_file", None)
     branch_line = int(args.branch_line_number)
     blocked_side_line = int(args.blocked_side_line_number)
 
     args.language = oss_fuzz.proj_lang(args.project_name)
-    args.blocker_line_code = fetch_line_code(args.project_name, api_filepath, branch_line) or "N/A"
-    args.blocked_side_line_code = fetch_line_code(args.project_name, api_filepath, blocked_side_line) or "N/A"
+    args.blocker_line_code = (
+        fetch_line_code(args.project_name, local_filepath, branch_line)
+        or fetch_line_code(args.project_name, api_filepath, branch_line)
+        or "N/A"
+    )
+    args.blocked_side_line_code = (
+        fetch_line_code(args.project_name, local_filepath, blocked_side_line)
+        or fetch_line_code(args.project_name, api_filepath, blocked_side_line)
+        or "N/A"
+    )
 
     if getattr(args, "fuzz_file", None):
         fuzzer_name = Path(args.fuzz_file).stem

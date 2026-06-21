@@ -49,6 +49,10 @@ def _write_static_artifacts(tmp_path: Path, blockers: list[dict]) -> tuple[Path,
 def test_session_artifact_bundle_copies_candidate_cfg_and_source(monkeypatch, tmp_path):
     blockers = [_blocker("first", 10, "target_a"), _blocker("second", 20, "target_b")]
     build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    inspector = build_out / "demo" / "inspector"
+    with (inspector / "exe_to_fuzz_introspector_logs.yaml").open("a", encoding="utf-8") as stream:
+        stream.write("- executable_path: /out/future_reranked_target\n  fuzzer_log_file: future-log\n")
+    (inspector / "future-log.data").write_text("future calltree", encoding="utf-8")
     monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
     monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
 
@@ -57,9 +61,59 @@ def test_session_artifact_bundle_copies_candidate_cfg_and_source(monkeypatch, tm
     assert bundle is not None
     assert bundle.blocker_json.is_file()
     assert set(bundle.cfg_data_files) == {"target_a", "target_b"}
+    assert (bundle.root / "future-log.data").is_file()
     assert bundle.source_root is not None and bundle.source_root.is_dir()
     manifest = json.loads((bundle.root / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["missing_cfg_targets"] == []
+    assert manifest["copied_cfg_file_count"] == 3
+
+
+def test_pipeline_error_before_solver_does_not_count_as_attempt(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a")]
+    build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+    monkeypatch.setattr(main, "ensure_blocker_webapp_ready", lambda project_name: True)
+    coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
+    monkeypatch.setattr(main, "_load_blocker_coverage_context", lambda *args, **kwargs: coverage_context)
+    monkeypatch.setattr(main, "_select_project_blockers", lambda *args, **kwargs: list(blockers))
+    monkeypatch.setattr(
+        main,
+        "run_blocker_pipeline",
+        lambda **kwargs: {
+            "success": False,
+            "attempt_result": "pipeline_error",
+            "reason": "live_revalidation_failed",
+            "pipeline_failure_stage": "live_revalidation",
+        },
+    )
+    state = main.BlockerRuntimeState(artifacts_ready=True)
+
+    result = main.run_blocker_session(
+        project_name="demo",
+        elapsed_seconds=0,
+        llm_backend="vertexai",
+        model_name="model",
+        state=state,
+        blocker_json_path=blocker_json,
+        blocker_session_size=1,
+        blocker_top_k=1,
+    )
+
+    assert result["attempted"] == 0
+    assert result["pipeline_errors"] == 1
+    assert state.attempted_blocker_keys == set()
+
+
+def test_only_terminal_pipeline_or_triage_results_are_persisted():
+    assert main._should_persist_blocker_attempt({"attempt_result": "success"})
+    assert main._should_persist_blocker_attempt({"attempt_result": "failed"})
+    assert main._should_persist_blocker_attempt({"attempt_result": "triage_skipped"})
+    assert main._should_persist_blocker_attempt({"attempt_result": "triage_manual_review"})
+    assert not main._should_persist_blocker_attempt({"attempt_result": "pipeline_error"})
+    assert not main._should_persist_blocker_attempt({"attempt_result": "llm_error"})
+    assert not main._should_persist_blocker_attempt({})
 
 
 def test_refresh_budget_guard_does_not_start_expensive_refresh(monkeypatch):

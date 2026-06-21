@@ -107,6 +107,48 @@ def _live_revalidate_blocker_before_classify(
             "error": "Missing target, function, source file, or blocker line metadata.",
         }
 
+    cached_report_path = (
+        oss_fuzz.build_out_dir
+        / project_name
+        / "textcov_reports"
+        / f"{target_name}.linecovreport"
+    )
+    if cached_report_path.is_file():
+        try:
+            cached_report = cached_report_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to read live revalidation coverage report %s: %s", cached_report_path, exc)
+        else:
+            if cached_report.strip():
+                branch_hit_count = _normalize_hitcount(
+                    get_line_execution_count(
+                        cached_report,
+                        branch_line,
+                        function_name=function_name,
+                        source_file=source_file,
+                    )
+                )
+                blocked_side_hit_count = _normalize_hitcount(
+                    get_line_execution_count(
+                        cached_report,
+                        blocked_side_line,
+                        function_name=function_name,
+                        source_file=source_file,
+                    )
+                )
+                return {
+                    "success": True,
+                    "reason": "live_revalidation_completed",
+                    "error": None,
+                    "evidence_source": "current_target_linecovreport",
+                    "coverage_report": str(cached_report_path),
+                    "branch_hit_count": branch_hit_count,
+                    "blocked_side_hit_count": blocked_side_hit_count,
+                    "branch_line_reached": branch_hit_count > 0,
+                    "blocked_side_line_reached": blocked_side_hit_count > 0,
+                    "output_dir": None,
+                }
+
     if experiment_dir is not None:
         output_dir = experiment_dir / "blockers" / f"{function_name}_{branch_line}" / "revalidation"
     else:
@@ -361,16 +403,24 @@ def _create_blocker_session_artifacts(
             shutil.copy2(yaml_source, cached_yaml)
             from blocker_process.blocker_callpath_extractor import get_data_file_for_target
 
+            # Reranking can promote a target that was outside the initial top-k.
+            # All calltree files are small (a few MB per project in aggregate), so
+            # snapshot the complete YAML-addressable pool instead of guessing which
+            # targets the later runtime coverage ranking will select.
+            for source_data in inspector_dir.glob("*.data"):
+                if source_data.is_file():
+                    shutil.copy2(source_data, temporary_root / source_data.name)
+
             for target_name in candidate_targets:
                 data_file = get_data_file_for_target(str(yaml_source), target_name)
                 source_data = Path(data_file) if data_file else None
                 if source_data and source_data.is_file():
                     destination = temporary_root / source_data.name
-                    shutil.copy2(source_data, destination)
                     copied_cfg_files[target_name] = destination
                     manifest["copied_cfg_targets"].append(target_name)
                 else:
                     manifest["missing_cfg_targets"].append(target_name)
+            manifest["copied_cfg_file_count"] = len(list(temporary_root.glob("*.data")))
 
         source_root_source = _first_existing_dir(
             [
@@ -904,7 +954,12 @@ def _blocker_identity(blocker: dict) -> tuple[str, str, str]:
 
 
 def _should_persist_blocker_attempt(pipeline_result: dict) -> bool:
-    return pipeline_result.get("attempt_result") != "pipeline_error"
+    return pipeline_result.get("attempt_result") in {
+        "success",
+        "failed",
+        "triage_skipped",
+        "triage_manual_review",
+    }
 
 
 def _select_project_blockers(
@@ -1050,21 +1105,8 @@ def run_blocker_pipeline(
         success=live_revalidation.get("success"),
         reason=live_revalidation.get("reason"),
         error=live_revalidation.get("error"),
-        branch_hit_count=live_revalidation.get("branch_hit_count"),
-        blocked_side_hit_count=live_revalidation.get("blocked_side_hit_count"),
-        branch_line_reached=live_revalidation.get("branch_line_reached"),
-        blocked_side_line_reached=live_revalidation.get("blocked_side_line_reached"),
-        output_dir=live_revalidation.get("output_dir"),
-    )
-    _append_blocker_attempt_record(
-        event="blocker_live_revalidation",
-        success=live_revalidation.get("success"),
-        reason=live_revalidation.get("reason"),
-        error=live_revalidation.get("error"),
-        target_name=blocker.get("best_target"),
-        function_name=blocker.get("function_name"),
-        branch_line_number=blocker.get("branch_line_number"),
-        blocked_side_line_number=blocked_side_line_number,
+        evidence_source=live_revalidation.get("evidence_source", "coverage_replay"),
+        coverage_report=live_revalidation.get("coverage_report"),
         branch_hit_count=live_revalidation.get("branch_hit_count"),
         blocked_side_hit_count=live_revalidation.get("blocked_side_hit_count"),
         branch_line_reached=live_revalidation.get("branch_line_reached"),
@@ -1083,6 +1125,7 @@ def run_blocker_pipeline(
         return {
             "success": False,
             "reason": "live_revalidation_failed",
+            "attempt_result": "pipeline_error",
             "dependency_result": None,
             "pipeline_methods": [],
             "pipeline_success": None,
@@ -1107,6 +1150,7 @@ def run_blocker_pipeline(
         return {
             "success": False,
             "reason": "already_covered_at_solve_time",
+            "attempt_result": "skipped",
             "dependency_result": None,
             "pipeline_methods": [],
             "pipeline_success": None,
@@ -1129,6 +1173,7 @@ def run_blocker_pipeline(
         return {
             "success": False,
             "reason": "branch_not_reached_at_solve_time",
+            "attempt_result": "skipped",
             "dependency_result": None,
             "pipeline_methods": [],
             "pipeline_success": None,
@@ -1694,6 +1739,7 @@ def run_blocker_session(
     attempted = 0
     succeeded = 0
     pipeline_errors = 0
+    skipped_before_solver = 0
     session_seen_blocker_keys: set[tuple[str, str, str]] = set()
     selected_blockers: list[dict] = []
     for blocker in blockers:
@@ -1785,6 +1831,15 @@ def run_blocker_session(
             time.perf_counter() - attempt_started_at,
         )
         attempt_result = pipeline_result.get("attempt_result")
+        if attempt_result == "skipped":
+            skipped_before_solver += 1
+            logger.info(
+                "Skipping obsolete blocker candidate %s:%s before solver dispatch: %s",
+                blocker.get("function_name"),
+                blocker.get("branch_line_number"),
+                pipeline_result.get("reason"),
+            )
+            continue
         if not _should_persist_blocker_attempt(pipeline_result):
             pipeline_errors += 1
             logger.error(
@@ -1970,6 +2025,7 @@ def run_blocker_session(
         attempted=attempted,
         succeeded=succeeded,
         pipeline_errors=pipeline_errors,
+        skipped_before_solver=skipped_before_solver,
         artifacts_ready=state.artifacts_ready,
         artifacts_dirty=state.artifacts_dirty,
     )
@@ -1978,6 +2034,7 @@ def run_blocker_session(
         "attempted": attempted,
         "succeeded": succeeded,
         "pipeline_errors": pipeline_errors,
+        "skipped_before_solver": skipped_before_solver,
         "reason": "completed",
     }
 

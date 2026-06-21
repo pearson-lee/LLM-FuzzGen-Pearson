@@ -1,7 +1,8 @@
 from argparse import Namespace
 
 from blocker_process import blocker_callpath_extractor
-from blocker_process.blocker_classifier import auto_collect_callpath_context
+from blocker_process import blocker_classifier
+from blocker_process.blocker_classifier import auto_collect_callpath_context, enrich_classification_args
 
 
 def test_missing_yaml_still_collects_textual_callsites(monkeypatch, tmp_path):
@@ -62,3 +63,29 @@ def test_missing_yaml_still_collects_textual_callsites(monkeypatch, tmp_path):
     assert captured["source_root"] == str(source_root)
     assert "sample.c:10" in result.blocker_call_sites
     assert result.cfg_collection_status == "failed"
+
+
+def test_enrichment_prefers_cached_local_source_over_unavailable_api(monkeypatch, tmp_path):
+    source_file = tmp_path / "source.c"
+    source_file.write_text("line one\nif (flag)\nblocked();\n", encoding="utf-8")
+
+    class FakeOSSFuzz:
+        def proj_lang(self, project_name):
+            return "c"
+
+    monkeypatch.setattr(blocker_classifier, "OSSFuzz", FakeOSSFuzz)
+    monkeypatch.setattr(blocker_classifier, "check_function_coverage", lambda *args, **kwargs: "")
+    args = Namespace(
+        project_name="demo",
+        function_name="blocker",
+        branch_line_number=2,
+        blocked_side_line_number=3,
+        source_file=str(source_file),
+        source_api_file="/src/demo/missing.c",
+        fuzz_file=None,
+    )
+
+    result = enrich_classification_args(args)
+
+    assert result.blocker_line_code == "if (flag)"
+    assert result.blocked_side_line_code == "blocked();"

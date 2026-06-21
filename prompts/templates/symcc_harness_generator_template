@@ -116,6 +116,12 @@ The original fuzz target uses these includes. Use them as a **type reference onl
 {cfg_source_codes}
 ```
 
+# Candidate Blocker Call Sites
+
+```text
+{blocker_call_sites}
+```
+
 # Triggering Input Hint
 
 - Path or source: `{triggering_input_path}`

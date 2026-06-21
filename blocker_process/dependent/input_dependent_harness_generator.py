@@ -659,6 +659,10 @@ def build_prompt(args: argparse.Namespace) -> str:
         ),
         "cfg_call_chain": clip_text(resolve_text(args.cfg_call_chain_file, args.cfg_call_chain), max_chars=7000),
         "cfg_source_codes": clip_text(resolve_text(args.cfg_source_codes_file, args.cfg_source_codes), max_chars=9000),
+        "blocker_call_sites": clip_text(
+            resolve_text(args.blocker_call_sites_file, args.blocker_call_sites),
+            max_chars=9000,
+        ),
         "triggering_input_path": triggering_input_path,
         "triggering_input_preview": triggering_input_preview,
         "template_path": str(MODULE_ROOT / "symex_harness_template.cpp"),
@@ -869,6 +873,8 @@ def main() -> None:
     parser.add_argument("--runtime-blocker-segment-source-codes", default=None)
     parser.add_argument("--cfg-call-chain", default=None)
     parser.add_argument("--cfg-source-codes", default=None)
+    parser.add_argument("--blocker-call-sites", default=None)
+    parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
     parser.add_argument("--output-root", default=None,
                         help="Root directory under which harness output dirs are created. "
