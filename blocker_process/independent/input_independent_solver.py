@@ -534,6 +534,38 @@ def copy_corpus_if_present(oss_fuzz: OSSFuzz, project_name: str, source_fuzzer_n
     return target_dir
 
 
+def validate_target_runtime_sanity(
+    oss_fuzz: OSSFuzz,
+    project_name: str,
+    fuzzer_name: str,
+    output_dir: Path,
+    seconds: int = config.BLOCKER_TARGET_RUNTIME_SANITY_SECONDS,
+) -> dict:
+    """Run a generated target under ASan after its reference corpus is materialized."""
+    started_at = time.perf_counter()
+    result = oss_fuzz.run_fuzzer(
+        project_name,
+        fuzzer_name,
+        seconds=max(1, int(seconds)),
+        build_fuzzer=True,
+    )
+    elapsed = time.perf_counter() - started_at
+    full_error = (result.error or "").strip()
+    error_path = output_dir / "runtime_sanity_error.txt"
+    if full_error:
+        write_text(error_path, full_error)
+    payload = {
+        "success": bool(result.success),
+        "sanitizer": "address",
+        "seconds": max(1, int(seconds)),
+        "elapsed_seconds": elapsed,
+        "error": clip_text(full_error, 12000) if full_error else "",
+        "error_path": str(error_path) if full_error else None,
+    }
+    write_json(output_dir / "runtime_sanity.json", payload)
+    return payload
+
+
 def evaluate_target_with_coverage(
     oss_fuzz: OSSFuzz,
     project_name: str,
@@ -733,6 +765,7 @@ This is bounded strategy replanning, not compile repair:
 - `route_failure`: redesign the API route or prerequisite setup so the branch line is reached.
 - `predicate_state_failure`: preserve the working route, but redesign the constructor/setter sequence so the blocked predicate state changes.
 - `coverage_error`: fix the target/evaluation failure before drawing a semantic conclusion.
+- `runtime_sanity_failed`: repair the sanitizer-reported ownership or object-lifetime bug while preserving every Strategy Contract anchor. Do not remove the blocker trigger to silence the crash.
 - `contract_parse_error`: emit a complete canonical Strategy Contract before attempting compilation.
 - `strategy_replan_required`: keep the required state and trigger API, but replace the non-compiling constructor/API sequence with a different supported strategy.
 
@@ -807,6 +840,15 @@ def summarize_coverage_feedback(iteration_index: int, evaluation: dict, became_b
         f"Iteration {iteration_index} compiled successfully but did not reach the blocked-side line. "
         f"Branch hit count: {branch_hit}. Blocked-side hit count: {blocked_hit}. "
         f"Runtime diagnosis: {diagnosis}. {action} {status}"
+    )
+
+
+def summarize_runtime_sanity_failure(iteration_index: int, runtime_sanity: dict) -> str:
+    error = (runtime_sanity.get("error") or "Unknown sanitizer failure.").strip()
+    return (
+        f"Iteration {iteration_index} failed the address-sanitizer runtime sanity check after the reference corpus "
+        f"was copied. Repair the reported ownership/object-lifetime bug without removing or bypassing the "
+        f"Strategy Contract constructor and trigger APIs. Sanitizer report: {error}"
     )
 
 
@@ -1167,6 +1209,52 @@ def run_strategy_iterations(
 
         target_path = Path(build_info["target_path"])
         copy_corpus_if_present(oss_fuzz, args.project_name, source_corpus_fuzzer, target_path.stem)
+        runtime_sanity = validate_target_runtime_sanity(
+            oss_fuzz=oss_fuzz,
+            project_name=args.project_name,
+            fuzzer_name=target_path.stem,
+            output_dir=iteration_dir,
+        )
+        record["runtime_sanity"] = runtime_sanity
+        record["target_path"] = str(target_path)
+        if not runtime_sanity.get("success"):
+            last_failure_summary = summarize_runtime_sanity_failure(iteration_index, runtime_sanity)
+            evaluation = {
+                "success": False,
+                "runtime_diagnosis": "runtime_sanity_failed",
+                "sanitizer_stable": False,
+                "validated_target": False,
+                "runtime_sanity": runtime_sanity,
+                "strategy_contract": build_info.get("strategy_contract", "N/A"),
+                "note": last_failure_summary,
+            }
+            record["evaluation"] = evaluation
+            record["runtime_diagnosis"] = "runtime_sanity_failed"
+            record["strategy_contract"] = evaluation["strategy_contract"]
+            record["failure_kind"] = "runtime_sanity_failed"
+            record["note"] = last_failure_summary
+            record["last_failure_summary"] = last_failure_summary
+            record["strategy_replan_required"] = True
+            replan_count += 1
+            record["strategy_replan_number"] = replan_count
+            record["rolled_back"] = True
+            record["accepted"] = False
+            no_growth_count += 1
+            record["no_growth_count"] = no_growth_count
+            replan_code = build_info.get("code", "")
+            replan_evaluation = dict(evaluation)
+            delete_generated_target(oss_fuzz, args.project_name, str(target_path))
+            iterations.append(record)
+            if no_growth_count >= no_growth_threshold:
+                stalled_out = True
+                logging.info(
+                    "Strategy %s stalled after %d consecutive runtime-invalid candidates; switching strategy.",
+                    strategy_name,
+                    no_growth_count,
+                )
+                break
+            continue
+
         evaluation = evaluate_target_with_coverage(
             oss_fuzz=oss_fuzz,
             project_name=args.project_name,
@@ -1184,6 +1272,9 @@ def run_strategy_iterations(
         runtime_diagnosis = diagnose_runtime_evaluation(evaluation)
         evaluation["runtime_diagnosis"] = runtime_diagnosis
         evaluation["strategy_contract"] = build_info.get("strategy_contract", "N/A")
+        evaluation["runtime_sanity"] = runtime_sanity
+        evaluation["sanitizer_stable"] = True
+        evaluation["validated_target"] = bool(evaluation.get("blocked_side_line_reached"))
         record["runtime_diagnosis"] = runtime_diagnosis
         record["strategy_contract"] = evaluation["strategy_contract"]
         record["success"] = bool(evaluation.get("blocked_side_line_reached"))

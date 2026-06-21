@@ -4,8 +4,10 @@ import datetime
 import json
 import logging
 import re
+import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -16,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from blocker_process.dependent.build_context import reconstruct_build_context
 from external.oss_fuzz import OSSFuzz
+import config.config as config
 
 try:
     from json_repair import repair_json
@@ -468,6 +471,7 @@ def run_harness_native_build_gate(
     args: argparse.Namespace,
     output_dir: Path,
 ) -> tuple[str | None, str, dict]:
+    output_dir.mkdir(parents=True, exist_ok=True)
     oss_fuzz = OSSFuzz()
     native_target = oss_fuzz.save_named_target(
         args.project_name,
@@ -492,11 +496,84 @@ def run_harness_native_build_gate(
         return "native_build_invalid", build_result.error or "OSS-Fuzz native build failed.", {}
 
     binary_path = oss_fuzz.built_target_binary(args.project_name, native_target.stem)
-    return None, "", {
+    metadata = {
         "native_target_name": native_target.stem,
         "native_target_path": str(native_target),
         "native_address_binary": str(binary_path) if binary_path is not None else None,
     }
+
+    sanity_seeds = [Path(path) for path in (getattr(args, "runtime_sanity_seed", None) or [])]
+    if not sanity_seeds:
+        metadata["runtime_sanity"] = {
+            "status": "skipped",
+            "reason": "No runtime sanity seeds were provided.",
+        }
+        return None, "", metadata
+
+    corpus_dir = oss_fuzz.build_corpus_dir / args.project_name / native_target.stem
+    if corpus_dir.exists():
+        shutil.rmtree(corpus_dir)
+    corpus_dir.mkdir(parents=True, exist_ok=True)
+
+    copied_seeds: list[str] = []
+    missing_seeds: list[str] = []
+    for index, seed_path in enumerate(sanity_seeds):
+        if not seed_path.is_file():
+            missing_seeds.append(str(seed_path))
+            continue
+        suffix = seed_path.suffix if seed_path.suffix else ".seed"
+        destination = corpus_dir / f"sanity_{index:03d}{suffix}"
+        shutil.copy2(seed_path, destination)
+        copied_seeds.append(str(destination))
+
+    if not copied_seeds:
+        details = "Runtime sanity check has no readable seed files."
+        metadata["runtime_sanity"] = {
+            "status": "failed",
+            "error": details,
+            "missing_seeds": missing_seeds,
+        }
+        (output_dir / "runtime_sanity.json").write_text(
+            json.dumps(metadata["runtime_sanity"], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        oss_fuzz.remove_target(args.project_name, native_target.stem)
+        return "runtime_sanity_invalid", details, {}
+
+    sanity_seconds = max(1, int(config.BLOCKER_TARGET_RUNTIME_SANITY_SECONDS))
+    started_at = time.perf_counter()
+    sanity_result = oss_fuzz.run_fuzzer(
+        proj_name=args.project_name,
+        fuzzer_name=native_target.stem,
+        seconds=sanity_seconds,
+        build_fuzzer=False,
+    )
+    elapsed_seconds = time.perf_counter() - started_at
+    sanity_error = (sanity_result.error or "").strip()
+    sanity_metadata = {
+        "status": "passed" if sanity_result.success else "failed",
+        "success": bool(sanity_result.success),
+        "sanitizer": "address",
+        "seconds": sanity_seconds,
+        "elapsed_seconds": elapsed_seconds,
+        "seed_count": len(copied_seeds),
+        "seed_paths": copied_seeds,
+        "missing_seeds": missing_seeds,
+        "error": sanity_error,
+    }
+    (output_dir / "runtime_sanity.json").write_text(
+        json.dumps(sanity_metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    if sanity_error:
+        (output_dir / "runtime_sanity_error.txt").write_text(sanity_error, encoding="utf-8")
+    if not sanity_result.success:
+        oss_fuzz.remove_target(args.project_name, native_target.stem)
+        details = sanity_error or "Generated harness failed the ASan runtime sanity check."
+        return "runtime_sanity_invalid", details, {}
+
+    metadata["runtime_sanity"] = sanity_metadata
+    return None, "", metadata
 
 
 def _try_fix_missing_include_subdirs(harness_code: str, original_code: str, error_msg: str) -> str | None:
@@ -669,7 +746,22 @@ def build_prompt(args: argparse.Namespace) -> str:
         "template_code": clip_text(load_text(MODULE_ROOT / "symex_harness_template.cpp"), max_chars=12000),
         "reference_target_includes": extract_includes_from_file(args.fuzz_file),
     }
-    return format_prompt(load_text(template_path), mapping)
+    prompt = format_prompt(load_text(template_path), mapping)
+    fidelity_feedback = str(getattr(args, "fidelity_repair_feedback", "") or "").strip()
+    if fidelity_feedback:
+        previous_harness = clip_text(
+            read_optional_file(getattr(args, "previous_harness_file", None)),
+            max_chars=16000,
+        )
+        prompt += (
+            "\n\n# Previous Generated-Harness Fidelity Failure\n\n"
+            "A previous simplified harness compiled and passed ASan runtime sanity, but a seed that "
+            "reached the blocker branch in the original target did not reach that branch in the simplified harness. "
+            "Revise the byte parsing, state construction, and API sequence so the original input contract is preserved.\n\n"
+            f"Failure evidence:\n```text\n{clip_text(fidelity_feedback, max_chars=8000)}\n```\n\n"
+            f"Previous harness:\n```cpp\n{previous_harness}\n```\n"
+        )
+    return prompt
 
 
 def write_harness(output_dir: Path, harness_code: str, suggested_name: str) -> Path:
@@ -725,7 +817,7 @@ def run_generation(args: argparse.Namespace) -> dict:
     validation_details = ""
     final_response_name = "response.txt"
     final_parsed_name = "parsed.json"
-    native_build_metadata: dict[str, str] = {}
+    native_build_metadata: dict = {}
 
     for attempt_index in range(2):
         response_text = llm.generate(current_prompt, thread_id=llm_thread_id)
@@ -835,6 +927,7 @@ def run_generation(args: argparse.Namespace) -> dict:
         "native_build_target_name": native_build_metadata.get("native_target_name"),
         "native_build_target_path": native_build_metadata.get("native_target_path"),
         "native_build_address_binary": native_build_metadata.get("native_address_binary"),
+        "runtime_sanity": native_build_metadata.get("runtime_sanity"),
     }
     return result
 
@@ -876,6 +969,14 @@ def main() -> None:
     parser.add_argument("--blocker-call-sites", default=None)
     parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
+    parser.add_argument("--fidelity-repair-feedback", default="")
+    parser.add_argument("--previous-harness-file", default=None)
+    parser.add_argument(
+        "--runtime-sanity-seed",
+        action="append",
+        default=[],
+        help="Seed file to replay against the generated native harness under ASan; repeatable.",
+    )
     parser.add_argument("--output-root", default=None,
                         help="Root directory under which harness output dirs are created. "
                              "Defaults to generated_harnesses/.")

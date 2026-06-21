@@ -5,6 +5,7 @@ from blocker_process.dependent.input_dependent_solver import (
     build_argument_parser as build_dependent_parser,
     build_context_args,
 )
+from blocker_process.independent import input_independent_solver as independent_solver
 from blocker_process.independent.input_independent_solver import (
     apply_strategy_contract,
     build_argument_parser as build_independent_parser,
@@ -16,6 +17,7 @@ from blocker_process.independent.input_independent_solver import (
     parse_strategy_contract,
     strip_standalone_markdown_fences,
     strategy_contract_anchors,
+    validate_target_runtime_sanity,
     validate_strategy_preservation,
 )
 from main import _should_persist_blocker_attempt
@@ -218,6 +220,111 @@ def test_runtime_diagnosis_distinguishes_route_state_and_success() -> None:
     assert diagnose_runtime_evaluation({"success": True, "branch_hit_count": 10, "blocked_side_hit_count": 0}) == "predicate_state_failure"
     assert diagnose_runtime_evaluation({"success": True, "branch_hit_count": 10, "blocked_side_hit_count": 1}) == "success"
     assert diagnose_runtime_evaluation({"success": False}) == "coverage_error"
+
+
+def test_runtime_sanity_uses_address_build_and_writes_error(tmp_path) -> None:
+    calls = []
+
+    class FakeOSSFuzz:
+        def run_fuzzer(self, project_name, fuzzer_name, **kwargs):
+            calls.append((project_name, fuzzer_name, kwargs))
+            return SimpleNamespace(success=False, error="heap-use-after-free in generated target")
+
+    result = validate_target_runtime_sanity(
+        FakeOSSFuzz(),
+        "demo",
+        "generated_target",
+        tmp_path,
+        seconds=10,
+    )
+
+    assert not result["success"]
+    assert result["sanitizer"] == "address"
+    assert calls == [("demo", "generated_target", {"seconds": 10, "build_fuzzer": True})]
+    assert "heap-use-after-free" in (tmp_path / "runtime_sanity_error.txt").read_text()
+    assert (tmp_path / "runtime_sanity.json").is_file()
+
+
+def test_runtime_invalid_candidate_is_removed_before_coverage(monkeypatch, tmp_path) -> None:
+    reference_target = tmp_path / "reference.c"
+    reference_target.write_text("int LLVMFuzzerTestOneInput(void) { return 0; }", encoding="utf-8")
+    generated_target = tmp_path / "generated.c"
+    generated_target.write_text("int LLVMFuzzerTestOneInput(void) { return 0; }", encoding="utf-8")
+    contract = (
+        "required_state: special state\n"
+        "state_constructor: setup_special_state()\n"
+        "trigger_api: parse_target()\n"
+        "preserved_invariants: preserve constructor and trigger"
+    )
+    events = []
+
+    class FakeOSSFuzz:
+        def remove_target(self, project_name, fuzzer_name):
+            events.append(("remove", fuzzer_name))
+
+    monkeypatch.setattr(
+        independent_solver,
+        "generate_and_build_target",
+        lambda **kwargs: {
+            "success": True,
+            "target_path": str(generated_target),
+            "code": generated_target.read_text(),
+            "strategy_contract": contract,
+        },
+    )
+    monkeypatch.setattr(
+        independent_solver,
+        "copy_corpus_if_present",
+        lambda *args, **kwargs: events.append(("copy", generated_target.stem)) or tmp_path,
+    )
+    monkeypatch.setattr(
+        independent_solver,
+        "validate_target_runtime_sanity",
+        lambda **kwargs: events.append(("sanity", kwargs["fuzzer_name"])) or {
+            "success": False,
+            "sanitizer": "address",
+            "seconds": 10,
+            "error": "heap-use-after-free in generated target",
+        },
+    )
+
+    def fail_if_coverage_runs(**kwargs):
+        raise AssertionError("coverage must not run for a sanitizer-invalid target")
+
+    monkeypatch.setattr(independent_solver, "evaluate_target_with_coverage", fail_if_coverage_runs)
+    args = SimpleNamespace(
+        project_name="demo",
+        fuzz_file=str(reference_target),
+        function_name="blocked",
+        source_file="source.c",
+        source_api_file="/src/demo/source.c",
+        branch_line_number=10,
+        blocked_side_line_number=11,
+        fuzz_seconds=15,
+    )
+
+    result = independent_solver.run_strategy_iterations(
+        args=args,
+        oss_fuzz=FakeOSSFuzz(),
+        llm=SimpleNamespace(),
+        output_dir=tmp_path / "output",
+        base_prompt="generate",
+        strategy_name="reference_guided",
+        source_corpus_fuzzer="reference",
+        preserve_seed_compatibility=True,
+        max_iterations=1,
+    )
+
+    iteration = result["iterations"][0]
+    assert events == [
+        ("copy", generated_target.stem),
+        ("sanity", generated_target.stem),
+        ("remove", generated_target.stem),
+    ]
+    assert not iteration["success"]
+    assert iteration["failure_kind"] == "runtime_sanity_failed"
+    assert iteration["strategy_replan_required"] is True
+    assert iteration["evaluation"]["sanitizer_stable"] is False
 
 
 def test_replan_prompt_contains_runtime_diagnosis_and_contract() -> None:

@@ -135,6 +135,37 @@ def resolve_seed_generator_triggering_input(args: argparse.Namespace, seeds: lis
     return seeds[0] if seeds else ""
 
 
+def resolve_harness_fidelity_seed(args: argparse.Namespace, seeds: list[str]) -> str:
+    if args.triggering_input:
+        trigger_path = Path(args.triggering_input)
+        if trigger_path.is_file():
+            return str(trigger_path.resolve())
+    for seed in seeds:
+        seed_path = Path(seed)
+        if seed_path.is_file():
+            return str(seed_path.resolve())
+    return ""
+
+
+def get_symcc_failure_kind(stage: dict | None) -> str:
+    if not isinstance(stage, dict):
+        return ""
+    symcc = stage.get("symcc")
+    return str(symcc.get("failure_kind") or "") if isinstance(symcc, dict) else ""
+
+
+def get_harness_fidelity_feedback(stage: dict | None) -> str:
+    if not isinstance(stage, dict):
+        return "Generated harness did not preserve the branch-reaching seed path."
+    fidelity = stage.get("harness_fidelity")
+    if isinstance(fidelity, dict):
+        return json.dumps(fidelity, ensure_ascii=False, indent=2)
+    symcc = stage.get("symcc")
+    if isinstance(symcc, dict) and symcc.get("output"):
+        return str(symcc["output"])[-8000:]
+    return "Generated harness did not preserve the branch-reaching seed path."
+
+
 def choose_symcc_seed_inputs(
     fallback_seeds: list[str],
     parsed_llm_seed: dict | None,
@@ -165,6 +196,14 @@ def choose_symcc_seed_inputs(
         "recommended_generator_seed_paths": recommended_paths,
         "selection_reason": str(parsed_llm_seed.get("recommended_symcc_selection_reason") or ""),
     }
+
+
+def build_runtime_sanity_seed_args(seed_paths: list[str]) -> list[str]:
+    forwarded: list[str] = []
+    for seed_path in seed_paths:
+        if seed_path and Path(seed_path).is_file():
+            forwarded.extend(["--runtime-sanity-seed", str(Path(seed_path).resolve())])
+    return forwarded
 
 
 def build_context_args(args: argparse.Namespace) -> list[str]:
@@ -409,6 +448,7 @@ def build_symcc_cmd(
     fuzz_target: str | None,
     target_name: str | None,
     json_output_path: Path,
+    fidelity_seed: str | None = None,
 ) -> list[str]:
     cmd = [
         sys.executable,
@@ -442,6 +482,8 @@ def build_symcc_cmd(
         cmd.extend(["--target-name", target_name])
     for seed in seeds:
         cmd.extend(["--seed", seed])
+    if fidelity_seed and Path(fidelity_seed).is_file():
+        cmd.extend(["--fidelity-seed", str(Path(fidelity_seed).resolve())])
     if args.keep_coverage_reports:
         cmd.append("--keep-coverage-reports")
     if getattr(args, "llvm_profdata", None):
@@ -587,98 +629,126 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["attempt_result"] = "success"
         return result
 
-    symcc_harness_cmd = [
-        sys.executable,
-        str(HARNESS_GENERATOR),
-        "--mode",
-        "symcc",
-        *build_context_args(args),
-    ]
-    if getattr(args, "output_root", None):
-        symcc_harness_cmd.extend(["--output-root", str(Path(args.output_root) / "harness")])
-    symcc_harness_gen = run_program(symcc_harness_cmd)
-    result["stages"]["symcc_harness_generation"] = symcc_harness_gen.get("parsed_output") or {
-        "returncode": symcc_harness_gen["returncode"],
-        "stdout": symcc_harness_gen["stdout"],
-        "stderr": symcc_harness_gen["stderr"],
-    }
-    parsed_symcc_harness = symcc_harness_gen.get("parsed_output")
-    if not successful(parsed_symcc_harness):
-        result["failure_stage"] = "symcc_harness_generation"
+    fidelity_seed = resolve_harness_fidelity_seed(args, seeds)
+    fidelity_feedback = ""
+    previous_harness_file = ""
+    parsed_symcc_harness: dict | None = None
+
+    for harness_attempt in range(1, 3):
+        suffix = "" if harness_attempt == 1 else f"_replan_{harness_attempt:02d}"
+        generation_stage = f"symcc_harness_generation{suffix}"
+        libfuzzer_stage = f"libfuzzer_focused_pass{suffix}"
+        symcc_stage = f"symcc_generated_harness{suffix}"
+
+        symcc_harness_cmd = [
+            sys.executable,
+            str(HARNESS_GENERATOR),
+            "--mode",
+            "symcc",
+            *build_context_args(args),
+            *build_runtime_sanity_seed_args(symcc_seeds),
+        ]
+        if fidelity_feedback:
+            symcc_harness_cmd.extend(["--fidelity-repair-feedback", fidelity_feedback])
+        if previous_harness_file:
+            symcc_harness_cmd.extend(["--previous-harness-file", previous_harness_file])
+        if getattr(args, "output_root", None):
+            symcc_harness_cmd.extend(["--output-root", str(Path(args.output_root) / "harness")])
+
+        symcc_harness_gen = run_program(symcc_harness_cmd)
+        result["stages"][generation_stage] = symcc_harness_gen.get("parsed_output") or {
+            "returncode": symcc_harness_gen["returncode"],
+            "stdout": symcc_harness_gen["stdout"],
+            "stderr": symcc_harness_gen["stderr"],
+        }
+        parsed_symcc_harness = symcc_harness_gen.get("parsed_output")
+        if not successful(parsed_symcc_harness):
+            result["failure_stage"] = generation_stage
+            result["attempt_result"] = infer_attempt_result(result)
+            return result
+
+        simplified_target_name = parsed_symcc_harness.get("native_build_target_name")
+        libfuzzer_pass_seconds = int(getattr(args, "libfuzzer_pass_seconds", 0) or 0)
+        stage3b_seeds = list(symcc_seeds)
+        if libfuzzer_pass_seconds > 0 and simplified_target_name:
+            stage3b_result = run_libfuzzer_focused_pass(
+                project_name=args.project_name,
+                target_name=simplified_target_name,
+                initial_seeds=symcc_seeds,
+                fuzz_seconds=libfuzzer_pass_seconds,
+            )
+            result["stages"][libfuzzer_stage] = stage3b_result
+            result["pipeline_methods"].append(libfuzzer_stage)
+            corpus_dir = Path(stage3b_result["corpus_dir"])
+            if corpus_dir.is_dir():
+                enriched = [str(p) for p in sorted(corpus_dir.iterdir()) if p.is_file()]
+                seen = set(stage3b_seeds)
+                for seed_path in enriched:
+                    if seed_path not in seen:
+                        stage3b_seeds.append(seed_path)
+                        seen.add(seed_path)
+
+        symcc_harness_json = output_dir / f"symcc_harness_summary{suffix}.json"
+        symcc_harness_run_cmd = build_symcc_cmd(
+            args=args,
+            blocker_json_path=payload_path,
+            work_dir=output_dir / f"symcc_harness_run{suffix}",
+            seeds=stage3b_seeds,
+            fuzz_target=parsed_symcc_harness["harness_path"],
+            target_name=simplified_target_name,
+            json_output_path=symcc_harness_json,
+            fidelity_seed=fidelity_seed,
+        )
+        symcc_harness_run = run_program(symcc_harness_run_cmd, json_output_file=symcc_harness_json)
+        result["pipeline_methods"].append(symcc_stage)
+        stage_payload = symcc_harness_run.get("parsed_output") or {
+            "returncode": symcc_harness_run["returncode"],
+            "stdout": symcc_harness_run["stdout"],
+            "stderr": symcc_harness_run["stderr"],
+        }
+        result["stages"][symcc_stage] = stage_payload
+        if successful(symcc_harness_run.get("parsed_output")):
+            result["success"] = True
+            result["success_stage"] = symcc_stage
+            result["attempt_result"] = "success"
+            result["generated_harness_retention"] = {
+                "retained": True,
+                "quarantined": False,
+                "reason": "blocked_side_line_reached",
+                "target_name": simplified_target_name,
+                "oss_fuzz_target_path": parsed_symcc_harness.get("native_build_target_path"),
+                "harness_path": parsed_symcc_harness.get("harness_path"),
+            }
+            return result
+
+        failure_kind = get_symcc_failure_kind(stage_payload)
+        result["generated_harness_retention"] = quarantine_unsolved_generated_harness(
+            args=args,
+            parsed_harness=parsed_symcc_harness,
+            symcc_harness_stage=stage_payload,
+            reason=failure_kind or "symcc_generated_harness_did_not_reach_blocked_side",
+        )
+        if failure_kind == "harness_seed_incompatible" and harness_attempt == 1:
+            fidelity_feedback = get_harness_fidelity_feedback(stage_payload)
+            previous_harness_file = str(parsed_symcc_harness.get("harness_path") or "")
+            result["pipeline_methods"].append("symcc_harness_fidelity_replan")
+            continue
+
+        result["failure_stage"] = symcc_stage
+        if failure_kind == "harness_fidelity_unknown":
+            result["message"] = (
+                "Generated-harness fidelity could not be measured after a deterministic coverage retry; "
+                "LLM repair was not attempted."
+            )
+        elif failure_kind == "harness_seed_incompatible":
+            result["message"] = "Generated harness remained incompatible after one bounded fidelity replan."
+        else:
+            result["message"] = "Input-dependent pipeline ended after generated-harness SymCC fallback."
         result["attempt_result"] = infer_attempt_result(result)
         return result
 
-    simplified_target_name = parsed_symcc_harness.get("native_build_target_name")
-
-    # Stage 3b: Run a short libFuzzer pass on the simplified harness to enrich the
-    # seed corpus before handing off to SymCC (Stage 3c). This is best-effort —
-    # failures are logged but do not abort the pipeline.
-    libfuzzer_pass_seconds = int(getattr(args, "libfuzzer_pass_seconds", 0) or 0)
-    stage3b_seeds = list(symcc_seeds)
-    if libfuzzer_pass_seconds > 0 and simplified_target_name:
-        stage3b_result = run_libfuzzer_focused_pass(
-            project_name=args.project_name,
-            target_name=simplified_target_name,
-            initial_seeds=symcc_seeds,
-            fuzz_seconds=libfuzzer_pass_seconds,
-        )
-        result["stages"]["libfuzzer_focused_pass"] = stage3b_result
-        result["pipeline_methods"].append("libfuzzer_focused_pass")
-        # Use the enriched corpus dir as additional seeds for Stage 3c.
-        corpus_dir = Path(stage3b_result["corpus_dir"])
-        if corpus_dir.is_dir():
-            enriched = [str(p) for p in sorted(corpus_dir.iterdir()) if p.is_file()]
-            seen = set(stage3b_seeds)
-            for s in enriched:
-                if s not in seen:
-                    stage3b_seeds.append(s)
-                    seen.add(s)
-            logging.info(
-                "Stage 3b: enriched seed list from %d to %d for Stage 3c",
-                len(symcc_seeds),
-                len(stage3b_seeds),
-            )
-
-    symcc_harness_json = output_dir / "symcc_harness_summary.json"
-    symcc_harness_run_cmd = build_symcc_cmd(
-        args=args,
-        blocker_json_path=payload_path,
-        work_dir=output_dir / "symcc_harness_run",
-        seeds=stage3b_seeds,
-        fuzz_target=parsed_symcc_harness["harness_path"],
-        target_name=simplified_target_name,
-        json_output_path=symcc_harness_json,
-    )
-    symcc_harness_run = run_program(symcc_harness_run_cmd, json_output_file=symcc_harness_json)
-    result["pipeline_methods"].append("symcc_generated_harness")
-    result["stages"]["symcc_generated_harness"] = symcc_harness_run.get("parsed_output") or {
-        "returncode": symcc_harness_run["returncode"],
-        "stdout": symcc_harness_run["stdout"],
-        "stderr": symcc_harness_run["stderr"],
-    }
-    if successful(symcc_harness_run.get("parsed_output")):
-        result["success"] = True
-        result["success_stage"] = "symcc_generated_harness"
-        result["attempt_result"] = "success"
-        result["generated_harness_retention"] = {
-            "retained": True,
-            "quarantined": False,
-            "reason": "blocked_side_line_reached",
-            "target_name": simplified_target_name,
-            "oss_fuzz_target_path": parsed_symcc_harness.get("native_build_target_path"),
-            "harness_path": parsed_symcc_harness.get("harness_path"),
-        }
-        return result
-
     result["failure_stage"] = "symcc_generated_harness"
-    result["generated_harness_retention"] = quarantine_unsolved_generated_harness(
-        args=args,
-        parsed_harness=parsed_symcc_harness,
-        symcc_harness_stage=result["stages"].get("symcc_generated_harness"),
-        reason="symcc_generated_harness_did_not_reach_blocked_side",
-    )
-    result["message"] = "Input-dependent main pipeline ended after LLM seed generation and SymCC fallback."
-    result["attempt_result"] = infer_attempt_result(result)
+    result["attempt_result"] = "failed"
     return result
 
 

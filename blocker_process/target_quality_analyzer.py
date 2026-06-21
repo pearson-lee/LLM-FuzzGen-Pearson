@@ -284,6 +284,8 @@ def analyze_target_quality(
     struct_writes = _direct_struct_writes(non_code_free)
     internal_headers = _internal_header_paths(code)
     runtime_confirmed = _runtime_confirmed(evaluation)
+    sanitizer_stable = (evaluation or {}).get("sanitizer_stable")
+    validated_target = runtime_confirmed and sanitizer_stable is True
     contract_expected_symbols = _contract_expected_symbols(
         strategy_contract,
         code_calls,
@@ -365,6 +367,8 @@ def analyze_target_quality(
 
     return {
         "runtime_confirmed": runtime_confirmed,
+        "sanitizer_stable": sanitizer_stable,
+        "validated_target": validated_target,
         "primary_success_quality": primary,
         "success_quality_labels": _ordered_unique(labels),
         "contract_code_alignment": alignment,

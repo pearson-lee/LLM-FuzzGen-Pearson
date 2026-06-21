@@ -9,6 +9,9 @@ from blocker_process.dependent.input_dependent_seed_generator import (
     validate_generator,
 )
 from blocker_process.dependent.input_dependent_solver import (
+    build_runtime_sanity_seed_args,
+    get_symcc_failure_kind,
+    resolve_harness_fidelity_seed,
     resolve_seed_generator_triggering_input,
     seed_generation_exceeded_budget,
 )
@@ -117,6 +120,44 @@ def test_solver_seed_falls_back_to_generator_triggering_input(tmp_path: Path) ->
     args = SimpleNamespace(triggering_input="")
 
     assert resolve_seed_generator_triggering_input(args, [str(seed)]) == str(seed)
+
+
+def test_runtime_sanity_seed_args_forward_only_existing_files(tmp_path: Path) -> None:
+    first = tmp_path / "first.seed"
+    second = tmp_path / "second.seed"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    assert build_runtime_sanity_seed_args([str(first), str(tmp_path / "missing"), str(second)]) == [
+        "--runtime-sanity-seed",
+        str(first.resolve()),
+        "--runtime-sanity-seed",
+        str(second.resolve()),
+    ]
+
+
+def test_harness_fidelity_prefers_existing_triggering_input(tmp_path: Path) -> None:
+    trigger = tmp_path / "trigger.seed"
+    fallback = tmp_path / "fallback.seed"
+    trigger.write_bytes(b"trigger")
+    fallback.write_bytes(b"fallback")
+    args = SimpleNamespace(triggering_input=str(trigger))
+
+    assert resolve_harness_fidelity_seed(args, [str(fallback)]) == str(trigger.resolve())
+
+
+def test_harness_fidelity_falls_back_to_existing_seed(tmp_path: Path) -> None:
+    fallback = tmp_path / "fallback.seed"
+    fallback.write_bytes(b"fallback")
+    args = SimpleNamespace(triggering_input="inline input that is not a path")
+
+    assert resolve_harness_fidelity_seed(args, [str(fallback)]) == str(fallback.resolve())
+
+
+def test_symcc_failure_kind_reads_nested_summary() -> None:
+    assert get_symcc_failure_kind({"symcc": {"failure_kind": "harness_seed_incompatible"}}) == (
+        "harness_seed_incompatible"
+    )
 
 
 def test_prompt_contains_generic_ordering_and_representation_contract() -> None:

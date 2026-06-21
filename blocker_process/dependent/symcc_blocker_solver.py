@@ -108,6 +108,11 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Initial seed file. Repeat this option for multiple files.",
     )
+    parser.add_argument(
+        "--fidelity-seed",
+        default=None,
+        help="Previously branch-reaching seed used to verify a generated harness preserves the blocker path.",
+    )
     parser.add_argument("--seed-dir", default=None, help="Directory containing initial seed files.")
     parser.add_argument(
         "--target-args",
@@ -924,6 +929,67 @@ def evaluate_corpus(
     return results
 
 
+def evaluate_generated_harness_fidelity(
+    *,
+    coverage_bin: Path,
+    branch_source: Path,
+    branch_line: int,
+    blocked_side_line: int,
+    fidelity_seed: Path,
+    target_args: str,
+    input_mode: str,
+    timeout_sec: int,
+    coverage_dir: Path,
+    keep_report: bool,
+    llvm_profdata: str,
+    llvm_cov: str,
+    max_attempts: int = 2,
+) -> dict:
+    errors: list[str] = []
+    for attempt in range(1, max(1, int(max_attempts)) + 1):
+        try:
+            result = evaluate_seed_with_coverage(
+                coverage_bin=coverage_bin,
+                branch_source=branch_source,
+                branch_line=branch_line,
+                blocked_side_line=blocked_side_line,
+                seed_path=fidelity_seed,
+                target_args=target_args,
+                input_mode=input_mode,
+                timeout_sec=timeout_sec,
+                coverage_dir=coverage_dir / f"attempt_{attempt:02d}",
+                keep_report=keep_report,
+                llvm_profdata=llvm_profdata,
+                llvm_cov=llvm_cov,
+            )
+        except (OSError, RuntimeError) as exc:
+            errors.append(str(exc))
+            log(f"[warn] generated-harness fidelity coverage attempt {attempt} failed: {exc}")
+            continue
+
+        return {
+            "status": "compatible" if result.branch_hit_count > 0 else "incompatible",
+            "coverage_success": True,
+            "attempt_count": attempt,
+            "seed_path": str(fidelity_seed),
+            "branch_hit_count": result.branch_hit_count,
+            "branch_hit_count_raw": result.branch_hit_count_raw,
+            "blocked_side_hit_count": result.blocked_side_hit_count,
+            "blocked_side_hit_count_raw": result.blocked_side_hit_count_raw,
+            "errors": errors,
+        }
+
+    return {
+        "status": "unknown",
+        "coverage_success": False,
+        "attempt_count": max(1, int(max_attempts)),
+        "seed_path": str(fidelity_seed),
+        "branch_hit_count": None,
+        "blocked_side_hit_count": None,
+        "errors": errors,
+    }
+
+
 def supplement_corpus_from_ossfuzz(
     *,
     corpus_dir: Path,
@@ -1003,6 +1069,7 @@ def supplement_corpus_from_ossfuzz(
 
 def main() -> int:
     args = parse_args()
+    loaded_context = None
     if args.build_context_file:
         loaded_context = BuildContext.from_json_file(Path(args.build_context_file).resolve())
         args.branch_source = loaded_context.branch_source
@@ -1043,6 +1110,43 @@ def main() -> int:
     symcc_bin, coverage_bin = build_binaries(args, work_dir)
     llvm_profdata = ensure_tool(args.llvm_profdata)
     llvm_cov = ensure_tool(args.llvm_cov)
+
+    generated_harness_mode = bool(loaded_context and loaded_context.mode == "generated_harness")
+    if generated_harness_mode and args.fidelity_seed:
+        fidelity_seed = Path(args.fidelity_seed).resolve()
+        if not fidelity_seed.is_file():
+            fidelity_result = {
+                "status": "unknown",
+                "coverage_success": False,
+                "attempt_count": 0,
+                "seed_path": str(fidelity_seed),
+                "branch_hit_count": None,
+                "blocked_side_hit_count": None,
+                "errors": ["Fidelity seed file does not exist."],
+            }
+        else:
+            fidelity_result = evaluate_generated_harness_fidelity(
+                coverage_bin=coverage_bin,
+                branch_source=branch_source,
+                branch_line=args.branch_line,
+                blocked_side_line=args.blocked_side_line,
+                fidelity_seed=fidelity_seed,
+                target_args=args.target_args,
+                input_mode=args.input_mode,
+                timeout_sec=args.timeout_sec,
+                coverage_dir=work_dir / "coverage" / "harness_fidelity",
+                keep_report=args.keep_coverage_reports,
+                llvm_profdata=llvm_profdata,
+                llvm_cov=llvm_cov,
+            )
+
+        log("HARNESS_FIDELITY_JSON=" + json.dumps(fidelity_result, ensure_ascii=False))
+        if fidelity_result["status"] == "unknown":
+            log("Status: Generated harness fidelity is unknown because coverage measurement failed.")
+            return 3
+        if fidelity_result["status"] == "incompatible":
+            log("Status: Generated harness is incompatible with the branch-reaching fidelity seed.")
+            return 4
 
     log("[info] evaluating baseline seeds")
     baseline_results = evaluate_corpus(

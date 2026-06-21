@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -83,6 +84,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--branch-line", default=None, type=int)
     parser.add_argument("--blocked-side-line", default=None, type=int)
     parser.add_argument("--seed", action="append", default=[])
+    parser.add_argument("--fidelity-seed", default=None)
     parser.add_argument("--seed-dir", default=None)
     parser.add_argument("--target-args", default="@@")
     parser.add_argument("--input-mode", choices=("file", "stdin"), default="file")
@@ -370,6 +372,8 @@ def symcc_cmd(
         cmd.extend(["--define", define])
     for seed in args.seed:
         cmd.extend(["--seed", str(repo_path(seed))])
+    if args.fidelity_seed:
+        cmd.extend(["--fidelity-seed", str(repo_path(args.fidelity_seed))])
     if args.seed_dir:
         cmd.extend(["--seed-dir", str(repo_path(args.seed_dir))])
     if args.keep_coverage_reports:
@@ -659,6 +663,23 @@ def main() -> int:
         },
     }
 
+    if args.fidelity_seed and coverage_binary is None:
+        summary["symcc"] = {
+            "returncode": 3,
+            "work_dir": None,
+            "solved": False,
+            "failure_kind": "harness_fidelity_unknown",
+            "output": "Coverage replay binary preparation failed before harness fidelity validation.",
+        }
+        summary["harness_fidelity"] = {
+            "status": "unknown",
+            "coverage_success": False,
+            "seed_path": args.fidelity_seed,
+            "errors": [coverage_prepare_info.get("error") or "Coverage replay binary is unavailable."],
+        }
+        emit_summary(args, summary)
+        return 3
+
     symcc_work_dir = base_work_dir / "symcc"
     print(f"[info] running SymCC; work dir: {symcc_work_dir}", flush=True)
     symcc_result = run_cmd(
@@ -670,9 +691,22 @@ def main() -> int:
     summary["pipeline_methods"] = ["symcc"]
 
     failure_kind: str | None = None
+    fidelity_result: dict | None = None
+    fidelity_match = re.search(r"HARNESS_FIDELITY_JSON=(\{.*\})", symcc_result.stdout)
+    if fidelity_match:
+        try:
+            parsed_fidelity = json.loads(fidelity_match.group(1))
+            if isinstance(parsed_fidelity, dict):
+                fidelity_result = parsed_fidelity
+        except json.JSONDecodeError:
+            fidelity_result = None
     if symcc_result.returncode != 0:
         stdout_lower = symcc_result.stdout.lower()
-        if "cannot find -l" in stdout_lower:
+        if symcc_result.returncode == 3 or "generated harness fidelity is unknown" in stdout_lower:
+            failure_kind = "harness_fidelity_unknown"
+        elif symcc_result.returncode == 4 or "generated harness is incompatible" in stdout_lower:
+            failure_kind = "harness_seed_incompatible"
+        elif "cannot find -l" in stdout_lower:
             failure_kind = "missing_link_library"
         elif "undefined reference to" in stdout_lower:
             failure_kind = "missing_link_symbol"
@@ -698,6 +732,7 @@ def main() -> int:
         "failure_kind": failure_kind,
         "output": symcc_result.stdout,
     }
+    summary["harness_fidelity"] = fidelity_result
     summary["success"] = symcc_result.returncode == 0
     emit_summary(args, summary)
     return symcc_result.returncode

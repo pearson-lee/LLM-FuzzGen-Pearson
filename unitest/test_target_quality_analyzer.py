@@ -6,6 +6,7 @@ def _runtime_success() -> dict:
         "success": True,
         "blocked_side_hit_count": 1,
         "blocked_side_line_reached": True,
+        "sanitizer_stable": True,
     }
 
 
@@ -43,6 +44,8 @@ preserved_invariants: do not call private _cms APIs""",
 
     assert "includes_internal_header" in report["quality_flags"]
     assert "internal_api_direct" not in report["success_quality_labels"]
+    assert report["sanitizer_stable"] is True
+    assert report["validated_target"] is True
 
 
 def test_direct_internal_api_call_is_strong_signal() -> None:
