@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 import main
+from external.oss_fuzz import CoverageMetricSummary
 
 
 def _blocker(name: str, line: int, target: str) -> dict:
@@ -116,6 +117,83 @@ def test_only_terminal_pipeline_or_triage_results_are_persisted():
     assert not main._should_persist_blocker_attempt({})
 
 
+def test_blocker_pipeline_invalidates_parent_build_state_on_solver_exception(monkeypatch, tmp_path):
+    blocker = _blocker("first", 10, "target_a")
+    blocker_json = tmp_path / "branch-blockers.json"
+    blocker_json.write_text(json.dumps({"target_a": [blocker]}), encoding="utf-8")
+    monkeypatch.setattr(
+        main,
+        "_live_revalidate_blocker_before_classify",
+        lambda **kwargs: {
+            "success": True,
+            "branch_line_reached": True,
+            "blocked_side_line_reached": False,
+            "branch_hit_count": 1,
+            "blocked_side_hit_count": 0,
+        },
+    )
+
+    def raise_solver_error(*args, **kwargs):
+        raise RuntimeError("solver failed")
+
+    monkeypatch.setattr(main, "classify_blocker", raise_solver_error)
+    invalidations = []
+    monkeypatch.setattr(
+        main.oss_fuzz,
+        "invalidate_project_build_state",
+        lambda project_name, reason: invalidations.append((project_name, reason)) or True,
+    )
+
+    result = main.run_blocker_pipeline(
+        project_name="demo",
+        llm_backend="vertexai",
+        model_name="model",
+        blocker_json_path=blocker_json,
+        blocker_record=blocker,
+    )
+
+    assert result["attempt_result"] == "llm_error"
+    assert invalidations == [("demo", "blocker_pipeline_subprocess_finished")]
+
+
+def test_blocker_pipeline_passes_live_branch_hit_count_to_classifier(monkeypatch, tmp_path):
+    blocker = _blocker("first", 10, "target_a")
+    blocker_json = tmp_path / "branch-blockers.json"
+    blocker_json.write_text(json.dumps({"target_a": [blocker]}), encoding="utf-8")
+    monkeypatch.setattr(
+        main,
+        "_live_revalidate_blocker_before_classify",
+        lambda **kwargs: {
+            "success": True,
+            "branch_line_reached": True,
+            "blocked_side_line_reached": False,
+            "branch_hit_count": 22800,
+            "blocked_side_hit_count": 0,
+        },
+    )
+    captured = {}
+
+    def fake_classifier(args, execute_pipeline):
+        captured["branch_hit_count"] = args.branch_hit_count
+        return {
+            "dependency_result": "Input Independent",
+            "pipeline_result": {"success": False, "attempt_result": "failed"},
+        }
+
+    monkeypatch.setattr(main, "classify_blocker", fake_classifier)
+    monkeypatch.setattr(main.oss_fuzz, "invalidate_project_build_state", lambda *args, **kwargs: True)
+
+    main.run_blocker_pipeline(
+        project_name="demo",
+        llm_backend="vertexai",
+        model_name="model",
+        blocker_json_path=blocker_json,
+        blocker_record=blocker,
+    )
+
+    assert captured["branch_hit_count"] == 22800
+
+
 def test_refresh_budget_guard_does_not_start_expensive_refresh(monkeypatch):
     state = main.BlockerRuntimeState()
 
@@ -149,7 +227,7 @@ def test_session_keeps_running_after_live_blocker_json_disappears(monkeypatch, t
     coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
     monkeypatch.setattr(main, "_load_blocker_coverage_context", lambda *args, **kwargs: coverage_context)
     monkeypatch.setattr(main, "_select_project_blockers", lambda *args, **kwargs: list(blockers))
-    monkeypatch.setattr(main, "_coverage_with_timing", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_coverage_with_timing", lambda *args, **kwargs: main.TotalCoverageSummary())
 
     attempted = []
 
@@ -184,3 +262,106 @@ def test_session_keeps_running_after_live_blocker_json_disappears(monkeypatch, t
 
     assert attempted == ["first", "second", "third"]
     assert result["attempted"] == 3
+
+
+def test_session_stops_when_post_attempt_coverage_fails(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a"), _blocker("second", 20, "target_b")]
+    build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+    monkeypatch.setattr(main, "ensure_blocker_webapp_ready", lambda project_name: True)
+    coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
+    monkeypatch.setattr(main, "_load_blocker_coverage_context", lambda *args, **kwargs: coverage_context)
+    monkeypatch.setattr(main, "_select_project_blockers", lambda *args, **kwargs: list(blockers))
+    monkeypatch.setattr(main, "_coverage_with_timing", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "run_blocker_pipeline",
+        lambda **kwargs: {
+            "success": False,
+            "attempt_result": "failed",
+            "dependency_result": "Input Independent",
+            "pipeline_methods": ["reference_guided_generation"],
+            "pipeline_success": False,
+        },
+    )
+    events = []
+    monkeypatch.setattr(main, "_log_experiment_event", lambda event, **payload: events.append((event, payload)))
+    state = main.BlockerRuntimeState(artifacts_ready=True)
+
+    result = main.run_blocker_session(
+        project_name="demo",
+        elapsed_seconds=0,
+        llm_backend="vertexai",
+        model_name="model",
+        state=state,
+        blocker_json_path=blocker_json,
+        blocker_session_size=2,
+        blocker_top_k=2,
+        blocker_session_refresh_mode="reuse_session_artifacts",
+    )
+
+    assert result["attempted"] == 1
+    assert result["reason"] == "post_attempt_coverage_failed"
+    coverage_event = next(payload for event, payload in events if event == "coverage_after_blocker_attempt")
+    assert coverage_event["coverage_success"] is False
+    assert coverage_event["line_coverage"] is None
+    assert coverage_event["branch_coverage"] is None
+    assert any(event == "blocker_session_stopped" for event, _ in events)
+
+
+def test_refreshed_session_baseline_is_used_for_first_growth_event(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a")]
+    build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+    monkeypatch.setattr(main, "ensure_blocker_webapp_ready", lambda project_name: True)
+    coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
+    monkeypatch.setattr(main, "_load_blocker_coverage_context", lambda *args, **kwargs: coverage_context)
+    monkeypatch.setattr(main, "_select_project_blockers", lambda *args, **kwargs: list(blockers))
+
+    baseline = main.TotalCoverageSummary(
+        branches=CoverageMetricSummary(count=100, covered=60, percent=60.0),
+        functions=CoverageMetricSummary(count=20, covered=10, percent=50.0),
+        lines=CoverageMetricSummary(count=200, covered=120, percent=60.0),
+    )
+    post_attempt = main.TotalCoverageSummary(
+        branches=CoverageMetricSummary(count=100, covered=62, percent=62.0),
+        functions=CoverageMetricSummary(count=20, covered=11, percent=55.0),
+        lines=CoverageMetricSummary(count=200, covered=125, percent=62.5),
+    )
+    coverage_results = iter([baseline, post_attempt])
+    monkeypatch.setattr(main, "_coverage_with_timing", lambda *args, **kwargs: next(coverage_results))
+    monkeypatch.setattr(
+        main,
+        "run_blocker_pipeline",
+        lambda **kwargs: {
+            "success": False,
+            "attempt_result": "failed",
+            "dependency_result": "Input Independent",
+            "pipeline_methods": ["reference_guided_generation"],
+            "pipeline_success": False,
+        },
+    )
+    events = []
+    monkeypatch.setattr(main, "_log_experiment_event", lambda event, **payload: events.append((event, payload)))
+    state = main.BlockerRuntimeState(artifacts_ready=False)
+
+    main.run_blocker_session(
+        project_name="demo",
+        elapsed_seconds=0,
+        llm_backend="vertexai",
+        model_name="model",
+        state=state,
+        blocker_json_path=blocker_json,
+        blocker_session_size=1,
+        blocker_top_k=1,
+        pre_blocker_coverage_summary=None,
+    )
+
+    growth_event = next(payload for event, payload in events if event == "coverage_growth_after_blocker_attempt")
+    assert growth_event["branch_coverage_growth"]["before_covered"] == 60
+    assert growth_event["branch_coverage_growth"]["after_covered"] == 62
+    assert growth_event["branch_coverage_growth"]["covered_delta"] == 2

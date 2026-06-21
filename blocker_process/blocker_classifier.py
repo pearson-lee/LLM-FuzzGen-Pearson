@@ -858,20 +858,28 @@ def enrich_classification_args(args: argparse.Namespace) -> argparse.Namespace:
         or "N/A"
     )
 
+    existing_branch_hit_count = getattr(args, "branch_hit_count", None)
+    fallback_branch_hit_count = (
+        existing_branch_hit_count
+        if existing_branch_hit_count not in (None, "")
+        else "N/A"
+    )
     if getattr(args, "fuzz_file", None):
         fuzzer_name = Path(args.fuzz_file).stem
         try:
             cov_report = check_function_coverage(args.project_name, fuzzer_name, args.function_name)
-            args.branch_hit_count = get_line_execution_count(
+            refreshed_branch_hit_count = get_line_execution_count(
                 cov_report,
                 branch_line,
                 function_name=args.function_name,
+                source_file=api_filepath,
             )
+            args.branch_hit_count = refreshed_branch_hit_count or fallback_branch_hit_count
         except Exception as exc:
             logging.warning("Failed to get branch hit count: %s", exc)
-            args.branch_hit_count = "N/A"
+            args.branch_hit_count = fallback_branch_hit_count
     else:
-        args.branch_hit_count = "N/A"
+        args.branch_hit_count = fallback_branch_hit_count
 
     return args
 

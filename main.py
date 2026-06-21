@@ -1252,6 +1252,7 @@ def run_blocker_pipeline(
         skip_triage=False,
         triage_emit_prompts_only=False,
         triage_source_context_lines=25,
+        branch_hit_count=live_revalidation.get("branch_hit_count"),
         blocked_side_hit_count=live_revalidation.get("blocked_side_hit_count"),
         classify_only=False,
         language=None,
@@ -1330,6 +1331,13 @@ def run_blocker_pipeline(
             reason=str(exc),
         )
         return failure_result
+    finally:
+        # Classifier/solver stages run child processes that share build/out but
+        # cannot update this process's in-memory sanitizer/build identity.
+        oss_fuzz.invalidate_project_build_state(
+            project_name,
+            reason="blocker_pipeline_subprocess_finished",
+        )
     classify_elapsed = time.perf_counter() - classify_started_at
     pipeline_elapsed = time.perf_counter() - pipeline_started_at
     pipeline_returncode = result.get("pipeline_returncode", 0)
@@ -1641,6 +1649,7 @@ def run_blocker_session(
             "succeeded": 0,
             "reason": state.last_artifact_refresh_skip_reason or "artifact_refresh_failed",
         }
+    baseline_summary: TotalCoverageSummary | None = None
     if refreshed_artifacts:
         attempt_reserve = _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
         baseline_coverage_deadline = deadline - attempt_reserve if deadline is not None else None
@@ -1740,6 +1749,7 @@ def run_blocker_session(
     succeeded = 0
     pipeline_errors = 0
     skipped_before_solver = 0
+    session_reason = "completed"
     session_seen_blocker_keys: set[tuple[str, str, str]] = set()
     selected_blockers: list[dict] = []
     for blocker in blockers:
@@ -1787,7 +1797,11 @@ def run_blocker_session(
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_unattempted_relevant_blockers"}
 
-    current_pre_blocker_coverage = pre_blocker_coverage_summary
+    current_pre_blocker_coverage = (
+        pre_blocker_coverage_summary
+        if pre_blocker_coverage_summary is not None
+        else baseline_summary
+    )
     for _ in range(blocker_session_size):
         if deadline is not None and deadline - time.monotonic() <= 0:
             logger.info("Stopping blocker session for %s because the fuzzing deadline was reached.", project_name)
@@ -1885,6 +1899,7 @@ def run_blocker_session(
             state,
             deadline=post_coverage_deadline,
         )
+        coverage_success = post_summary is not None
         _log_experiment_event(
             "coverage_after_blocker_attempt",
             project_name=project_name,
@@ -1892,13 +1907,24 @@ def run_blocker_session(
             function_name=blocker.get("function_name"),
             branch_line_number=blocker.get("branch_line_number"),
             blocked_side_line_number=blocker.get("blocked_side_line_number"),
-            line_coverage=_get_coverage_metric(post_summary, "lines"),
-            branch_coverage=_get_coverage_metric(post_summary, "branches"),
-            functions_coverage=_get_coverage_metric(post_summary, "functions"),
+            coverage_success=coverage_success,
+            coverage_failure_reason=None if coverage_success else "coverage_generation_failed",
+            line_coverage=_get_optional_coverage_metric(post_summary, "lines"),
+            branch_coverage=_get_optional_coverage_metric(post_summary, "branches"),
+            functions_coverage=_get_optional_coverage_metric(post_summary, "functions"),
             dependency_result=blocker_kind,
             attempt_result=attempt_result,
             pipeline_methods=pipeline_result.get("pipeline_methods", []),
             pipeline_success=pipeline_result.get("pipeline_success"),
+        )
+        coverage_growth_payload = (
+            _build_coverage_growth_payload(current_pre_blocker_coverage, post_summary)
+            if coverage_success
+            else {
+                "line_coverage_growth": None,
+                "branch_coverage_growth": None,
+                "functions_coverage_growth": None,
+            }
         )
         _log_experiment_event(
             "coverage_growth_after_blocker_attempt",
@@ -1907,12 +1933,34 @@ def run_blocker_session(
             function_name=blocker.get("function_name"),
             branch_line_number=blocker.get("branch_line_number"),
             blocked_side_line_number=blocker.get("blocked_side_line_number"),
+            coverage_success=coverage_success,
             dependency_result=blocker_kind,
             attempt_result=attempt_result,
             pipeline_methods=pipeline_result.get("pipeline_methods", []),
             pipeline_success=pipeline_result.get("pipeline_success"),
-            **_build_coverage_growth_payload(current_pre_blocker_coverage, post_summary),
+            **coverage_growth_payload,
         )
+        if not coverage_success:
+            state.artifacts_dirty = True
+            session_reason = "post_attempt_coverage_failed"
+            logger.error(
+                "Stopping blocker session for %s because post-attempt coverage failed after %s:%s; "
+                "stale line coverage will not be used for reranking.",
+                project_name,
+                blocker.get("function_name"),
+                blocker.get("branch_line_number"),
+            )
+            _log_experiment_event(
+                "blocker_session_stopped",
+                project_name=project_name,
+                session_number=state.sessions_run,
+                reason=session_reason,
+                function_name=blocker.get("function_name"),
+                branch_line_number=blocker.get("branch_line_number"),
+                blocked_side_line_number=blocker.get("blocked_side_line_number"),
+            )
+            break
+
         immediate_validation = _build_blocker_immediate_validation_record(
             project_name=project_name,
             blocker=blocker,
@@ -2026,6 +2074,7 @@ def run_blocker_session(
         succeeded=succeeded,
         pipeline_errors=pipeline_errors,
         skipped_before_solver=skipped_before_solver,
+        reason=session_reason,
         artifacts_ready=state.artifacts_ready,
         artifacts_dirty=state.artifacts_dirty,
     )
@@ -2035,7 +2084,7 @@ def run_blocker_session(
         "succeeded": succeeded,
         "pipeline_errors": pipeline_errors,
         "skipped_before_solver": skipped_before_solver,
-        "reason": "completed",
+        "reason": session_reason,
     }
 
 
@@ -3152,6 +3201,14 @@ def _get_coverage_metric(summary: TotalCoverageSummary | None, metric_name: str)
         return 0.0
     metric = getattr(summary, metric_name, None)
     return metric.percent if metric else 0.0
+
+
+def _get_optional_coverage_metric(summary: TotalCoverageSummary | None, metric_name: str) -> float | None:
+    """Extract a measured percentage while preserving unavailable coverage as null."""
+    if not summary:
+        return None
+    metric = getattr(summary, metric_name, None)
+    return metric.percent if metric else None
 
 
 def _get_coverage_count(summary: TotalCoverageSummary | None, metric_name: str) -> int:

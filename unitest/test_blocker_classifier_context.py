@@ -89,3 +89,81 @@ def test_enrichment_prefers_cached_local_source_over_unavailable_api(monkeypatch
 
     assert result.blocker_line_code == "if (flag)"
     assert result.blocked_side_line_code == "blocked();"
+
+
+def test_enrichment_preserves_live_branch_hit_count_without_fuzz_file(monkeypatch, tmp_path):
+    source_file = tmp_path / "source.c"
+    source_file.write_text("if (flag)\nblocked();\n", encoding="utf-8")
+
+    class FakeOSSFuzz:
+        def proj_lang(self, project_name):
+            return "c"
+
+    monkeypatch.setattr(blocker_classifier, "OSSFuzz", FakeOSSFuzz)
+    args = Namespace(
+        project_name="demo",
+        function_name="blocker",
+        branch_line_number=1,
+        blocked_side_line_number=2,
+        source_file=str(source_file),
+        source_api_file="/src/demo/missing.c",
+        fuzz_file=None,
+        branch_hit_count=22800,
+    )
+
+    result = enrich_classification_args(args)
+
+    assert result.branch_hit_count == 22800
+
+
+def test_enrichment_uses_source_section_for_target_branch_hit_count(monkeypatch, tmp_path):
+    source_file = tmp_path / "source.c"
+    source_file.write_text("if (flag)\nblocked();\n", encoding="utf-8")
+
+    class FakeOSSFuzz:
+        def proj_lang(self, project_name):
+            return "c"
+
+    report = "/src/demo/source.c:\n    1|150|if (flag)\n    2|0|blocked();\n"
+    monkeypatch.setattr(blocker_classifier, "OSSFuzz", FakeOSSFuzz)
+    monkeypatch.setattr(blocker_classifier, "check_function_coverage", lambda *args, **kwargs: report)
+    args = Namespace(
+        project_name="demo",
+        function_name="blocker",
+        branch_line_number=1,
+        blocked_side_line_number=2,
+        source_file=str(source_file),
+        source_api_file="/src/demo/source.c",
+        fuzz_file="/src/demo_fuzzer.c",
+        branch_hit_count=100,
+    )
+
+    result = enrich_classification_args(args)
+
+    assert result.branch_hit_count == "150"
+
+
+def test_enrichment_keeps_live_hit_count_when_target_report_has_no_matching_line(monkeypatch, tmp_path):
+    source_file = tmp_path / "source.c"
+    source_file.write_text("if (flag)\nblocked();\n", encoding="utf-8")
+
+    class FakeOSSFuzz:
+        def proj_lang(self, project_name):
+            return "c"
+
+    monkeypatch.setattr(blocker_classifier, "OSSFuzz", FakeOSSFuzz)
+    monkeypatch.setattr(blocker_classifier, "check_function_coverage", lambda *args, **kwargs: "")
+    args = Namespace(
+        project_name="demo",
+        function_name="blocker",
+        branch_line_number=1,
+        blocked_side_line_number=2,
+        source_file=str(source_file),
+        source_api_file="/src/demo/source.c",
+        fuzz_file="/src/demo_fuzzer.c",
+        branch_hit_count=1850,
+    )
+
+    result = enrich_classification_args(args)
+
+    assert result.branch_hit_count == 1850

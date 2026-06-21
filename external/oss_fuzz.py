@@ -465,6 +465,22 @@ class OSSFuzz:
             target_fingerprint=fingerprint or self._get_project_target_fingerprint(proj_name),
         )
 
+    def invalidate_project_build_state(self, proj_name: str, reason: str = "external_build_mutation") -> bool:
+        """Forget in-memory build identity after another process may have replaced build/out."""
+        previous = self._project_build_state.pop(proj_name, None)
+        if previous is None:
+            logger.info("Build state for %s is already unknown (reason=%s).", proj_name, reason)
+            return False
+        logger.info(
+            "Invalidated build state for %s (previous=%s:%s:%s, reason=%s).",
+            proj_name,
+            previous.sanitizer,
+            previous.variant,
+            previous.target_fingerprint[:12],
+            reason,
+        )
+        return True
+
     def _convert_str_to_seed_bytes(self, seed_str: str) -> bytes:
         # 第一層：處理來自 LLM 的、包含 "\\x" 字面文字的字串
         if r"\x" in seed_str:

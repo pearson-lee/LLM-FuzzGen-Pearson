@@ -6,6 +6,21 @@ from external.oss_fuzz import OSSFuzz
 
 
 class OSSFuzzTargetCleanupTest(unittest.TestCase):
+    def test_invalidate_project_build_state_only_forgets_in_memory_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            oss_fuzz = OSSFuzz()
+            oss_fuzz.build_cache_dir = root / "artifact_cache"
+            cached_binary = oss_fuzz.build_cache_dir / "demo" / "coverage" / "default" / "fingerprint" / "target"
+            cached_binary.parent.mkdir(parents=True)
+            cached_binary.write_text("cached", encoding="utf-8")
+            oss_fuzz._record_build_state("demo", "coverage", fingerprint="fingerprint")
+
+            self.assertTrue(oss_fuzz.invalidate_project_build_state("demo", reason="test"))
+            self.assertNotIn("demo", oss_fuzz._project_build_state)
+            self.assertTrue(cached_binary.is_file())
+            self.assertFalse(oss_fuzz.invalidate_project_build_state("demo", reason="already_unknown"))
+
     def test_project_fuzzer_listing_excludes_libfuzzer_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
