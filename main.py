@@ -2111,6 +2111,8 @@ def run_blocker_once(
 ) -> bool:
     state = BlockerRuntimeState()
     deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
+    session_artifacts: BlockerSessionArtifacts | None = None
+    effective_blocker_json_path = blocker_json_path
 
     if prepare_artifacts:
         if not ensure_blocker_artifacts(
@@ -2123,11 +2125,38 @@ def run_blocker_once(
             logger.error("Failed to prepare blocker artifacts for %s.", project_name)
             return False
 
+        resolved_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
+        if resolved_json_path is None:
+            logger.error("No blocker JSON is available after preparing artifacts for %s.", project_name)
+            return False
+
+        # Introspector generation replaces build/out with an analysis build. Preserve
+        # its context before restoring the coverage build needed for per-seed replay.
+        session_artifacts = _create_blocker_session_artifacts(
+            project_name=project_name,
+            session_number=1,
+            blocker_json_path=resolved_json_path,
+            candidate_blockers=[],
+        )
+        if session_artifacts is None:
+            logger.error("Failed to preserve direct-run Introspector artifacts for %s.", project_name)
+            return False
+        effective_blocker_json_path = session_artifacts.blocker_json
+
+        coverage_build = oss_fuzz.build_fuzzers(project_name, "coverage", deadline=deadline)
+        if not coverage_build.success:
+            logger.error(
+                "Failed to restore the coverage build required for blocker seed discovery in %s: %s",
+                project_name,
+                coverage_build.error,
+            )
+            return False
+
     result = run_blocker_pipeline(
         project_name=project_name,
         llm_backend=llm_backend,
         model_name=model_name,
-        blocker_json_path=blocker_json_path,
+        blocker_json_path=effective_blocker_json_path,
         blocker_index=blocker_index,
         blocker_top_k=blocker_top_k,
         blocker_max_iterations=blocker_max_iterations,
@@ -2139,6 +2168,7 @@ def run_blocker_once(
         skip_input_independent_pipeline=skip_input_independent_pipeline,
         enable_blocker_triage=enable_blocker_triage,
         deadline=deadline,
+        session_artifacts=session_artifacts,
     )
     if not result.get("success"):
         logger.warning("Direct blocker run failed for %s: %s", project_name, result.get("reason"))

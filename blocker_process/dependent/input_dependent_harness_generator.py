@@ -516,6 +516,7 @@ def run_harness_native_build_gate(
     corpus_dir.mkdir(parents=True, exist_ok=True)
 
     copied_seeds: list[str] = []
+    source_seeds: list[Path] = []
     missing_seeds: list[str] = []
     for index, seed_path in enumerate(sanity_seeds):
         if not seed_path.is_file():
@@ -525,6 +526,7 @@ def run_harness_native_build_gate(
         destination = corpus_dir / f"sanity_{index:03d}{suffix}"
         shutil.copy2(seed_path, destination)
         copied_seeds.append(str(destination))
+        source_seeds.append(seed_path)
 
     if not copied_seeds:
         details = "Runtime sanity check has no readable seed files."
@@ -550,6 +552,7 @@ def run_harness_native_build_gate(
     )
     elapsed_seconds = time.perf_counter() - started_at
     sanity_error = (sanity_result.error or "").strip()
+    post_run_corpus_count = sum(1 for path in corpus_dir.iterdir() if path.is_file())
     sanity_metadata = {
         "status": "passed" if sanity_result.success else "failed",
         "success": bool(sanity_result.success),
@@ -557,20 +560,49 @@ def run_harness_native_build_gate(
         "seconds": sanity_seconds,
         "elapsed_seconds": elapsed_seconds,
         "seed_count": len(copied_seeds),
-        "seed_paths": copied_seeds,
+        "source_seed_paths": [str(path) for path in source_seeds],
+        "evaluation_seed_paths": copied_seeds,
+        "post_run_corpus_count": post_run_corpus_count,
+        "generated_corpus_count": max(0, post_run_corpus_count - len(copied_seeds)),
         "missing_seeds": missing_seeds,
         "error": sanity_error,
     }
+    if not sanity_result.success:
+        (output_dir / "runtime_sanity.json").write_text(
+            json.dumps(sanity_metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        if sanity_error:
+            (output_dir / "runtime_sanity_error.txt").write_text(sanity_error, encoding="utf-8")
+        oss_fuzz.remove_target(args.project_name, native_target.stem)
+        details = sanity_error or "Generated harness failed the ASan runtime sanity check."
+        return "runtime_sanity_invalid", details, {}
+
+    # Runtime sanity fuzzing may create hundreds of mutations. Keep only the
+    # caller-provided seeds so the later focused pass starts from a bounded corpus.
+    shutil.rmtree(corpus_dir)
+    corpus_dir.mkdir(parents=True, exist_ok=True)
+    restored_seed_paths: list[str] = []
+    used_names: set[str] = set()
+    for index, source_seed in enumerate(source_seeds):
+        candidate_name = source_seed.name or f"seed_{index:03d}.bin"
+        if candidate_name in used_names:
+            suffix = source_seed.suffix or ".bin"
+            candidate_name = f"seed_{index:03d}{suffix}"
+        used_names.add(candidate_name)
+        destination = corpus_dir / candidate_name
+        shutil.copy2(source_seed, destination)
+        restored_seed_paths.append(str(destination))
+
+    sanity_metadata["corpus_restored"] = True
+    sanity_metadata["restored_seed_count"] = len(restored_seed_paths)
+    sanity_metadata["restored_seed_paths"] = restored_seed_paths
     (output_dir / "runtime_sanity.json").write_text(
         json.dumps(sanity_metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     if sanity_error:
         (output_dir / "runtime_sanity_error.txt").write_text(sanity_error, encoding="utf-8")
-    if not sanity_result.success:
-        oss_fuzz.remove_target(args.project_name, native_target.stem)
-        details = sanity_error or "Generated harness failed the ASan runtime sanity check."
-        return "runtime_sanity_invalid", details, {}
 
     metadata["runtime_sanity"] = sanity_metadata
     return None, "", metadata
@@ -645,6 +677,19 @@ def _run_local_syntax_check(
     return None, ""
 
 
+def _is_native_build_infrastructure_error(details: str) -> bool:
+    """Recognize strong Docker/BuildKit failures that code repair cannot fix."""
+    normalized = str(details or "").lower()
+    strong_markers = (
+        "failed to prepare extraction snapshot",
+        "parent snapshot",
+        "cannot connect to the docker daemon",
+        "error during connect",
+        "docker daemon socket",
+    )
+    return any(marker in normalized for marker in strong_markers)
+
+
 def run_harness_frontend_gate(
     harness_path: Path,
     args: argparse.Namespace,
@@ -689,6 +734,21 @@ def run_harness_frontend_gate(
         # Prefer local clang error (more precise) combined with native build context.
         combined = f"{local_details}\n[OSS-Fuzz native build also failed: {native_details}]"
         return local_failure, combined.strip(), {}
+
+    if _is_native_build_infrastructure_error(native_details):
+        # The generated code passed local clang validation. Give transient
+        # Docker/BuildKit state one bounded retry instead of asking the LLM to
+        # rewrite valid source code in response to an infrastructure failure.
+        retry_failure, retry_details, retry_metadata = run_harness_native_build_gate(
+            harness_code=harness_path.read_text(encoding="utf-8"),
+            args=args,
+            output_dir=output_dir,
+        )
+        if retry_failure is None:
+            return None, "", retry_metadata
+        if _is_native_build_infrastructure_error(retry_details):
+            return "native_build_infrastructure_error", retry_details, {}
+        return retry_failure, retry_details, {}
 
     # Native build failed but local syntax passes — return native build error.
     return native_failure, native_details, {}
@@ -879,6 +939,12 @@ def run_generation(args: argparse.Namespace) -> dict:
 
         if validation_kind is None:
             break
+
+        if validation_kind == "native_build_infrastructure_error":
+            raise RuntimeError(
+                "Generated harness validation stopped on native_build_infrastructure_error: "
+                f"{validation_details}"
+            )
 
         # Auto-fix: if error is 'Y.h file not found', try restoring subdirectory prefix from
         # original fuzz target includes (e.g. '<vpx_decoder.h>' → '<vpx/vpx_decoder.h>')

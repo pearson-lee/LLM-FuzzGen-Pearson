@@ -30,6 +30,8 @@ class FakeOSSFuzz:
 
     def run_fuzzer(self, **kwargs):
         self.run_calls.append(kwargs)
+        corpus = self.build_corpus_dir / kwargs["proj_name"] / kwargs["fuzzer_name"]
+        (corpus / "generated_mutation").write_bytes(b"mutation")
         error = "ERROR: AddressSanitizer: heap-use-after-free" if not self.runtime_success else ""
         return CompilationResult(success=self.runtime_success, error=error)
 
@@ -60,6 +62,8 @@ def test_native_harness_gate_replays_selected_seeds_without_rebuild(tmp_path: Pa
     assert details == ""
     assert metadata["runtime_sanity"]["success"] is True
     assert metadata["runtime_sanity"]["seed_count"] == 2
+    assert metadata["runtime_sanity"]["generated_corpus_count"] == 1
+    assert metadata["runtime_sanity"]["corpus_restored"] is True
     assert fake.run_calls[0]["build_fuzzer"] is False
     corpus = fake.build_corpus_dir / "demo" / metadata["native_target_name"]
     assert sorted(path.read_bytes() for path in corpus.iterdir()) == [b"first", b"second"]
@@ -87,3 +91,15 @@ def test_native_harness_gate_rejects_sanitizer_failure(tmp_path: Path, monkeypat
     assert metadata == {}
     assert fake.removed_targets
     assert (tmp_path / "result" / "runtime_sanity.json").is_file()
+
+
+def test_buildkit_snapshot_failure_is_classified_as_infrastructure_error() -> None:
+    details = (
+        'failed to prepare extraction snapshot "extract-123": '
+        "parent snapshot sha256:abc does not exist"
+    )
+
+    assert harness_generator._is_native_build_infrastructure_error(details)
+    assert not harness_generator._is_native_build_infrastructure_error(
+        "error: 'lcms2.h' file not found"
+    )

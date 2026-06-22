@@ -14,6 +14,7 @@ from blocker_process.dependent.input_dependent_solver import (
     resolve_harness_fidelity_seed,
     resolve_seed_generator_triggering_input,
     seed_generation_exceeded_budget,
+    select_bounded_symcc_handoff_seeds,
 )
 
 
@@ -158,6 +159,33 @@ def test_symcc_failure_kind_reads_nested_summary() -> None:
     assert get_symcc_failure_kind({"symcc": {"failure_kind": "harness_seed_incompatible"}}) == (
         "harness_seed_incompatible"
     )
+
+
+def test_bounded_symcc_handoff_prioritizes_original_seeds_and_deduplicates(tmp_path: Path) -> None:
+    trigger = tmp_path / "trigger.seed"
+    trigger.write_bytes(b"trigger")
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "duplicate.seed").write_bytes(b"trigger")
+    (corpus / "small.seed").write_bytes(b"a")
+    (corpus / "medium.seed").write_bytes(b"bb")
+    (corpus / "large.seed").write_bytes(b"ccc")
+
+    selected, metadata = select_bounded_symcc_handoff_seeds(
+        priority_seeds=[str(trigger)],
+        corpus_dir=corpus,
+        max_total_seeds=3,
+    )
+
+    assert selected[0] == str(trigger.resolve())
+    assert [Path(path).read_bytes() for path in selected] == [b"trigger", b"a", b"bb"]
+    assert metadata == {
+        "max_total_seeds": 3,
+        "candidate_count": 5,
+        "selected_count": 3,
+        "duplicate_count": 1,
+        "dropped_count": 1,
+    }
 
 
 def test_prompt_contains_generic_ordering_and_representation_contract() -> None:

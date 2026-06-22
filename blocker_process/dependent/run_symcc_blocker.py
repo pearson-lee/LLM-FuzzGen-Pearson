@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -81,6 +82,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-dir", action="append", default=[])
     parser.add_argument("--define", action="append", default=[])
     parser.add_argument("--branch-source", default=None)
+    parser.add_argument(
+        "--coverage-source",
+        default=None,
+        help="Source path identity embedded in the coverage binary; defaults to --branch-source.",
+    )
     parser.add_argument("--branch-line", default=None, type=int)
     parser.add_argument("--blocked-side-line", default=None, type=int)
     parser.add_argument("--seed", action="append", default=[])
@@ -180,6 +186,32 @@ def apply_project_config_overrides(args: argparse.Namespace, project_config: dic
     return args
 
 
+def _merge_shell_flags(existing: str, additional: str) -> str:
+    merged = shlex.split(existing or "")
+    for flag in shlex.split(additional or ""):
+        if flag not in merged:
+            merged.append(flag)
+    return " ".join(shlex.quote(flag) for flag in merged)
+
+
+def merge_build_context_overrides(build_context: BuildContext, args: argparse.Namespace) -> BuildContext:
+    for include_dir in getattr(args, "include_dir", []) or []:
+        resolved = str(Path(include_dir).resolve())
+        if resolved not in build_context.include_dirs:
+            build_context.include_dirs.append(resolved)
+    for define in getattr(args, "define", []) or []:
+        if define not in build_context.defines:
+            build_context.defines.append(define)
+
+    build_context.cflags = _merge_shell_flags(build_context.cflags, getattr(args, "cflags", ""))
+    build_context.cxxflags = _merge_shell_flags(build_context.cxxflags, getattr(args, "cxxflags", ""))
+    build_context.ldflags = _merge_shell_flags(build_context.ldflags, getattr(args, "ldflags", ""))
+    build_context.diagnostics.append(
+        "Merged project SymCC config and CLI build flags into the effective generated-harness context."
+    )
+    return build_context
+
+
 # Phase 1 allowlist: only projects where symcc_library has been validated.
 _SYMCC_LIBRARY_PROJECTS = {"libpcap", "tinyxml2"}
 
@@ -274,6 +306,12 @@ def apply_blocker_payload(args: argparse.Namespace) -> argparse.Namespace:
             args.blocked_side_line = int(blocked_line)
     if not getattr(args, "branch_source", None):
         args.branch_source = first_present(payload, ["branch_source", "source_api_file", "source_file"], None)
+    if not getattr(args, "coverage_source", None):
+        args.coverage_source = first_present(
+            payload,
+            ["source_api_file", "branch_source", "source_file"],
+            None,
+        )
     if not getattr(args, "seed", None):
         seeds = first_present(payload, ["seeds", "seed_paths"], None)
         if isinstance(seeds, list):
@@ -328,6 +366,8 @@ def symcc_cmd(
         str(repo_path(args.fuzz_target)),
         "--branch-source",
         str(args.branch_source),
+        "--coverage-source",
+        str(args.coverage_source or args.branch_source),
         "--branch-line",
         str(args.branch_line),
         "--blocked-side-line",
@@ -425,6 +465,7 @@ def main() -> int:
     harness_build_ctx_path = Path(args.fuzz_target).parent / "build_context.json"
     if harness_build_ctx_path.is_file():
         symcc_build_context = BuildContext.from_json_file(harness_build_ctx_path)
+        symcc_build_context = merge_build_context_overrides(symcc_build_context, args)
         print(f"[info] using pre-built harness build context: {harness_build_ctx_path}", flush=True)
     else:
         symcc_build_context = reconstruct_build_context(

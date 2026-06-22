@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -95,6 +96,11 @@ def parse_args() -> argparse.Namespace:
         help="Preprocessor define, for example NAME=value. Repeat this option as needed.",
     )
     parser.add_argument("--branch-source", required=True, help="Source file used for the blocker branch.")
+    parser.add_argument(
+        "--coverage-source",
+        default=None,
+        help="Source path identity embedded in the coverage binary; defaults to --branch-source.",
+    )
     parser.add_argument("--branch-line", required=True, type=int, help="Line number of the blocker condition.")
     parser.add_argument(
         "--blocked-side-line",
@@ -215,6 +221,38 @@ def get_line_execution_count(report: str, line_no: int) -> str:
             if len(parts) >= 2:
                 return parts[1].strip()
     return ""
+
+
+def coverage_source_args(branch_source: Path, coverage_source: str | None) -> list[str]:
+    """Map the binary's source identity to the local source mirror for llvm-cov."""
+    local_source = branch_source.resolve()
+    if not coverage_source:
+        return [str(local_source)]
+
+    embedded_source = Path(coverage_source)
+    if embedded_source == local_source:
+        return [str(local_source)]
+
+    embedded_parts = embedded_source.parts
+    local_parts = local_source.parts
+    common_suffix = 0
+    for embedded_part, local_part in zip(reversed(embedded_parts), reversed(local_parts)):
+        if embedded_part != local_part:
+            break
+        common_suffix += 1
+
+    # A filename plus one parent directory is enough to derive project/source roots
+    # without relying on project-specific path names.
+    if common_suffix >= 2:
+        embedded_root = Path(*embedded_parts[:-common_suffix])
+        local_root = Path(*local_parts[:-common_suffix])
+        if str(embedded_root) and str(local_root):
+            return [
+                f"-path-equivalence={embedded_root},{local_root}",
+                str(local_source),
+            ]
+
+    return [str(local_source)]
 
 
 def path_language(path: Path) -> str:
@@ -819,6 +857,7 @@ def evaluate_seed_with_coverage(
     *,
     coverage_bin: Path,
     branch_source: Path,
+    coverage_source: str | None,
     branch_line: int,
     blocked_side_line: int,
     seed_path: Path,
@@ -866,7 +905,7 @@ def evaluate_seed_with_coverage(
         f"-instr-profile={profdata}",
         "-show-branches=count",
         "-show-instantiations=false",
-        str(branch_source),
+        *coverage_source_args(branch_source, coverage_source),
     ]
     cov_result = run_cmd(cov_cmd)
     if cov_result.returncode != 0:
@@ -880,6 +919,11 @@ def evaluate_seed_with_coverage(
 
     branch_raw = get_line_execution_count(report, branch_line)
     blocked_raw = get_line_execution_count(report, blocked_side_line)
+    if not branch_raw:
+        raise RuntimeError(
+            "llvm-cov report did not contain blocker branch line "
+            f"{branch_line} (local_source={branch_source}, coverage_source={coverage_source or branch_source})"
+        )
     branch_count = normalize_count(branch_raw)
     blocked_count = normalize_count(blocked_raw)
     return CoverageResult(
@@ -896,6 +940,7 @@ def evaluate_corpus(
     *,
     coverage_bin: Path,
     branch_source: Path,
+    coverage_source: str | None,
     branch_line: int,
     blocked_side_line: int,
     corpus: Iterable[Path],
@@ -914,6 +959,7 @@ def evaluate_corpus(
             evaluate_seed_with_coverage(
                 coverage_bin=coverage_bin,
                 branch_source=branch_source,
+                coverage_source=coverage_source,
                 branch_line=branch_line,
                 blocked_side_line=blocked_side_line,
                 seed_path=seed_path,
@@ -933,6 +979,7 @@ def evaluate_generated_harness_fidelity(
     *,
     coverage_bin: Path,
     branch_source: Path,
+    coverage_source: str | None,
     branch_line: int,
     blocked_side_line: int,
     fidelity_seed: Path,
@@ -951,6 +998,7 @@ def evaluate_generated_harness_fidelity(
             result = evaluate_seed_with_coverage(
                 coverage_bin=coverage_bin,
                 branch_source=branch_source,
+                coverage_source=coverage_source,
                 branch_line=branch_line,
                 blocked_side_line=blocked_side_line,
                 seed_path=fidelity_seed,
@@ -997,6 +1045,7 @@ def supplement_corpus_from_ossfuzz(
     ossfuzz_corpus_dir: Path,
     coverage_bin: Path,
     branch_source: Path,
+    coverage_source: str | None,
     branch_line: int,
     blocked_side_line: int,
     target_args: str,
@@ -1045,6 +1094,7 @@ def supplement_corpus_from_ossfuzz(
         result = evaluate_seed_with_coverage(
             coverage_bin=coverage_bin,
             branch_source=branch_source,
+            coverage_source=coverage_source,
             branch_line=branch_line,
             blocked_side_line=blocked_side_line,
             seed_path=seed_path,
@@ -1069,6 +1119,7 @@ def supplement_corpus_from_ossfuzz(
 
 def main() -> int:
     args = parse_args()
+    coverage_source = str(args.coverage_source or args.branch_source)
     loaded_context = None
     if args.build_context_file:
         loaded_context = BuildContext.from_json_file(Path(args.build_context_file).resolve())
@@ -1128,6 +1179,7 @@ def main() -> int:
             fidelity_result = evaluate_generated_harness_fidelity(
                 coverage_bin=coverage_bin,
                 branch_source=branch_source,
+                coverage_source=coverage_source,
                 branch_line=args.branch_line,
                 blocked_side_line=args.blocked_side_line,
                 fidelity_seed=fidelity_seed,
@@ -1152,6 +1204,7 @@ def main() -> int:
     baseline_results = evaluate_corpus(
         coverage_bin=coverage_bin,
         branch_source=branch_source,
+        coverage_source=coverage_source,
         branch_line=args.branch_line,
         blocked_side_line=args.blocked_side_line,
         corpus=sorted(path for path in baseline_dir.iterdir() if path.is_file()),
@@ -1176,6 +1229,7 @@ def main() -> int:
             ossfuzz_corpus_dir=Path(args.ossfuzz_supplement_corpus_dir),
             coverage_bin=coverage_bin,
             branch_source=branch_source,
+            coverage_source=coverage_source,
             branch_line=args.branch_line,
             blocked_side_line=args.blocked_side_line,
             target_args=args.target_args,
@@ -1198,6 +1252,7 @@ def main() -> int:
     final_results = evaluate_corpus(
         coverage_bin=coverage_bin,
         branch_source=branch_source,
+        coverage_source=coverage_source,
         branch_line=args.branch_line,
         blocked_side_line=args.blocked_side_line,
         corpus=final_corpus,

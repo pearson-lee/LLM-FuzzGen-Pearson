@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 import main
-from external.oss_fuzz import CoverageMetricSummary
+from external.oss_fuzz import CompilationResult, CoverageMetricSummary
 
 
 def _blocker(name: str, line: int, target: str) -> dict:
@@ -67,6 +67,44 @@ def test_session_artifact_bundle_copies_candidate_cfg_and_source(monkeypatch, tm
     manifest = json.loads((bundle.root / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["missing_cfg_targets"] == []
     assert manifest["copied_cfg_file_count"] == 3
+
+
+def test_direct_blocker_run_snapshots_introspector_before_restoring_coverage(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a")]
+    build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+    monkeypatch.setattr(main, "_resolve_blocker_json_path", lambda *args, **kwargs: blocker_json)
+
+    lifecycle = []
+
+    def restore_coverage(project_name, sanitizer, deadline=None):
+        lifecycle.append(("coverage", project_name, sanitizer))
+        assert (tmp_path / "experiment" / "blocker_sessions" / "demo" / "session_001" / "manifest.json").is_file()
+        return CompilationResult(success=True)
+
+    monkeypatch.setattr(main.oss_fuzz, "build_fuzzers", restore_coverage)
+
+    captured = {}
+
+    def fake_pipeline(**kwargs):
+        captured.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(main, "run_blocker_pipeline", fake_pipeline)
+
+    assert main.run_blocker_once(
+        project_name="demo",
+        llm_backend="vertexai",
+        model_name="model",
+        blocker_json_path=blocker_json,
+        prepare_artifacts=True,
+    )
+
+    assert lifecycle == [("coverage", "demo", "coverage")]
+    assert captured["session_artifacts"] is not None
+    assert captured["blocker_json_path"] == captured["session_artifacts"].blocker_json
 
 
 def test_pipeline_error_before_solver_does_not_count_as_attempt(monkeypatch, tmp_path):

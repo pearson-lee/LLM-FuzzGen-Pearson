@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
+import hashlib
 import json
 import logging
 import shutil
@@ -68,6 +69,7 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "used_symcc": result.get("used_symcc"),
         "seed_inputs": result.get("seed_inputs", []),
         "symcc_seed_inputs": result.get("symcc_seed_inputs", []),
+        "symcc_seed_handoff_limits": result.get("symcc_seed_handoff_limits"),
         "output_dir": result.get("output_dir"),
         "llm_seed_final_status": result.get("llm_seed_final_status"),
         "llm_seed_generator_terminal_reason": result.get("llm_seed_generator_terminal_reason"),
@@ -204,6 +206,57 @@ def build_runtime_sanity_seed_args(seed_paths: list[str]) -> list[str]:
         if seed_path and Path(seed_path).is_file():
             forwarded.extend(["--runtime-sanity-seed", str(Path(seed_path).resolve())])
     return forwarded
+
+
+def _seed_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def select_bounded_symcc_handoff_seeds(
+    priority_seeds: list[str],
+    corpus_dir: Path | None,
+    max_total_seeds: int,
+) -> tuple[list[str], dict]:
+    limit = max(1, int(max_total_seeds))
+    ordered_candidates: list[Path] = []
+    for raw_path in priority_seeds:
+        path = Path(raw_path)
+        if path.is_file():
+            ordered_candidates.append(path)
+    if corpus_dir is not None and corpus_dir.is_dir():
+        corpus_candidates = sorted(
+            (path for path in corpus_dir.iterdir() if path.is_file()),
+            key=lambda path: (path.stat().st_size, path.name),
+        )
+        ordered_candidates.extend(corpus_candidates)
+
+    selected: list[str] = []
+    seen_hashes: set[str] = set()
+    duplicate_count = 0
+    for path in ordered_candidates:
+        try:
+            digest = _seed_digest(path)
+        except OSError:
+            continue
+        if digest in seen_hashes:
+            duplicate_count += 1
+            continue
+        if len(selected) >= limit:
+            continue
+        seen_hashes.add(digest)
+        selected.append(str(path.resolve()))
+
+    return selected, {
+        "max_total_seeds": limit,
+        "candidate_count": len(ordered_candidates),
+        "selected_count": len(selected),
+        "duplicate_count": duplicate_count,
+        "dropped_count": max(0, len(ordered_candidates) - duplicate_count - len(selected)),
+    }
 
 
 def build_context_args(args: argparse.Namespace) -> list[str]:
@@ -601,9 +654,15 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         )
         return result
 
-    symcc_seeds, handoff_metadata = choose_symcc_seed_inputs(seeds, parsed_llm_seed)
+    candidate_symcc_seeds, handoff_metadata = choose_symcc_seed_inputs(seeds, parsed_llm_seed)
+    symcc_seeds, initial_handoff_limits = select_bounded_symcc_handoff_seeds(
+        priority_seeds=[*seeds, *candidate_symcc_seeds],
+        corpus_dir=None,
+        max_total_seeds=args.symcc_max_total_seeds,
+    )
     result["symcc_seed_inputs"] = symcc_seeds
     result["llm_seed_handoff_selection_reason"] = handoff_metadata.get("selection_reason")
+    result["symcc_seed_handoff_limits"] = initial_handoff_limits
 
     symcc_probe_json = output_dir / "symcc_probe_summary.json"
     symcc_probe_cmd = build_symcc_cmd(
@@ -680,13 +739,12 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             result["stages"][libfuzzer_stage] = stage3b_result
             result["pipeline_methods"].append(libfuzzer_stage)
             corpus_dir = Path(stage3b_result["corpus_dir"])
-            if corpus_dir.is_dir():
-                enriched = [str(p) for p in sorted(corpus_dir.iterdir()) if p.is_file()]
-                seen = set(stage3b_seeds)
-                for seed_path in enriched:
-                    if seed_path not in seen:
-                        stage3b_seeds.append(seed_path)
-                        seen.add(seed_path)
+            stage3b_seeds, handoff_limits = select_bounded_symcc_handoff_seeds(
+                priority_seeds=symcc_seeds,
+                corpus_dir=corpus_dir,
+                max_total_seeds=args.symcc_max_total_seeds,
+            )
+            stage3b_result["symcc_handoff"] = handoff_limits
 
         symcc_harness_json = output_dir / f"symcc_harness_summary{suffix}.json"
         symcc_harness_run_cmd = build_symcc_cmd(

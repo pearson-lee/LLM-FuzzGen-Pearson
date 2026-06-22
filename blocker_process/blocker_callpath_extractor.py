@@ -1274,7 +1274,8 @@ def extract_blocker_callchain_info(
             gdb_result["resolved_source_file"] = resolved_source_file
         else:
             gdb_result = {
-                "error": f"No branch-reaching seed found for breakpoint '{breakpoint}'.",
+                "error": result.get("gdb_error")
+                or f"No branch-reaching seed found for breakpoint '{breakpoint}'.",
                 "target": target,
                 "breakpoint": breakpoint,
                 "seed_source": "find_blocker_seeds_by_coverage",
