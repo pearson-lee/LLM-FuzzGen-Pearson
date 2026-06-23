@@ -1195,6 +1195,11 @@ def aggregate_score_and_revalidate_blockers(
     project_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     started_at = time.perf_counter()
+    if all_functions_js_path is None or summary_json_path is None:
+        inferred_all_functions, inferred_summary = _infer_project_artifact_paths(json_path)
+        all_functions_js_path = all_functions_js_path or inferred_all_functions
+        summary_json_path = summary_json_path or inferred_summary
+
     aggregate_started_at = time.perf_counter()
     blockers = aggregate_blockers(json_path=json_path, top_k=None)
     aggregate_elapsed = time.perf_counter() - aggregate_started_at
@@ -1220,37 +1225,22 @@ def aggregate_score_and_revalidate_blockers(
         )
         return []
 
-    pre_score_started_at = time.perf_counter()
-    scored = aggregate_and_score_blockers(
-        json_path=json_path,
-        top_k=None,
-        all_functions_js_path=all_functions_js_path,
-        summary_json_path=summary_json_path,
-        preloaded_data={"revalidated": annotated},
-    )
-    pre_score_elapsed = time.perf_counter() - pre_score_started_at
+    inline_score_started_at = time.perf_counter()
+    function_coverage_map = load_project_function_coverage(all_functions_js_path)
+    file_coverage_map = load_project_file_coverage(summary_json_path)
+    scored = []
+    for blocker in annotated:
+        enriched = dict(blocker)
+        function_signal = _summarize_blocked_functions(
+            enriched["blocked_unique_functions"], function_coverage_map
+        )
+        file_signal = _summarize_blocker_file(enriched["source_file"], file_coverage_map)
+        enriched.update(function_signal)
+        enriched.update(file_signal)
 
-    # `aggregate_and_score_blockers` expects a target->blockers mapping. For revalidated
-    # blockers we already have global entries, so score them inline instead.
-    if "revalidated" in {"revalidated": annotated}:
-        inline_score_started_at = time.perf_counter()
-        function_coverage_map = load_project_function_coverage(all_functions_js_path)
-        file_coverage_map = load_project_file_coverage(summary_json_path)
-        scored = []
-        for blocker in annotated:
-            enriched = dict(blocker)
-            function_signal = _summarize_blocked_functions(
-                enriched["blocked_unique_functions"], function_coverage_map
-            )
-            file_signal = _summarize_blocker_file(enriched["source_file"], file_coverage_map)
-            enriched.update(function_signal)
-            enriched.update(file_signal)
-
-            _apply_expected_utility_score(enriched)
-            scored.append(enriched)
-        inline_score_elapsed = time.perf_counter() - inline_score_started_at
-    else:
-        inline_score_elapsed = 0.0
+        _apply_expected_utility_score(enriched)
+        scored.append(enriched)
+    inline_score_elapsed = time.perf_counter() - inline_score_started_at
 
     sort_started_at = time.perf_counter()
     scored.sort(key=_selector_state_sort_key, reverse=True)
@@ -1265,8 +1255,8 @@ def aggregate_score_and_revalidate_blockers(
     print(
         "[Timing] aggregate_score_and_revalidate_blockers: "
         f"aggregate={aggregate_elapsed:.2f}s annotate={annotate_elapsed:.2f}s "
-        f"filter={filter_elapsed:.2f}s pre_score={pre_score_elapsed:.2f}s "
-        f"inline_score={inline_score_elapsed:.2f}s sort={sort_elapsed:.2f}s "
+        f"filter={filter_elapsed:.2f}s inline_score={inline_score_elapsed:.2f}s "
+        f"sort={sort_elapsed:.2f}s "
         f"snippet={snippet_elapsed:.2f}s total={total_elapsed:.2f}s "
         f"blockers_in={len(blockers)} annotated={len(annotated)} scored={len(scored)}"
     )

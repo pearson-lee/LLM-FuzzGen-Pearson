@@ -1,5 +1,7 @@
+import json
 import math
 
+import blocker_process.global_blocker_selector as selector
 from blocker_process.global_blocker_selector import (
     _analyze_snippet_solvability,
     _compute_actionability_score,
@@ -7,6 +9,7 @@ from blocker_process.global_blocker_selector import (
     _extract_if_statement,
     _select_source_evidence_candidates,
     _strip_comments_preserve_strings,
+    aggregate_score_and_revalidate_blockers,
 )
 
 
@@ -161,3 +164,87 @@ def test_hybrid_pool_includes_high_benefit_candidate_outside_top_twenty() -> Non
 
     assert blockers[-1] in selected
     assert len(selected) == 21
+
+
+def test_revalidated_selector_infers_function_and_file_coverage_artifacts(
+    tmp_path, monkeypatch
+) -> None:
+    blocker_json = tmp_path / "branch-blockers.json"
+    blocker_json.write_text(
+        json.dumps(
+            {
+                "demo_target": [
+                    {
+                        "source_file": "/src/demo.c",
+                        "branch_line_number": "10",
+                        "blocked_side": "1",
+                        "blocked_side_line_number": "11",
+                        "function_name": "entry",
+                        "blocked_unique_not_covered_complexity": 30,
+                        "blocked_unique_reachable_complexity": 60,
+                        "blocked_not_covered_complexity": 30,
+                        "blocked_reachable_complexity": 60,
+                        "blocked_unique_functions": ["hidden_function"],
+                        "sides_hitcount_diff": 5,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "all_functions.js").write_text(
+        "var all_functions_table_data = "
+        + json.dumps(
+            [
+                {
+                    "Func name": "<span>hidden_function</span>",
+                    "Functions filename": "/src/demo.c",
+                    "Fuzzers runtime hit": "no",
+                    "Func lines hit %": "0%",
+                    "Cyclomatic complexity": 4,
+                    "Accumulated cyclomatic complexity": 8,
+                    "Undiscovered complexity": 8,
+                }
+            ]
+        )
+        + ";",
+        encoding="utf-8",
+    )
+    (tmp_path / "summary_exclude_target.json").write_text(
+        json.dumps(
+            {
+                "data": [
+                    {
+                        "files": [
+                            {
+                                "filename": "/src/demo.c",
+                                "summary": {
+                                    "lines": {"percent": 10, "count": 100, "covered": 10},
+                                    "branches": {"percent": 20, "notcovered": 16},
+                                    "functions": {"percent": 25, "count": 4, "covered": 1},
+                                },
+                            }
+                        ]
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_if_reaggregated(*_args, **_kwargs):
+        raise AssertionError("revalidated blockers must be scored without reaggregation")
+
+    monkeypatch.setattr(selector, "aggregate_and_score_blockers", fail_if_reaggregated)
+
+    selected = aggregate_score_and_revalidate_blockers(
+        json_path=str(blocker_json),
+        project_target_reports={},
+        top_k=None,
+    )
+
+    assert len(selected) == 1
+    assert selected[0]["matched_function_count"] == 1
+    assert selected[0]["globally_unhit_function_count"] == 1
+    assert selected[0]["score_components"]["globally_unhit_function_bonus"] == 0.25
+    assert selected[0]["project_file_lines_percent"] == 10.0

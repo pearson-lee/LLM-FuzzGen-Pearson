@@ -7,6 +7,8 @@ from blocker_process.blocker_callpath_extractor import (
     _preprocessor_context_by_line,
     enrich_call_sites_with_calltree,
     enumerate_textual_call_sites,
+    get_runtime_function_source_codes,
+    get_unique_source_codes,
     render_call_sites_for_prompt,
 )
 
@@ -92,6 +94,137 @@ def test_textual_callsite_uses_explicit_session_source_root(tmp_path):
 
     assert call_sites["total_candidates"] == 1
     assert call_sites["entries"][0]["file"].endswith("sample.c")
+
+
+class _FakeIntrospector:
+    def __init__(self, functions=None, function_source="", file_source=""):
+        self.functions = functions or []
+        self.function_source = function_source
+        self.file_source = file_source
+
+    def get_all_functions(self, _project_name):
+        return self.functions
+
+    def function_source_code(self, _project_name, _signature):
+        return self.function_source
+
+    def get_project_source_code(self, _project_name, _file_path, _start, _end):
+        return self.file_source
+
+
+def test_runtime_source_prefers_session_cache(tmp_path):
+    source_root = tmp_path / "session" / "source_root"
+    source_file = source_root / "src" / "sample.c"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text(
+        "int helper(int value) {\n"
+        "    return value + 1;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    introspector = _FakeIntrospector(
+        functions=[{
+            "function_name": "helper",
+            "raw_function_name": "helper",
+            "function_signature": "int helper(int)",
+        }],
+        function_source="API source must not replace cache source",
+    )
+
+    rendered = get_runtime_function_source_codes(
+        [{"symbol": "helper", "file": "/src/sample-project/src/sample.c", "line": 2}],
+        introspector,
+        "sample-project",
+        str(source_root),
+    )
+
+    assert "Source retrieved from session cache" in rendered
+    assert "return value + 1;" in rendered
+    assert "API source must not replace cache source" not in rendered
+
+
+def test_runtime_source_prefers_session_cache_over_existing_live_path(tmp_path):
+    live_file = tmp_path / "live" / "sample.c"
+    live_file.parent.mkdir(parents=True)
+    live_file.write_text(
+        "int helper(void) { return 1; }\n",
+        encoding="utf-8",
+    )
+    source_root = tmp_path / "session" / "source_root"
+    cached_file = source_root / "sample.c"
+    cached_file.parent.mkdir(parents=True)
+    cached_file.write_text(
+        "int helper(void) { return 2; }\n",
+        encoding="utf-8",
+    )
+
+    rendered = get_runtime_function_source_codes(
+        [{"symbol": "helper", "file": str(live_file), "line": 1}],
+        _FakeIntrospector(),
+        "sample-project",
+        str(source_root),
+    )
+
+    assert "Source retrieved from session cache" in rendered
+    assert "return 2;" in rendered
+    assert "return 1;" not in rendered
+
+
+def test_runtime_source_falls_back_to_introspector_api():
+    introspector = _FakeIntrospector(
+        functions=[{
+            "function_name": "api_helper",
+            "raw_function_name": "api_helper",
+            "function_signature": "int api_helper(void)",
+        }],
+        function_source="int api_helper(void) { return 7; }",
+    )
+
+    rendered = get_runtime_function_source_codes(
+        [{"symbol": "api_helper", "file": None, "line": None}],
+        introspector,
+        "missing-project",
+    )
+
+    assert "int api_helper(void) { return 7; }" in rendered
+
+
+def test_runtime_source_marks_missing_evidence_explicitly():
+    rendered = get_runtime_function_source_codes(
+        [{"symbol": "missing_helper", "file": "/src/missing.c", "line": 10}],
+        _FakeIntrospector(),
+        "missing-project",
+    )
+
+    assert "[Evidence Missing]" in rendered
+    assert "missing_helper" in rendered
+
+
+def test_cfg_source_uses_session_cache(tmp_path):
+    source_root = tmp_path / "session" / "source_root"
+    source_file = source_root / "src" / "sample.c"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text(
+        "static int cfg_helper(void)\n"
+        "{\n"
+        "    return 9;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    node = SimpleNamespace(
+        dst_function_name="cfg_helper",
+        dst_function_source_file="/src/sample-project/src/sample.c",
+    )
+
+    rendered = get_unique_source_codes(
+        [node],
+        _FakeIntrospector(),
+        "sample-project",
+        str(source_root),
+    )
+
+    assert "Source retrieved from session cache" in rendered
+    assert "return 9;" in rendered
 
 
 def test_libpcap_inactive_callsite_is_filtered_when_build_artifacts_exist():

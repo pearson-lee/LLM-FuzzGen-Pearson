@@ -335,26 +335,275 @@ def extract_project_function_names(code: str) -> set[str]:
     return set(re.findall(r"(?m)^[A-Za-z_][A-Za-z0-9_*\s]*\b([A-Za-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{", code))
 
 
-def extract_segment_entry_api(runtime_blocker_segment: str, project_functions: set[str]) -> str | None:
-    if not runtime_blocker_segment or runtime_blocker_segment == "N/A":
-        return None
+_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
+_RUNTIME_SOURCE_MARKERS = (
+    "/compiler-rt/",
+    "/llvm-project/",
+    "/libfuzzer/",
+    "/libc/",
+    "/libstdc++/",
+)
 
-    for line in runtime_blocker_segment.splitlines():
-        match = re.search(r"#\d+\s+([A-Za-z_][A-Za-z0-9_]*)\s+at\s+", line)
+
+def _short_symbol_name(symbol: str) -> str:
+    normalized = str(symbol or "").strip().split("(", 1)[0].strip()
+    return normalized.split("::")[-1].strip()
+
+
+def parse_runtime_segment_frames(runtime_blocker_segment: str) -> list[dict]:
+    frames: list[dict] = []
+    if not runtime_blocker_segment or runtime_blocker_segment == "N/A":
+        return frames
+    pattern = re.compile(r"^\s*#(?P<index>\d+)\s+(?P<function>.+?)\s+at\s+(?P<file>.+):(?P<line>\d+)\s*$")
+    for raw_line in runtime_blocker_segment.splitlines():
+        match = pattern.match(raw_line)
         if not match:
             continue
-        function_name = match.group(1)
-        if function_name == "LLVMFuzzerTestOneInput":
+        frames.append(
+            {
+                "index": int(match.group("index")),
+                "function": match.group("function").strip(),
+                "short_function": _short_symbol_name(match.group("function")),
+                "source_file": match.group("file").strip(),
+                "line": int(match.group("line")),
+            }
+        )
+    return sorted(frames, key=lambda item: item["index"])
+
+
+def infer_sut_source_roots(project_name: str, blocker_source_path: str | None) -> list[Path]:
+    roots: list[Path] = []
+    if blocker_source_path:
+        blocker_path = Path(blocker_source_path)
+        if blocker_path.is_file():
+            resolved = blocker_path.resolve()
+            for parent in resolved.parents:
+                if parent.name in {"source_root", "source_code"}:
+                    roots.append(parent)
+                    break
+
+    live_out = REPO_ROOT / "external" / "oss-fuzz" / "build" / "out" / project_name
+    roots.extend(
+        [
+            live_out / "source_code",
+            live_out / "src" / project_name,
+            live_out / "src",
+        ]
+    )
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.is_dir():
             continue
-        if function_name in project_functions:
-            return function_name
+        identity = str(root.resolve())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(root.resolve())
+    return unique
+
+
+def build_source_path_index(source_roots: list[Path]) -> dict[str, list[Path]]:
+    by_basename: dict[str, list[Path]] = {}
+    seen_paths: set[str] = set()
+    for root in source_roots:
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in _SOURCE_SUFFIXES:
+                continue
+            resolved = path.resolve()
+            identity = str(resolved)
+            if identity in seen_paths:
+                continue
+            seen_paths.add(identity)
+            by_basename.setdefault(path.name, []).append(resolved)
+    return by_basename
+
+
+def resolve_runtime_source_file(
+    runtime_path: str,
+    project_name: str,
+    source_roots: list[Path],
+    source_index: dict[str, list[Path]],
+) -> Path | None:
+    if not runtime_path:
+        return None
+    direct = Path(runtime_path)
+    if direct.is_file():
+        return direct.resolve()
+
+    normalized = runtime_path.replace("\\", "/")
+    relative_candidates: list[str] = []
+    project_marker = f"/src/{project_name}/"
+    if project_marker in normalized:
+        relative_candidates.append(normalized.split(project_marker, 1)[1])
+    if "/src/" in normalized:
+        relative_candidates.append(normalized.split("/src/", 1)[1])
+    if "/" in normalized:
+        relative_candidates.append(normalized.lstrip("/"))
+
+    for root in source_roots:
+        for relative in relative_candidates:
+            candidate = root / relative
+            if candidate.is_file():
+                return candidate.resolve()
+
+    basename_matches = source_index.get(Path(normalized).name, [])
+    for root in source_roots:
+        matches_in_root = {
+            path
+            for path in basename_matches
+            if path == root or path.is_relative_to(root)
+        }
+        if len(matches_in_root) == 1:
+            return next(iter(matches_in_root))
+        if len(matches_in_root) > 1:
+            return None
+    if len(basename_matches) == 1:
+        return basename_matches[0]
+    if relative_candidates:
+        suffix_matches = {
+            path
+            for matches in source_index.values()
+            for path in matches
+            if any(path.as_posix().endswith("/" + relative) for relative in relative_candidates)
+        }
+        if len(suffix_matches) == 1:
+            return next(iter(suffix_matches))
     return None
+
+
+def function_definition_contains_line(source_path: Path, function_name: str, line_number: int) -> bool:
+    if not source_path.is_file() or not function_name or line_number <= 0:
+        return False
+    try:
+        lines = source_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    if line_number > len(lines):
+        return False
+
+    pattern = re.compile(r"\b" + re.escape(_short_symbol_name(function_name)) + r"\s*\(")
+    runtime_idx = line_number - 1
+    for start_idx, source_line in enumerate(lines):
+        if start_idx > runtime_idx:
+            break
+        if not pattern.search(source_line):
+            continue
+
+        signature_lines: list[str] = []
+        brace_idx = -1
+        rejected = False
+        for idx in range(start_idx, min(len(lines), start_idx + 60)):
+            signature_lines.append(lines[idx])
+            signature = "\n".join(signature_lines)
+            brace_pos = signature.find("{")
+            semicolon_pos = signature.find(";")
+            if semicolon_pos >= 0 and (brace_pos < 0 or semicolon_pos < brace_pos):
+                rejected = True
+                break
+            if brace_pos >= 0:
+                brace_idx = idx
+                break
+        if rejected or brace_idx < 0:
+            continue
+
+        depth = 0
+        saw_open = False
+        for end_idx in range(brace_idx, len(lines)):
+            code_line = lines[end_idx]
+            depth += code_line.count("{")
+            depth -= code_line.count("}")
+            saw_open = saw_open or "{" in code_line
+            if saw_open and depth == 0:
+                if start_idx <= runtime_idx <= end_idx:
+                    return True
+                break
+    return False
+
+
+def classify_runtime_segment_sources(
+    runtime_blocker_segment: str,
+    project_name: str,
+    original_source_path: str | None,
+    blocker_source_path: str | None,
+) -> list[dict]:
+    frames = parse_runtime_segment_frames(runtime_blocker_segment)
+    if not frames:
+        return []
+
+    target_path = Path(original_source_path).resolve() if original_source_path and Path(original_source_path).is_file() else None
+    target_basename = target_path.name if target_path else ""
+    target_code = read_optional_file(str(target_path)) if target_path else "N/A"
+    target_functions = extract_project_function_names(target_code) if target_code != "N/A" else set()
+    source_roots = infer_sut_source_roots(project_name, blocker_source_path)
+    source_index = build_source_path_index(source_roots)
+
+    classified: list[dict] = []
+    for frame in frames:
+        function_name = frame["short_function"]
+        runtime_path = frame["source_file"].replace("\\", "/")
+        runtime_basename = Path(runtime_path).name
+        evidence = dict(frame)
+        evidence.update({"owner": "unknown", "confidence": "unknown", "resolved_file": None})
+
+        if any(marker in runtime_path.lower() for marker in _RUNTIME_SOURCE_MARKERS):
+            evidence.update({"owner": "runtime", "confidence": "strong"})
+            classified.append(evidence)
+            continue
+
+        target_path_match = bool(target_path and runtime_basename == target_basename)
+        if target_path_match and function_name in target_functions:
+            line_matches = function_definition_contains_line(target_path, function_name, frame["line"])
+            evidence.update(
+                {
+                    "owner": "target_local",
+                    "confidence": "strong" if line_matches else "medium",
+                    "resolved_file": str(target_path),
+                }
+            )
+            classified.append(evidence)
+            continue
+
+        resolved = resolve_runtime_source_file(runtime_path, project_name, source_roots, source_index)
+        if resolved and function_definition_contains_line(resolved, function_name, frame["line"]):
+            evidence.update({"owner": "sut", "confidence": "strong", "resolved_file": str(resolved)})
+        elif function_name in target_functions and not resolved:
+            evidence.update(
+                {
+                    "owner": "target_local",
+                    "confidence": "medium",
+                    "resolved_file": str(target_path) if target_path else None,
+                }
+            )
+        classified.append(evidence)
+    return classified
+
+
+def source_grounded_sut_calls(runtime_source_evidence: list[dict]) -> list[str]:
+    calls: list[str] = []
+    seen: set[str] = set()
+    target_seen = False
+    for frame in runtime_source_evidence:
+        if frame.get("owner") == "target_local":
+            target_seen = True
+            continue
+        if not target_seen or frame.get("owner") != "sut":
+            continue
+        function_name = frame.get("short_function", "")
+        if function_name and function_name not in seen:
+            seen.add(function_name)
+            calls.append(function_name)
+    return calls
 
 
 def validate_harness_semantics(
     original_code: str,
     generated_code: str,
     runtime_blocker_segment: str | None = None,
+    project_name: str = "",
+    original_source_path: str | None = None,
+    blocker_source_path: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -379,13 +628,31 @@ def validate_harness_semantics(
             "Generated harness adds new input clamping/normalization that does not exist in the original fuzz target."
         )
 
-    project_functions = extract_project_function_names(original_code)
-    segment_entry_api = extract_segment_entry_api(runtime_blocker_segment or "", project_functions)
-    generated_project_calls = set(infer_blocker_relevant_project_calls(generated_code))
-    if segment_entry_api and segment_entry_api not in generated_project_calls:
+    runtime_source_evidence = classify_runtime_segment_sources(
+        runtime_blocker_segment or "",
+        project_name,
+        original_source_path,
+        blocker_source_path,
+    )
+    observed_sut_calls = source_grounded_sut_calls(runtime_source_evidence)
+    generated_calls = {_short_symbol_name(name) for name in extract_called_functions(generated_code)}
+    preserved_sut_calls = [name for name in observed_sut_calls if name in generated_calls]
+    if observed_sut_calls and not preserved_sut_calls:
         errors.append(
-            "Generated harness dropped the runtime blocker-segment entry API required to reach the blocker: "
-            + segment_entry_api
+            "Generated harness dropped every source-grounded SUT call on the observed runtime path. "
+            "Target-local helpers may be inlined, but at least one observed SUT call must remain: "
+            + ", ".join(observed_sut_calls)
+        )
+
+    if runtime_source_evidence:
+        logging.info(
+            "Harness semantic source ownership: %s; observed_sut_calls=%s preserved=%s",
+            [
+                f"{item['short_function']}:{item['owner']}:{item['confidence']}"
+                for item in runtime_source_evidence
+            ],
+            observed_sut_calls,
+            preserved_sut_calls,
         )
 
     return errors
@@ -932,6 +1199,9 @@ def run_generation(args: argparse.Namespace) -> dict:
                 original_code=original_code,
                 generated_code=harness_code,
                 runtime_blocker_segment=runtime_segment,
+                project_name=args.project_name,
+                original_source_path=args.fuzz_file,
+                blocker_source_path=args.source_file,
             )
             if semantic_errors:
                 validation_kind = "semantic_invalid"

@@ -495,16 +495,125 @@ def extract_function_via_api(introspector: IntrospectorType, project_name: str, 
         return f"// [Fallback Failed] Exception: {str(exc)}"
 
 
+def _source_function_name(symbol: str) -> str:
+    demangled = normalize_gdb_symbol(symbol)
+    if INTROSPECTOR_AVAILABLE and utils is not None:
+        try:
+            demangled = utils.demangle_cpp_func(demangled)
+        except Exception:
+            pass
+    return get_short_function_name(demangled)
+
+
+def _extract_function_definition(source_code: str, symbol: str) -> str:
+    """Best-effort extraction of a C/C++ function definition from a full file."""
+    function_name = _source_function_name(symbol)
+    if not source_code or not function_name:
+        return ""
+
+    lines = source_code.splitlines()
+    pattern = re.compile(r"\b" + re.escape(function_name) + r"\s*\(")
+    for start_idx, line in enumerate(lines):
+        match = pattern.search(line)
+        if not match:
+            continue
+
+        prefix = line[: match.start()].strip()
+        if re.search(r"(?:->|\.|=|\b(?:if|for|while|switch|return|sizeof)\b)", prefix):
+            continue
+
+        signature_lines = []
+        first_brace_idx = -1
+        rejected = False
+        for idx in range(start_idx, min(len(lines), start_idx + 40)):
+            signature_lines.append(lines[idx])
+            signature = "\n".join(signature_lines)
+            brace_pos = signature.find("{")
+            semicolon_pos = signature.find(";")
+            if semicolon_pos >= 0 and (brace_pos < 0 or semicolon_pos < brace_pos):
+                rejected = True
+                break
+            if brace_pos >= 0:
+                first_brace_idx = idx
+                break
+        if rejected or first_brace_idx < 0:
+            continue
+
+        signature_start = start_idx
+        for idx in range(start_idx - 1, max(-1, start_idx - 4), -1):
+            previous = lines[idx].strip()
+            if not previous or previous.startswith(("//", "/*", "*", "#")):
+                break
+            if any(token in previous for token in (";", "{", "}")):
+                break
+            signature_start = idx
+
+        brace_count = 0
+        saw_open_brace = False
+        end_idx = first_brace_idx
+        for idx in range(first_brace_idx, len(lines)):
+            code_line = lines[idx]
+            brace_count += code_line.count("{")
+            brace_count -= code_line.count("}")
+            saw_open_brace = saw_open_brace or "{" in code_line
+            end_idx = idx
+            if saw_open_brace and brace_count == 0:
+                return "\n".join(lines[signature_start : end_idx + 1]).strip()
+
+    return ""
+
+
+def extract_function_via_local_source(
+    project_name: str,
+    source_file: Optional[str],
+    symbol: str,
+    source_root: Optional[str] = None,
+) -> str:
+    """Resolve a source file from the session/live mirrors and extract a definition."""
+    resolved = resolve_project_source_file(project_name, source_file, source_root)
+    if not resolved:
+        return ""
+    try:
+        source_code = Path(resolved).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+    definition = _extract_function_definition(source_code, symbol)
+    if not definition:
+        return ""
+
+    origin = "live build workspace"
+    if source_root:
+        try:
+            if Path(resolved).resolve().is_relative_to(Path(source_root).resolve()):
+                origin = "session cache"
+        except (OSError, ValueError):
+            pass
+    return f"// [Source retrieved from {origin}: {resolved}]\n{definition}"
+
+
+def _source_evidence_missing(symbol: str, source_file: Optional[str]) -> str:
+    location = source_file or "unknown source file"
+    return (
+        "// [Evidence Missing] Could not retrieve the function definition from "
+        f"session cache, live build workspace, or Introspector API: {symbol} ({location})."
+    )
+
+
 def get_runtime_function_source_codes(
     runtime_functions: List[dict],
     introspector: IntrospectorType,
     project_name: str,
+    source_root: Optional[str] = None,
 ) -> str:
     if not runtime_functions:
         return ""
 
     collected_sources = []
-    all_functions = introspector.get_all_functions(project_name)
+    try:
+        all_functions = introspector.get_all_functions(project_name)
+    except Exception:
+        all_functions = []
 
     for frame in runtime_functions:
         symbol = frame.get("symbol", "")
@@ -512,18 +621,6 @@ def get_runtime_function_source_codes(
             continue
         if symbol == "LLVMFuzzerTestOneInput":
             continue
-
-        raw_name = get_mangled_function_name(introspector, project_name, symbol)
-        if not raw_name:
-            short_name = get_short_function_name(symbol)
-            for func in all_functions:
-                if get_short_function_name(func.get("function_name", "")) == short_name:
-                    raw_name = func.get("raw_function_name", "")
-                    break
-
-        source_code = ""
-        if raw_name:
-            source_code = get_node_source_code(introspector, project_name, raw_name)
 
         location = ""
         if frame.get("file") and frame.get("line") is not None:
@@ -533,13 +630,35 @@ def get_runtime_function_source_codes(
         else:
             location = "unknown location"
 
+        source_code = extract_function_via_local_source(
+            project_name,
+            frame.get("file"),
+            symbol,
+            source_root,
+        )
+
+        raw_name = ""
+        if not source_code:
+            short_name = get_short_function_name(symbol)
+            for func in all_functions:
+                if get_short_function_name(func.get("function_name", "")) == short_name:
+                    raw_name = func.get("raw_function_name", "")
+                    break
+        if not source_code and raw_name:
+            try:
+                source_code = get_node_source_code(introspector, project_name, raw_name)
+            except Exception:
+                source_code = ""
+
         if not source_code and frame.get("file") and frame.get("line"):
             source_code = extract_function_via_api(introspector, project_name, frame["file"], frame["line"])
             if not source_code.startswith("// [Fallback Failed]"):
                 source_code = "// [Source retrieved via API fallback]\n" + source_code
+            else:
+                source_code = ""
 
         if not source_code:
-            source_code = "// [Warning] Could not retrieve source code for this function."
+            source_code = _source_evidence_missing(symbol, frame.get("file"))
 
         collected_sources.append(
             f"// Function: {symbol}\n"
@@ -550,7 +669,12 @@ def get_runtime_function_source_codes(
     return "\n\n".join(collected_sources)
 
 
-def get_unique_source_codes(chain: List[Any], introspector: IntrospectorType, project_name: str) -> str:
+def get_unique_source_codes(
+    chain: List[Any],
+    introspector: IntrospectorType,
+    project_name: str,
+    source_root: Optional[str] = None,
+) -> str:
     if not chain:
         return ""
 
@@ -561,9 +685,21 @@ def get_unique_source_codes(chain: List[Any], introspector: IntrospectorType, pr
         if raw_name in seen_functions:
             continue
         seen_functions.add(raw_name)
-        source_code = get_node_source_code(introspector, project_name, raw_name)
-        if source_code:
-            collected_sources.append(source_code)
+        source_file = getattr(node, "dst_function_source_file", None)
+        source_code = extract_function_via_local_source(
+            project_name,
+            source_file,
+            raw_name,
+            source_root,
+        )
+        if not source_code:
+            try:
+                source_code = get_node_source_code(introspector, project_name, raw_name)
+            except Exception:
+                source_code = ""
+        if not source_code:
+            source_code = _source_evidence_missing(raw_name, source_file)
+        collected_sources.append(source_code)
 
     return "\n\n".join(collected_sources)
 
@@ -820,13 +956,11 @@ def resolve_project_source_file(
     """Best-effort resolve a (possibly /src/...) path to an on-disk mirror file."""
     if not source_file:
         return None
-    if os.path.isfile(source_file):
-        return source_file
     norm = str(source_file).replace("\\", "/")
     base = os.path.basename(norm)
     rel = norm.split("/src/", 1)[1] if "/src/" in norm else base
-    roots = project_source_roots(project_name, source_root)
-    for root in roots:
+
+    def resolve_in_root(root: str) -> Optional[str]:
         project_relative = rel
         if project_name and rel.startswith(project_name + "/"):
             project_relative = rel[len(project_name) + 1 :]
@@ -837,10 +971,27 @@ def resolve_project_source_file(
         ):
             if os.path.isfile(cand):
                 return cand
-    if source_root and os.path.isdir(source_root):
-        for dirpath, _dirs, files in os.walk(source_root):
-            if base in files:
-                return os.path.join(dirpath, base)
+        return None
+
+    # A session snapshot is immutable for the current blocker session and must
+    # win over mutable paths left by whichever OSS-Fuzz build mode is live now.
+    if source_root:
+        resolved = resolve_in_root(source_root)
+        if resolved:
+            return resolved
+        if os.path.isdir(source_root):
+            for dirpath, _dirs, files in os.walk(source_root):
+                if base in files:
+                    return os.path.join(dirpath, base)
+
+    if os.path.isfile(source_file):
+        return source_file
+
+    roots = project_source_roots(project_name)
+    for root in roots:
+        resolved = resolve_in_root(root)
+        if resolved:
+            return resolved
     sc = os.path.join(get_project_out_dir(project_name), "source_code")
     if os.path.isdir(sc):
         for dirpath, _dirs, files in os.walk(sc):
@@ -1296,6 +1447,7 @@ def extract_blocker_callchain_info(
                 runtime_segment,
                 introspector,
                 project_name,
+                source_root,
             )
         result["gdb_result"] = gdb_result
 
@@ -1324,7 +1476,12 @@ def extract_blocker_callchain_info(
     call_chain = build_call_chain(target_node)
     result["cfg_result"] = {
         "chain_structure": get_call_chain_structure(call_chain),
-        "unique_source_codes": get_unique_source_codes(call_chain, introspector, project_name),
+        "unique_source_codes": get_unique_source_codes(
+            call_chain,
+            introspector,
+            project_name,
+            source_root,
+        ),
     }
     return result
 
