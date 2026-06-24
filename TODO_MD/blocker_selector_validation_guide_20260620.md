@@ -74,7 +74,8 @@ TODO_MD/blocker_selector_replay_20260620/
 3. `evidence_*`：程式抓到的變數、callee 與 resource 字串。這是「待驗證預測」，不能直接照抄成答案。
 4. context 不足時，再依 `source_file` 與行號開完整 source。
 
-只填三個 label：
+只填三個 label。這一層只回答「是不是 Resource Guard」，不需要把所有 blocker taxonomy 都塞進
+`manual_label`；更細的類型寫在 `manual_reason`：
 
 ### `resource_guard`
 
@@ -90,11 +91,13 @@ if (p == NULL) {
 }
 ```
 
-### `non_resource_nullable`
+### `non_resource_guard`
 
-雖然有 NULL/error check，但 NULL 是正常 API/input 語意的一部分，可以由合法 input、缺少資料或 API state 造成，不是 allocator failure。
+source evidence 足以確認它不是 allocation/resource failure。這一類可能是正常 nullable API、input condition、parser
+state、counter condition 或 internal invariant；只要不是 Resource Guard，都使用這個 label，並在 `manual_reason` 說明
+實際類型。
 
-範例：
+nullable API 範例：
 
 ```c
 cfg = find_optional_config(input);
@@ -102,9 +105,28 @@ if (cfg == NULL)
     use_default_config();
 ```
 
+internal invariant 範例：
+
+```c
+if ((int) mc < 0 || mc >= MemoryClientMax) {
+    cmsSignalError(ContextID, cmsERROR_INTERNAL,
+                   "Bad context client -- possible corruption");
+    _cmsAssert(0);
+}
+```
+
+這個案例的 `mc` 超出合法範圍後會被視為 corruption 並 assert，沒有 allocation failure，因此標記：
+
+```text
+manual_label: non_resource_guard
+manual_reason: mc 超出 MemoryClientMax 時會回報 possible corruption 並觸發 _cmsAssert(0)，屬於 internal invariant，不是 allocation failure。
+reviewer: Kylie
+```
+
 ### `unknown`
 
-局部 source 無法證明是哪一種，或 call 的 definition/資料流不清楚。不要猜；unknown 會被保留，不會當成 Resource Guard。
+局部 source 無法判斷是不是 Resource Guard，或 call 的 definition/資料流不清楚。不要因為它不是明顯 OOM 就直接標
+`non_resource_guard`；證據不足時使用 `unknown`。
 
 另外填：
 
@@ -126,7 +148,7 @@ if (cfg == NULL)
 
 - `strong_evidence_precision`：被程式重降權的 strong cases 中，人工確認真的是 Resource Guard 的比例。這個 audit set 應追求 `1.0`。
 - `resource_guard_recall`：人工找到的 Resource Guard 有多少被 strong rule 抓到。漏判可以接受，因為漏判只是不降權；誤判會把可解 blocker 壓下去，風險更高。
-- `false_downrank_count`：strong rule 卻被人工標成 `non_resource_nullable` 的數量。目標是 `0`。
+- `false_downrank_count`：strong rule 卻被人工標成 `non_resource_guard` 的數量。目標是 `0`。
 - `unknown_count`：現有 source context 不足的數量，必須如實保留，不能硬算對或錯。
 
 再比較 `old_resource_guard_count` 與 `new_resource_guard_count`：新版 top-10/top-20 裡的 Resource Guard 應下降，同時 `replay_report.json` 中已知成功 blocker 不應整批被移出前段。低 benefit 的已知成功 blocker排名下降不一定是錯，因為目標不是單純最大化成功數，而是優先選「可解且解開後有較高 coverage benefit」的 blocker。

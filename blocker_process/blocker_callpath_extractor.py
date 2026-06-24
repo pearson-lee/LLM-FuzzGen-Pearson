@@ -1359,6 +1359,7 @@ def extract_blocker_callchain_info(
     use_gdb: bool = True,
     max_gdb_inputs: int = 0,
     source_root: Optional[str] = None,
+    triggering_input: Optional[str] = None,
 ) -> dict:
     # Textual call-site enumeration is independent of Introspector/CFG and must run
     # on every return path below, or it would never execute when no calltree .data
@@ -1389,48 +1390,84 @@ def extract_blocker_callchain_info(
     if use_gdb:
         source_file = blocker.get("source_file", "")
         seed_limit = max_gdb_inputs if max_gdb_inputs and max_gdb_inputs > 0 else None
-        try:
-            matching_seeds, resolved_source_file = find_matching_seeds(
-                project=project_name,
-                target=target,
-                function_name=breakpoint,
-                branch_line=int(blocker["branch_line_number"]),
-                blocked_side_line=int(
-                    blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)) or 0
-                ),
-                corpus_dir=Path(project_corpus_root) / target,
-                limit=seed_limit,
-                source_file=source_file,
-                skip_build=True,
-                stop_after_first=True,
-            )
-        except Exception as exc:
-            matching_seeds = []
-            resolved_source_file = source_file
-            result["gdb_error"] = f"Seed discovery failed: {exc}"
+        line_breakpoint = f"{source_file}:{blocker['branch_line_number']}"
+        gdb_result: dict | None = None
+        matching_seeds: list[dict] = []
+        resolved_source_file = source_file
 
-        result["matching_seeds"] = matching_seeds
-        if matching_seeds:
-            selected_seed = matching_seeds[0]["seed"]
-            line_breakpoint = f"{source_file}:{blocker['branch_line_number']}"
-            gdb_result = find_runtime_call_chain_with_gdb(
+        explicit_seed = Path(triggering_input).expanduser() if triggering_input else None
+        if explicit_seed is not None and explicit_seed.is_file():
+            explicit_seed = explicit_seed.resolve()
+            explicit_result = find_runtime_call_chain_with_gdb(
                 target,
                 line_breakpoint,
-                selected_seed,
+                str(explicit_seed),
                 out_dir=project_out_dir,
                 fallback_breakpoint=breakpoint,
             )
-            gdb_result["seed_source"] = "find_blocker_seeds_by_coverage"
-            gdb_result["selected_seed"] = selected_seed
-            gdb_result["resolved_source_file"] = resolved_source_file
-        else:
-            gdb_result = {
-                "error": result.get("gdb_error")
-                or f"No branch-reaching seed found for breakpoint '{breakpoint}'.",
-                "target": target,
-                "breakpoint": breakpoint,
-                "seed_source": "find_blocker_seeds_by_coverage",
+            explicit_result["seed_source"] = "explicit_triggering_input"
+            explicit_result["selected_seed"] = str(explicit_seed)
+            explicit_result["resolved_source_file"] = source_file
+            result["triggering_input_attempt"] = explicit_result
+            if "gdb_frames" in explicit_result:
+                gdb_result = explicit_result
+                matching_seeds = [
+                    {
+                        "seed": str(explicit_seed),
+                        "seed_source": "explicit_triggering_input",
+                    }
+                ]
+        elif triggering_input:
+            result["triggering_input_attempt"] = {
+                "error": f"Explicit triggering input is not a local file: {triggering_input}",
+                "seed_source": "explicit_triggering_input",
             }
+
+        if gdb_result is None:
+            try:
+                matching_seeds, resolved_source_file = find_matching_seeds(
+                    project=project_name,
+                    target=target,
+                    function_name=breakpoint,
+                    branch_line=int(blocker["branch_line_number"]),
+                    blocked_side_line=int(
+                        blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)) or 0
+                    ),
+                    corpus_dir=Path(project_corpus_root) / target,
+                    limit=seed_limit,
+                    source_file=source_file,
+                    skip_build=True,
+                    stop_after_first=True,
+                )
+            except Exception as exc:
+                matching_seeds = []
+                resolved_source_file = source_file
+                result["gdb_error"] = f"Seed discovery failed: {exc}"
+
+            if matching_seeds:
+                selected_seed = matching_seeds[0]["seed"]
+                gdb_result = find_runtime_call_chain_with_gdb(
+                    target,
+                    line_breakpoint,
+                    selected_seed,
+                    out_dir=project_out_dir,
+                    fallback_breakpoint=breakpoint,
+                )
+                gdb_result["seed_source"] = "find_blocker_seeds_by_coverage"
+                gdb_result["selected_seed"] = selected_seed
+                gdb_result["resolved_source_file"] = resolved_source_file
+            else:
+                explicit_error = (result.get("triggering_input_attempt") or {}).get("error", "")
+                gdb_result = {
+                    "error": result.get("gdb_error")
+                    or explicit_error
+                    or f"No branch-reaching seed found for breakpoint '{breakpoint}'.",
+                    "target": target,
+                    "breakpoint": breakpoint,
+                    "seed_source": "find_blocker_seeds_by_coverage",
+                }
+
+        result["matching_seeds"] = matching_seeds
         if "gdb_frames" in gdb_result:
             runtime_segment = extract_runtime_segment_between_functions(
                 gdb_result["gdb_frames"],
@@ -1587,6 +1624,11 @@ def main():
         default=0,
         help="Max corpus inputs to try for GDB runtime call path collection. Use 0 to scan the full corpus.",
     )
+    parser.add_argument(
+        "--triggering-input",
+        default=None,
+        help="Known branch-reaching local seed to try before scanning the corpus.",
+    )
     parser.add_argument("--classify", action="store_true", help="Run blocker classification after extraction")
     parser.add_argument("--backend", default="vertexai", choices=["gemini", "vertexai", "openrouter", "ollama"])
     parser.add_argument("--model", default="gemini-2.5-flash")
@@ -1639,6 +1681,7 @@ def main():
         args.yaml_file,
         args.project_name,
         max_gdb_inputs=args.max_gdb_inputs,
+        triggering_input=args.triggering_input,
     )
 
     print(f"\n=== Target: {result['target']} ===")

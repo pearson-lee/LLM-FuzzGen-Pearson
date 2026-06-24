@@ -7,10 +7,65 @@ from blocker_process.blocker_callpath_extractor import (
     _preprocessor_context_by_line,
     enrich_call_sites_with_calltree,
     enumerate_textual_call_sites,
+    extract_blocker_callchain_info,
     get_runtime_function_source_codes,
     get_unique_source_codes,
     render_call_sites_for_prompt,
 )
+
+
+def test_explicit_triggering_input_is_tried_before_corpus(monkeypatch, tmp_path):
+    trigger = tmp_path / "trigger.seed"
+    trigger.write_bytes(b"trigger")
+    corpus_scan_called = False
+
+    class FakeIntrospector:
+        pass
+
+    def fail_corpus_scan(**_kwargs):
+        nonlocal corpus_scan_called
+        corpus_scan_called = True
+        raise AssertionError("corpus scan must not run after explicit triggering input succeeds")
+
+    monkeypatch.setattr("blocker_process.blocker_callpath_extractor.INTROSPECTOR_AVAILABLE", True)
+    monkeypatch.setattr("blocker_process.blocker_callpath_extractor.Introspector", FakeIntrospector)
+    monkeypatch.setattr(
+        "blocker_process.blocker_callpath_extractor.enumerate_textual_call_sites",
+        lambda *_args, **_kwargs: {"entries": []},
+    )
+    monkeypatch.setattr(
+        "blocker_process.blocker_callpath_extractor.get_data_file_for_target",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "blocker_process.blocker_callpath_extractor.find_matching_seeds",
+        fail_corpus_scan,
+    )
+    monkeypatch.setattr(
+        "blocker_process.blocker_callpath_extractor.find_runtime_call_chain_with_gdb",
+        lambda *_args, **_kwargs: {
+            "gdb_frames": [],
+            "triggering_input": str(trigger),
+        },
+    )
+
+    result = extract_blocker_callchain_info(
+        blocker={
+            "function_name": "blocked_function",
+            "branch_line_number": "10",
+            "blocked_side_line_number": "11",
+            "source_file": "/src/demo/source.c",
+            "best_target": "demo_fuzzer",
+        },
+        yaml_file=str(tmp_path / "missing.yaml"),
+        project_name="demo",
+        max_gdb_inputs=1,
+        triggering_input=str(trigger),
+    )
+
+    assert corpus_scan_called is False
+    assert result["gdb_result"]["seed_source"] == "explicit_triggering_input"
+    assert result["gdb_result"]["selected_seed"] == str(trigger.resolve())
 
 
 def _facts(**states):

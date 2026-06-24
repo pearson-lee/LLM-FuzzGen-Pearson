@@ -1,4 +1,6 @@
 from pathlib import Path
+import sys
+import time
 from types import SimpleNamespace
 
 from blocker_process.dependent.input_dependent_seed_generator import (
@@ -9,13 +11,257 @@ from blocker_process.dependent.input_dependent_seed_generator import (
     validate_generator,
 )
 from blocker_process.dependent.input_dependent_solver import (
+    build_symcc_cmd,
     build_runtime_sanity_seed_args,
     get_symcc_failure_kind,
     resolve_harness_fidelity_seed,
     resolve_seed_generator_triggering_input,
+    run_program,
+    run_input_dependent_solver,
     seed_generation_exceeded_budget,
     select_bounded_symcc_handoff_seeds,
+    symcc_initial_seed_budget,
 )
+from blocker_process.dependent.run_symcc_blocker import (
+    _should_use_symcc_library,
+    load_project_config,
+)
+
+
+def test_lcms_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) -> None:
+    seed = tmp_path / "trigger.seed"
+    seed.write_bytes(b"trigger")
+    config = load_project_config("lcms")
+
+    assert config["symcc_library"] is True
+    assert config["symcc_library_filename"] == "liblcms2.a"
+    assert _should_use_symcc_library("lcms", config, [str(seed)]) is True
+
+
+def test_llm_stage_timeout_returns_retryable_llm_error() -> None:
+    started_at = time.monotonic()
+    result = run_program(
+        [sys.executable, "-c", "import time; time.sleep(10)"],
+        timeout_sec=0.1,
+        timeout_failure_kind="llm_timeout",
+    )
+
+    assert time.monotonic() - started_at < 3
+    assert result["returncode"] == 124
+    assert result["timed_out"] is True
+    assert result["parsed_output"]["attempt_result"] == "llm_error"
+    assert result["parsed_output"]["failure_kind"] == "llm_timeout"
+    assert result["parsed_output"]["retryable"] is True
+
+
+def test_seed_stage_timeout_stops_before_symcc(monkeypatch, tmp_path: Path) -> None:
+    seed = tmp_path / "trigger.seed"
+    target = tmp_path / "target.c"
+    seed.write_bytes(b"trigger")
+    target.write_text("int LLVMFuzzerTestOneInput(void) { return 0; }", encoding="utf-8")
+    args = SimpleNamespace(
+        seed=[str(seed)],
+        triggering_input=str(seed),
+        output_root=str(tmp_path / "output"),
+        project_name="demo",
+        function_name="blocked_function",
+        target_name="demo_fuzzer",
+        fuzz_file=str(target),
+        source_file=str(target),
+        branch_line_number=1,
+        blocked_side_line_number=2,
+        max_iterations=2,
+        fuzz_seconds=1,
+        reset_corpus_per_iteration=False,
+        log_dir=None,
+        llm_seed_stage_timeout_sec=900,
+    )
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.build_context_args",
+        lambda _args: [],
+    )
+
+    calls = 0
+
+    def timed_out(_cmd, **kwargs):
+        nonlocal calls
+        calls += 1
+        assert kwargs["timeout_sec"] == 900
+        return {
+            "returncode": 124,
+            "stdout": "",
+            "stderr": "",
+            "timed_out": True,
+            "parsed_output": {
+                "success": False,
+                "attempt_result": "llm_error",
+                "failure_kind": "llm_timeout",
+                "retryable": True,
+                "message": "LLM generation stage exceeded 900 seconds.",
+            },
+        }
+
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.run_program",
+        timed_out,
+    )
+
+    result = run_input_dependent_solver(args)
+
+    assert calls == 1
+    assert result["failure_stage"] == "llm_seed_generator"
+    assert result["attempt_result"] == "llm_error"
+    assert result["stages"]["llm_seed_generator"]["retryable"] is True
+
+
+def test_symcc_command_supports_fidelity_only_preflight(tmp_path: Path) -> None:
+    blocker_json = tmp_path / "blocker.json"
+    fuzz_target = tmp_path / "harness.c"
+    seed = tmp_path / "trigger.seed"
+    blocker_json.write_text("{}", encoding="utf-8")
+    fuzz_target.write_text("int LLVMFuzzerTestOneInput(void) { return 0; }", encoding="utf-8")
+    seed.write_bytes(b"trigger")
+    args = SimpleNamespace(
+        project_name="demo",
+        source_api_file=None,
+        source_file=str(fuzz_target),
+        branch_line_number=1,
+        blocked_side_line_number=2,
+        symcc_max_generations=1,
+        symcc_max_total_seeds=10,
+        symcc_timeout_sec=5,
+        symcc_wall_clock_budget_sec=0,
+        keep_coverage_reports=False,
+        llvm_profdata=None,
+        llvm_cov=None,
+    )
+
+    cmd = build_symcc_cmd(
+        args=args,
+        blocker_json_path=blocker_json,
+        work_dir=tmp_path / "work",
+        seeds=[str(seed)],
+        fuzz_target=str(fuzz_target),
+        target_name="demo_fuzzer",
+        json_output_path=tmp_path / "summary.json",
+        fidelity_seed=str(seed),
+        fidelity_only=True,
+    )
+
+    assert "--fidelity-only" in cmd
+    assert cmd[cmd.index("--fidelity-seed") + 1] == str(seed.resolve())
+
+
+def test_incompatible_fidelity_preflight_replans_before_focused_fuzzing(
+    monkeypatch, tmp_path: Path
+) -> None:
+    seed = tmp_path / "trigger.seed"
+    fuzz_target = tmp_path / "target.c"
+    seed.write_bytes(b"trigger")
+    fuzz_target.write_text("int LLVMFuzzerTestOneInput(void) { return 0; }", encoding="utf-8")
+    args = SimpleNamespace(
+        seed=[str(seed)],
+        triggering_input=str(seed),
+        output_root=str(tmp_path / "output"),
+        project_name="demo",
+        function_name="blocked_function",
+        target_name="demo_fuzzer",
+        fuzz_file=str(fuzz_target),
+        source_file=str(fuzz_target),
+        source_api_file=None,
+        branch_line_number=1,
+        blocked_side_line_number=2,
+        max_iterations=1,
+        fuzz_seconds=1,
+        reset_corpus_per_iteration=False,
+        log_dir=None,
+        symcc_max_total_seeds=10,
+        libfuzzer_pass_seconds=60,
+    )
+    calls: list[str] = []
+    harness_attempt = 0
+
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.build_context_args",
+        lambda _args: [],
+    )
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.build_runtime_sanity_seed_args",
+        lambda _seeds: [],
+    )
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.build_symcc_cmd",
+        lambda **kwargs: ["symcc", "preflight" if kwargs.get("fidelity_only") else "full"],
+    )
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.quarantine_unsolved_generated_harness",
+        lambda **_kwargs: {"quarantined": True},
+    )
+
+    def fail_if_focused(**_kwargs):
+        raise AssertionError("focused fuzzing must not run before fidelity preflight passes")
+
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.run_libfuzzer_focused_pass",
+        fail_if_focused,
+    )
+
+    def fake_run_program(cmd, **_kwargs):
+        nonlocal harness_attempt
+        if "input_dependent_seed_generator.py" in str(cmd[1]):
+            calls.append("seed_generator")
+            return {"returncode": 1, "stdout": "", "stderr": "", "parsed_output": {"success": False}}
+        if cmd == ["symcc", "full"]:
+            calls.append("symcc_probe")
+            return {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "",
+                "parsed_output": {"success": False, "symcc": {"failure_kind": "coverage_no_blocked_side"}},
+            }
+        if "input_dependent_harness_generator.py" in str(cmd[1]):
+            harness_attempt += 1
+            calls.append(f"harness_generation_{harness_attempt}")
+            return {
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+                "parsed_output": {
+                    "success": True,
+                    "native_build_target_name": f"generated_{harness_attempt}",
+                    "harness_path": str(tmp_path / f"harness_{harness_attempt}.c"),
+                },
+            }
+        if cmd == ["symcc", "preflight"]:
+            calls.append(f"fidelity_preflight_{harness_attempt}")
+            return {
+                "returncode": 4,
+                "stdout": "",
+                "stderr": "",
+                "parsed_output": {
+                    "success": False,
+                    "failure_kind": "harness_seed_incompatible",
+                    "harness_fidelity": {"status": "incompatible"},
+                },
+            }
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.run_program",
+        fake_run_program,
+    )
+
+    result = run_input_dependent_solver(args)
+
+    assert calls == [
+        "seed_generator",
+        "symcc_probe",
+        "harness_generation_1",
+        "fidelity_preflight_1",
+        "harness_generation_2",
+        "fidelity_preflight_2",
+    ]
+    assert result["failure_stage"] == "symcc_harness_fidelity_preflight_replan_02"
 
 
 def test_isolated_snapshot_contains_only_explicit_deduplicated_seeds(tmp_path: Path) -> None:
@@ -161,6 +407,12 @@ def test_symcc_failure_kind_reads_nested_summary() -> None:
     )
 
 
+def test_symcc_failure_kind_reads_fidelity_preflight_summary() -> None:
+    assert get_symcc_failure_kind(
+        {"fidelity_preflight": {"failure_kind": "harness_seed_incompatible"}}
+    ) == "harness_seed_incompatible"
+
+
 def test_bounded_symcc_handoff_prioritizes_original_seeds_and_deduplicates(tmp_path: Path) -> None:
     trigger = tmp_path / "trigger.seed"
     trigger.write_bytes(b"trigger")
@@ -186,6 +438,13 @@ def test_bounded_symcc_handoff_prioritizes_original_seeds_and_deduplicates(tmp_p
         "duplicate_count": 1,
         "dropped_count": 1,
     }
+
+
+def test_symcc_initial_seed_budget_uses_independent_frontier_cap() -> None:
+    assert symcc_initial_seed_budget(60) == 30
+    assert symcc_initial_seed_budget(3) == 3
+    assert symcc_initial_seed_budget(60, initial_frontier_cap=12) == 12
+    assert symcc_initial_seed_budget(1) == 1
 
 
 def test_prompt_contains_generic_ordering_and_representation_contract() -> None:

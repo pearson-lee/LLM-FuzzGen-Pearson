@@ -55,12 +55,13 @@ def test_missing_yaml_still_collects_textual_callsites(monkeypatch, tmp_path):
         cfg_source_codes=None,
         cfg_source_codes_file=None,
         blocker_call_sites=None,
-        triggering_input="",
+        triggering_input="known-trigger.seed",
     )
 
     result = auto_collect_callpath_context(args)
 
     assert captured["source_root"] == str(source_root)
+    assert captured["triggering_input"] == "known-trigger.seed"
     assert "sample.c:10" in result.blocker_call_sites
     assert result.cfg_collection_status == "failed"
 

@@ -166,3 +166,167 @@ def test_missing_branch_line_is_coverage_error(tmp_path: Path, monkeypatch) -> N
     assert result["status"] == "unknown"
     assert result["coverage_success"] is False
     assert "did not contain blocker branch line" in result["errors"][0]
+
+
+def symcc_exploration_args(tmp_path: Path, **overrides) -> SimpleNamespace:
+    fuzz_target = tmp_path / "target.c"
+    fuzz_target.write_text("int LLVMFuzzerTestOneInput(void) { return 0; }", encoding="utf-8")
+    values = {
+        "fuzz_target": str(fuzz_target),
+        "max_generations": 3,
+        "max_total_seeds": 60,
+        "max_candidate_evaluations": 200,
+        "max_retained_seeds": 60,
+        "initial_frontier_cap": 30,
+        "wall_clock_budget_sec": 0,
+        "target_args": "@@",
+        "input_mode": "file",
+        "timeout_sec": 1,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_symcc_online_oracle_can_find_tail_output(tmp_path: Path, monkeypatch) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "initial.seed").write_bytes(b"initial")
+
+    def generate_many_outputs(*, env, **_kwargs):
+        output_dir = Path(env["SYMCC_OUTPUT_DIR"])
+        for index in range(100):
+            (output_dir / f"generated-{index}").write_bytes(f"seed-{index}".encode())
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", generate_many_outputs)
+
+    def evaluate(seed: Path, _timeout: float) -> symcc_solver.CoverageResult:
+        solved = seed.read_bytes() == b"seed-99"
+        return symcc_solver.CoverageResult(
+            seed=seed,
+            branch_hit_count_raw="1",
+            blocked_side_hit_count_raw="1" if solved else "0",
+            branch_hit_count=1,
+            blocked_side_hit_count=1 if solved else 0,
+            blocked_side_line_reached=solved,
+        )
+
+    result = symcc_solver.explore_with_symcc(
+        symcc_exploration_args(tmp_path, max_generations=1, max_candidate_evaluations=5),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        evaluate,
+    )
+
+    assert result.stop_reason == "blocked_side_reached"
+    assert result.solved is not None
+    assert result.solved.seed.read_bytes() == b"seed-99"
+    assert result.candidate_evaluations == 5
+
+
+def test_symcc_evaluation_budget_is_fair_across_frontier(tmp_path: Path, monkeypatch) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    for index in range(3):
+        (corpus_dir / f"initial-{index}.seed").write_bytes(f"frontier-{index}".encode())
+
+    def generate_outputs(*, seed_path, env, **_kwargs):
+        output_dir = Path(env["SYMCC_OUTPUT_DIR"])
+        frontier_name = seed_path.read_text(encoding="utf-8")
+        for index in range(10):
+            (output_dir / f"generated-{index}").write_text(
+                f"{frontier_name}:output-{index}", encoding="utf-8"
+            )
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", generate_outputs)
+    evaluated_by_frontier = {"frontier-0": 0, "frontier-1": 0, "frontier-2": 0}
+
+    def evaluate(seed: Path, _timeout: float) -> symcc_solver.CoverageResult:
+        frontier_name = seed.read_text(encoding="utf-8").split(":", 1)[0]
+        evaluated_by_frontier[frontier_name] += 1
+        return coverage_result(seed, branch_hits=0)
+
+    result = symcc_solver.explore_with_symcc(
+        symcc_exploration_args(
+            tmp_path,
+            max_generations=1,
+            max_candidate_evaluations=6,
+            initial_frontier_cap=3,
+        ),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        evaluate,
+    )
+
+    assert result.candidate_evaluations == 6
+    assert evaluated_by_frontier == {"frontier-0": 2, "frontier-1": 2, "frontier-2": 2}
+
+
+def test_symcc_candidate_budget_is_cumulative_across_generations(tmp_path: Path, monkeypatch) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "initial.seed").write_bytes(b"initial")
+
+    execution = 0
+
+    def generate_outputs(*, env, **_kwargs):
+        nonlocal execution
+        execution += 1
+        output_dir = Path(env["SYMCC_OUTPUT_DIR"])
+        for index in range(4):
+            (output_dir / f"generated-{index}").write_text(
+                f"execution-{execution}:output-{index}", encoding="utf-8"
+            )
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", generate_outputs)
+    result = symcc_solver.explore_with_symcc(
+        symcc_exploration_args(
+            tmp_path,
+            max_generations=3,
+            max_candidate_evaluations=5,
+            max_retained_seeds=2,
+        ),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        lambda seed, _timeout: coverage_result(seed, branch_hits=1),
+    )
+
+    assert result.candidate_evaluations == 5
+    assert result.stop_reason == "candidate_eval_budget_exhausted"
+
+
+def test_symcc_systemic_oracle_failure_is_retryable(tmp_path: Path, monkeypatch) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "initial.seed").write_bytes(b"initial")
+
+    def generate_output(*, env, **_kwargs):
+        output_dir = Path(env["SYMCC_OUTPUT_DIR"])
+        (output_dir / "generated").write_bytes(b"candidate")
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", generate_output)
+
+    def unavailable(_seed: Path, _timeout: float) -> symcc_solver.CoverageResult:
+        raise symcc_solver.CoverageOracleError(
+            "llvm_cov_failed",
+            "llvm-cov failed",
+            systemic=True,
+        )
+
+    result = symcc_solver.explore_with_symcc(
+        symcc_exploration_args(tmp_path, max_generations=1),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        unavailable,
+    )
+
+    assert result.stop_reason == "oracle_unavailable"
+    assert result.candidate_evaluations == 1
+    assert result.oracle_errors == {"llvm_cov_failed": 1}

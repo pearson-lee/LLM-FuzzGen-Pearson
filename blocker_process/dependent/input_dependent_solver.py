@@ -4,9 +4,12 @@ import datetime
 import hashlib
 import json
 import logging
+import os
+import signal
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 MODULE_ROOT = Path(__file__).resolve().parent
@@ -47,6 +50,8 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
                 "success": stage_payload.get("success"),
                 "returncode": stage_payload.get("returncode"),
                 "final_status": stage_payload.get("final_status"),
+                "failure_kind": stage_payload.get("failure_kind"),
+                "retryable": stage_payload.get("retryable"),
                 "message": stage_payload.get("message"),
             }
         else:
@@ -86,17 +91,64 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
     }
 
 
-def run_program(cmd: list[str], *, json_output_file: Path | None = None) -> dict:
+def run_program(
+    cmd: list[str],
+    *,
+    json_output_file: Path | None = None,
+    timeout_sec: float | None = None,
+    timeout_failure_kind: str = "stage_timeout",
+) -> dict:
     logging.info("Dispatching: %s", " ".join(cmd))
-    result = subprocess.run(
+    started_at = time.monotonic()
+    process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        check=False,
+        start_new_session=True,
     )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        elapsed = time.monotonic() - started_at
+        logging.error(
+            "Stage timed out after %.1fs (limit=%.1fs): %s",
+            elapsed,
+            float(timeout_sec or 0),
+            " ".join(cmd),
+        )
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = process.communicate()
+
+        parsed_timeout = {
+            "success": False,
+            "attempt_result": "llm_error",
+            "failure_kind": timeout_failure_kind,
+            "retryable": True,
+            "timeout_seconds": float(timeout_sec or 0),
+            "elapsed_seconds": elapsed,
+            "message": f"LLM generation stage exceeded {float(timeout_sec or 0):.0f} seconds.",
+        }
+        return {
+            "returncode": 124,
+            "stdout": stdout or "",
+            "stderr": stderr or "",
+            "parsed_output": parsed_timeout,
+            "timed_out": True,
+        }
+
     parsed: dict | None = None
     if json_output_file and json_output_file.exists():
         try:
@@ -104,7 +156,7 @@ def run_program(cmd: list[str], *, json_output_file: Path | None = None) -> dict
         except Exception:
             parsed = None
     if parsed is None:
-        text = (result.stdout or "").strip()
+        text = (stdout or "").strip()
         if text:
             try:
                 parsed_json = json.loads(text)
@@ -113,10 +165,11 @@ def run_program(cmd: list[str], *, json_output_file: Path | None = None) -> dict
             except Exception:
                 parsed = None
     return {
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "returncode": process.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
         "parsed_output": parsed,
+        "timed_out": False,
     }
 
 
@@ -152,6 +205,11 @@ def resolve_harness_fidelity_seed(args: argparse.Namespace, seeds: list[str]) ->
 def get_symcc_failure_kind(stage: dict | None) -> str:
     if not isinstance(stage, dict):
         return ""
+    if stage.get("failure_kind"):
+        return str(stage["failure_kind"])
+    fidelity_preflight = stage.get("fidelity_preflight")
+    if isinstance(fidelity_preflight, dict) and fidelity_preflight.get("failure_kind"):
+        return str(fidelity_preflight["failure_kind"])
     symcc = stage.get("symcc")
     return str(symcc.get("failure_kind") or "") if isinstance(symcc, dict) else ""
 
@@ -257,6 +315,12 @@ def select_bounded_symcc_handoff_seeds(
         "duplicate_count": duplicate_count,
         "dropped_count": max(0, len(ordered_candidates) - duplicate_count - len(selected)),
     }
+
+
+def symcc_initial_seed_budget(max_total_seeds: int, initial_frontier_cap: int = 30) -> int:
+    """Bound the initial handoff independently from next-generation retention."""
+    total = max(1, int(max_total_seeds))
+    return min(total, max(1, int(initial_frontier_cap)))
 
 
 def build_context_args(args: argparse.Namespace) -> list[str]:
@@ -366,6 +430,21 @@ def run_libfuzzer_focused_pass(
         fuzz_seconds,
         seed_count_before,
     )
+
+    address_build = oss_fuzz.ensure_target_binary(
+        project_name,
+        target_name,
+        sanitizer="address",
+    )
+    if not address_build.success:
+        return {
+            "success": False,
+            "corpus_dir": str(corpus_dir),
+            "seed_count_before": seed_count_before,
+            "seed_count_after": seed_count_before,
+            "new_seeds": 0,
+            "error": f"Failed to restore address build before focused fuzzing: {address_build.error}",
+        }
 
     run_result = oss_fuzz.run_fuzzer(
         proj_name=project_name,
@@ -502,6 +581,7 @@ def build_symcc_cmd(
     target_name: str | None,
     json_output_path: Path,
     fidelity_seed: str | None = None,
+    fidelity_only: bool = False,
 ) -> list[str]:
     cmd = [
         sys.executable,
@@ -522,6 +602,12 @@ def build_symcc_cmd(
         str(args.symcc_max_generations),
         "--max-total-seeds",
         str(args.symcc_max_total_seeds),
+        "--max-candidate-evaluations",
+        str(getattr(args, "symcc_max_candidate_evaluations", 200)),
+        "--max-retained-seeds",
+        str(getattr(args, "symcc_max_retained_seeds", args.symcc_max_total_seeds)),
+        "--initial-frontier-cap",
+        str(getattr(args, "symcc_initial_frontier_cap", 30)),
         "--timeout-sec",
         str(args.symcc_timeout_sec),
         "--wall-clock-budget-sec",
@@ -537,6 +623,8 @@ def build_symcc_cmd(
         cmd.extend(["--seed", seed])
     if fidelity_seed and Path(fidelity_seed).is_file():
         cmd.extend(["--fidelity-seed", str(Path(fidelity_seed).resolve())])
+    if fidelity_only:
+        cmd.append("--fidelity-only")
     if args.keep_coverage_reports:
         cmd.append("--keep-coverage-reports")
     if getattr(args, "llvm_profdata", None):
@@ -565,6 +653,12 @@ def infer_attempt_result(result: dict) -> str:
     stage_payload = stages.get(failure_stage) if failure_stage else None
     if isinstance(stage_payload, dict) and stage_payload.get("attempt_result") == "llm_error":
         return "llm_error"
+    if isinstance(stage_payload, dict) and stage_payload.get("attempt_result") == "pipeline_error":
+        return "pipeline_error"
+    if isinstance(stage_payload, dict):
+        nested_symcc = stage_payload.get("symcc")
+        if isinstance(nested_symcc, dict) and nested_symcc.get("attempt_result") == "pipeline_error":
+            return "pipeline_error"
     return "failed"
 
 
@@ -620,7 +714,12 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         llm_seed_cmd.extend(["--output-root", str(Path(args.output_root) / "generator")])
     if getattr(args, "log_dir", None):
         llm_seed_cmd.extend(["--log-dir", str(args.log_dir)])
-    llm_seed_result = run_program(llm_seed_cmd)
+    seed_stage_timeout = float(getattr(args, "llm_seed_stage_timeout_sec", 900) or 0)
+    llm_seed_result = run_program(
+        llm_seed_cmd,
+        timeout_sec=seed_stage_timeout if seed_stage_timeout > 0 else None,
+        timeout_failure_kind="llm_timeout",
+    )
     result["used_llm_seed_generator"] = True
     result["pipeline_methods"].append("llm_seed_generator")
     result["stages"]["llm_seed_generator"] = llm_seed_result.get("parsed_output") or {
@@ -644,6 +743,11 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["success_stage"] = "llm_seed_generator"
         result["attempt_result"] = "success"
         return result
+    if isinstance(parsed_llm_seed, dict) and parsed_llm_seed.get("failure_kind") == "llm_timeout":
+        result["failure_stage"] = "llm_seed_generator"
+        result["attempt_result"] = "llm_error"
+        result["message"] = str(parsed_llm_seed.get("message") or "Seed-generation LLM stage timed out.")
+        return result
     if seed_generation_exceeded_budget(parsed_llm_seed):
         result["success"] = False
         result["failure_stage"] = "llm_seed_generator"
@@ -655,10 +759,21 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         return result
 
     candidate_symcc_seeds, handoff_metadata = choose_symcc_seed_inputs(seeds, parsed_llm_seed)
+    initial_seed_limit = symcc_initial_seed_budget(
+        args.symcc_max_total_seeds,
+        getattr(args, "symcc_initial_frontier_cap", 30),
+    )
     symcc_seeds, initial_handoff_limits = select_bounded_symcc_handoff_seeds(
         priority_seeds=[*seeds, *candidate_symcc_seeds],
         corpus_dir=None,
-        max_total_seeds=args.symcc_max_total_seeds,
+        max_total_seeds=initial_seed_limit,
+    )
+    initial_handoff_limits["symcc_initial_frontier_cap"] = initial_seed_limit
+    initial_handoff_limits["symcc_candidate_eval_budget"] = getattr(
+        args, "symcc_max_candidate_evaluations", 200
+    )
+    initial_handoff_limits["symcc_next_generation_retention"] = getattr(
+        args, "symcc_max_retained_seeds", args.symcc_max_total_seeds
     )
     result["symcc_seed_inputs"] = symcc_seeds
     result["llm_seed_handoff_selection_reason"] = handoff_metadata.get("selection_reason")
@@ -687,6 +802,12 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["success_stage"] = "symcc_probe_original_target"
         result["attempt_result"] = "success"
         return result
+    probe_failure_kind = get_symcc_failure_kind(result["stages"]["symcc_probe_original_target"])
+    if probe_failure_kind == "oracle_unavailable":
+        result["failure_stage"] = "symcc_probe_original_target"
+        result["attempt_result"] = "pipeline_error"
+        result["message"] = "SymCC coverage oracle was unavailable; this blocker remains retryable."
+        return result
 
     fidelity_seed = resolve_harness_fidelity_seed(args, seeds)
     fidelity_feedback = ""
@@ -696,6 +817,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     for harness_attempt in range(1, 3):
         suffix = "" if harness_attempt == 1 else f"_replan_{harness_attempt:02d}"
         generation_stage = f"symcc_harness_generation{suffix}"
+        fidelity_stage = f"symcc_harness_fidelity_preflight{suffix}"
         libfuzzer_stage = f"libfuzzer_focused_pass{suffix}"
         symcc_stage = f"symcc_generated_harness{suffix}"
 
@@ -714,7 +836,12 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         if getattr(args, "output_root", None):
             symcc_harness_cmd.extend(["--output-root", str(Path(args.output_root) / "harness")])
 
-        symcc_harness_gen = run_program(symcc_harness_cmd)
+        harness_stage_timeout = float(getattr(args, "llm_harness_stage_timeout_sec", 300) or 0)
+        symcc_harness_gen = run_program(
+            symcc_harness_cmd,
+            timeout_sec=harness_stage_timeout if harness_stage_timeout > 0 else None,
+            timeout_failure_kind="llm_timeout",
+        )
         result["stages"][generation_stage] = symcc_harness_gen.get("parsed_output") or {
             "returncode": symcc_harness_gen["returncode"],
             "stdout": symcc_harness_gen["stdout"],
@@ -727,6 +854,53 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             return result
 
         simplified_target_name = parsed_symcc_harness.get("native_build_target_name")
+
+        fidelity_json = output_dir / f"symcc_harness_fidelity_preflight{suffix}.json"
+        fidelity_cmd = build_symcc_cmd(
+            args=args,
+            blocker_json_path=payload_path,
+            work_dir=output_dir / f"symcc_harness_fidelity_preflight{suffix}",
+            seeds=symcc_seeds,
+            fuzz_target=parsed_symcc_harness["harness_path"],
+            target_name=simplified_target_name,
+            json_output_path=fidelity_json,
+            fidelity_seed=fidelity_seed,
+            fidelity_only=True,
+        )
+        fidelity_run = run_program(fidelity_cmd, json_output_file=fidelity_json)
+        fidelity_payload = fidelity_run.get("parsed_output") or {
+            "returncode": fidelity_run["returncode"],
+            "stdout": fidelity_run["stdout"],
+            "stderr": fidelity_run["stderr"],
+        }
+        result["stages"][fidelity_stage] = fidelity_payload
+        result["pipeline_methods"].append(fidelity_stage)
+        fidelity_failure = get_symcc_failure_kind(fidelity_payload)
+        if not successful(fidelity_run.get("parsed_output")):
+            result["generated_harness_retention"] = quarantine_unsolved_generated_harness(
+                args=args,
+                parsed_harness=parsed_symcc_harness,
+                symcc_harness_stage=fidelity_payload,
+                reason=fidelity_failure or "harness_fidelity_preflight_failed",
+            )
+            if fidelity_failure == "harness_seed_incompatible" and harness_attempt == 1:
+                fidelity_feedback = get_harness_fidelity_feedback(fidelity_payload)
+                previous_harness_file = str(parsed_symcc_harness.get("harness_path") or "")
+                result["pipeline_methods"].append("symcc_harness_fidelity_replan")
+                continue
+            result["failure_stage"] = fidelity_stage
+            if fidelity_failure == "harness_fidelity_unknown":
+                result["message"] = (
+                    "Generated-harness fidelity could not be measured after a deterministic coverage retry; "
+                    "LLM repair was not attempted."
+                )
+            elif fidelity_failure == "harness_seed_incompatible":
+                result["message"] = "Generated harness remained incompatible after one bounded fidelity replan."
+            else:
+                result["message"] = "Generated-harness fidelity preflight failed."
+            result["attempt_result"] = infer_attempt_result(result)
+            return result
+
         libfuzzer_pass_seconds = int(getattr(args, "libfuzzer_pass_seconds", 0) or 0)
         stage3b_seeds = list(symcc_seeds)
         if libfuzzer_pass_seconds > 0 and simplified_target_name:
@@ -742,7 +916,14 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             stage3b_seeds, handoff_limits = select_bounded_symcc_handoff_seeds(
                 priority_seeds=symcc_seeds,
                 corpus_dir=corpus_dir,
-                max_total_seeds=args.symcc_max_total_seeds,
+                max_total_seeds=initial_seed_limit,
+            )
+            handoff_limits["symcc_initial_frontier_cap"] = initial_seed_limit
+            handoff_limits["symcc_candidate_eval_budget"] = getattr(
+                args, "symcc_max_candidate_evaluations", 200
+            )
+            handoff_limits["symcc_next_generation_retention"] = getattr(
+                args, "symcc_max_retained_seeds", args.symcc_max_total_seeds
             )
             stage3b_result["symcc_handoff"] = handoff_limits
 
@@ -755,7 +936,6 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             fuzz_target=parsed_symcc_harness["harness_path"],
             target_name=simplified_target_name,
             json_output_path=symcc_harness_json,
-            fidelity_seed=fidelity_seed,
         )
         symcc_harness_run = run_program(symcc_harness_run_cmd, json_output_file=symcc_harness_json)
         result["pipeline_methods"].append(symcc_stage)
@@ -841,10 +1021,25 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--seed-generator-timeout-sec", type=float, default=None)
+    parser.add_argument(
+        "--llm-seed-stage-timeout-sec",
+        type=float,
+        default=900,
+        help="Hard wall-clock timeout for the complete LLM seed-generation stage.",
+    )
+    parser.add_argument(
+        "--llm-harness-stage-timeout-sec",
+        type=float,
+        default=300,
+        help="Hard wall-clock timeout for each complete LLM harness-generation attempt.",
+    )
     parser.add_argument("--max-seed-size-bytes", type=int, default=None)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument("--symcc-max-generations", type=int, default=3)
     parser.add_argument("--symcc-max-total-seeds", type=int, default=60)
+    parser.add_argument("--symcc-max-candidate-evaluations", type=int, default=200)
+    parser.add_argument("--symcc-max-retained-seeds", type=int, default=60)
+    parser.add_argument("--symcc-initial-frontier-cap", type=int, default=30)
     parser.add_argument("--symcc-timeout-sec", type=int, default=15)
     parser.add_argument("--symcc-wall-clock-budget-sec", type=int, default=300)
     parser.add_argument("--libfuzzer-pass-seconds", type=int, default=60,

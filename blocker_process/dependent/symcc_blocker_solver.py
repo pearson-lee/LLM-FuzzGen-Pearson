@@ -25,7 +25,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable, TypeVar
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -62,6 +62,81 @@ class CoverageResult:
     branch_hit_count: int
     blocked_side_hit_count: int
     blocked_side_line_reached: bool
+
+
+class CoverageOracleError(RuntimeError):
+    """Coverage measurement failed before it could classify a candidate seed."""
+
+    def __init__(self, kind: str, message: str, *, systemic: bool = False) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.systemic = systemic
+
+
+@dataclass(slots=True)
+class CandidateEvaluation:
+    seed: Path
+    coverage: CoverageResult | None
+    status: str
+    error_kind: str | None = None
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class SymCCExplorationResult:
+    corpus: list[Path]
+    evaluations: list[CandidateEvaluation]
+    solved: CoverageResult | None
+    stop_reason: str
+    generations_completed: int
+    symcc_executions: int
+    outputs_discovered: int
+    candidate_evaluations: int
+    retained_seed_count: int
+    oracle_errors: dict[str, int]
+    elapsed_seconds: float
+    candidate_eval_budget: int
+    retention_limit: int
+    initial_frontier_cap: int
+    deadline_seconds: float
+
+    def to_json_dict(self) -> dict[str, object]:
+        outcome_counts = {
+            "blocked_side": 0,
+            "branch": 0,
+            "coverage_unknown": 0,
+            "non_branch": 0,
+        }
+        for candidate in self.evaluations:
+            if candidate.coverage and candidate.coverage.blocked_side_line_reached:
+                outcome_counts["blocked_side"] += 1
+            elif candidate.coverage and candidate.coverage.branch_hit_count > 0:
+                outcome_counts["branch"] += 1
+            elif candidate.status == "coverage_unknown":
+                outcome_counts["coverage_unknown"] += 1
+            else:
+                outcome_counts["non_branch"] += 1
+        return {
+            "stop_reason": self.stop_reason,
+            "generations_completed": self.generations_completed,
+            "symcc_executions": self.symcc_executions,
+            "outputs_discovered": self.outputs_discovered,
+            "candidate_evaluations": self.candidate_evaluations,
+            "retained_seed_count": self.retained_seed_count,
+            "oracle_errors": self.oracle_errors,
+            "outcome_counts": outcome_counts,
+            "elapsed_seconds": round(self.elapsed_seconds, 3),
+            "budgets": {
+                "candidate_evaluations": self.candidate_eval_budget,
+                "next_generation_retention": self.retention_limit,
+                "initial_frontier": self.initial_frontier_cap,
+                "deadline_seconds": self.deadline_seconds,
+            },
+            "solved_seed": str(self.solved.seed) if self.solved else None,
+        }
+
+
+T = TypeVar("T")
 
 
 def parse_args() -> argparse.Namespace:
@@ -119,6 +194,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Previously branch-reaching seed used to verify a generated harness preserves the blocker path.",
     )
+    parser.add_argument(
+        "--fidelity-only",
+        action="store_true",
+        help="Exit after generated-harness fidelity validation without running SymCC.",
+    )
     parser.add_argument("--seed-dir", default=None, help="Directory containing initial seed files.")
     parser.add_argument(
         "--target-args",
@@ -132,10 +212,33 @@ def parse_args() -> argparse.Namespace:
         help="How the replay driver should feed input into the fuzz target. Default: file.",
     )
     parser.add_argument("--work-dir", default=None, help="Directory to store build outputs and generated seeds.")
-    parser.add_argument("--max-generations", type=int, default=5, help="Maximum SymCC exploration generations.")
-    parser.add_argument("--max-total-seeds", type=int, default=200, help="Maximum total corpus size including generated seeds.")
+    parser.add_argument("--max-generations", type=int, default=3, help="Maximum SymCC exploration generations.")
+    parser.add_argument(
+        "--max-total-seeds",
+        type=int,
+        default=60,
+        help="Deprecated compatibility alias for --max-retained-seeds.",
+    )
+    parser.add_argument(
+        "--max-candidate-evaluations",
+        type=int,
+        default=200,
+        help="Cumulative number of generated candidates that the coverage oracle may replay.",
+    )
+    parser.add_argument(
+        "--max-retained-seeds",
+        type=int,
+        default=None,
+        help="Maximum number of candidates retained as the next SymCC frontier. Defaults to --max-total-seeds.",
+    )
+    parser.add_argument(
+        "--initial-frontier-cap",
+        type=int,
+        default=30,
+        help="Maximum number of initial seeds used as the first SymCC frontier.",
+    )
     parser.add_argument("--timeout-sec", type=int, default=30, help="Timeout for each target execution.")
-    parser.add_argument("--wall-clock-budget-sec", type=int, default=0, help="Total wall-clock budget for SymCC exploration in seconds. 0 means no limit.")
+    parser.add_argument("--wall-clock-budget-sec", type=int, default=300, help="Total wall-clock budget for SymCC exploration and online coverage replay. 0 means no limit.")
     parser.add_argument("--ossfuzz-supplement-corpus-dir", default=None, help="OSS-Fuzz corpus dir to scan for branch-reaching binary seeds when initial corpus is sparse (<4 seeds).")
     parser.add_argument("--export-solved-seed-dir", default=None, help="Directory to receive the best blocked-side-reaching seed after a successful original-target solve.")
     parser.add_argument("--symcc", default=str(DEFAULT_SYMCC), help=f"Path to symcc. Default: {DEFAULT_SYMCC}")
@@ -673,8 +776,8 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
 
     common_cflags = ["-g", "-O0", "-fno-omit-frame-pointer"]
 
-    symcc = ensure_tool(args.symcc)
-    sympp = ensure_tool(args.sympp)
+    symcc = ensure_tool(args.symcc) if not args.fidelity_only else args.symcc
+    sympp = ensure_tool(args.sympp) if not args.fidelity_only else args.sympp
     clang = ensure_tool(args.clang)
     clangxx = ensure_tool(args.clangxx)
     llvm_profdata = ensure_tool(args.llvm_profdata)
@@ -696,26 +799,27 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
     if provided_coverage_bin is not None and not provided_coverage_bin.is_file():
         raise FileNotFoundError(f"Provided coverage binary not found: {provided_coverage_bin}")
 
-    symcc_objects = compile_objects(
-        sources=build_sources,
-        object_dir=symcc_obj_dir,
-        required_sources=required_sources,
-        include_dirs=include_dirs,
-        defines=defines,
-        common_flags=common_cflags,
-        cflags=extra_cflags,
-        cxxflags=extra_cxxflags,
-        compiler_c=symcc,
-        compiler_cxx=sympp,
-        compiler_env=symcc_env,
-    )
-    link_binary(
-        output_path=symcc_bin,
-        objects=symcc_objects,
-        link_flags=[*map(str, prebuilt_archives), *extra_ldflags],
-        linker=sympp if use_cxx else symcc,
-        env=symcc_env,
-    )
+    if not args.fidelity_only:
+        symcc_objects = compile_objects(
+            sources=build_sources,
+            object_dir=symcc_obj_dir,
+            required_sources=required_sources,
+            include_dirs=include_dirs,
+            defines=defines,
+            common_flags=common_cflags,
+            cflags=extra_cflags,
+            cxxflags=extra_cxxflags,
+            compiler_c=symcc,
+            compiler_cxx=sympp,
+            compiler_env=symcc_env,
+        )
+        link_binary(
+            output_path=symcc_bin,
+            objects=symcc_objects,
+            link_flags=[*map(str, prebuilt_archives), *extra_ldflags],
+            linker=sympp if use_cxx else symcc,
+            env=symcc_env,
+        )
 
     if provided_coverage_bin is not None:
         coverage_bin = provided_coverage_bin
@@ -775,40 +879,132 @@ def run_single_seed(
     return run_cmd(command, env=seed_env, stdin_path=stdin_path, timeout_sec=timeout_sec)
 
 
-def explore_with_symcc(args: argparse.Namespace, symcc_bin: Path, corpus_dir: Path, generated_dir: Path) -> list[Path]:
+def deterministic_stratified_sample(items: list[T], limit: int) -> list[T]:
+    """Select deterministic positions across the full ordered input, including its tail."""
+    if limit <= 0 or not items:
+        return []
+    if len(items) <= limit:
+        return list(items)
+    if limit == 1:
+        return [items[(len(items) - 1) // 2]]
+
+    indices = [round(index * (len(items) - 1) / (limit - 1)) for index in range(limit)]
+    return [items[index] for index in indices]
+
+
+def classify_coverage_oracle_error(exc: Exception) -> tuple[str, bool]:
+    if isinstance(exc, CoverageOracleError):
+        return exc.kind, exc.systemic
+
+    message = str(exc).lower()
+    if "llvm-profdata" in message:
+        return "llvm_profdata_failed", True
+    if "llvm-cov" in message:
+        return "llvm_cov_failed", True
+    if "did not contain blocker branch line" in message:
+        return "branch_line_missing", False
+    if "timed out" in message:
+        return "target_timeout", False
+    return "coverage_unknown", False
+
+
+def _candidate_rank(candidate: CandidateEvaluation) -> int:
+    if candidate.coverage and candidate.coverage.blocked_side_line_reached:
+        return 0
+    if candidate.coverage and candidate.coverage.branch_hit_count > 0:
+        return 1
+    if candidate.status == "coverage_unknown":
+        return 2
+    return 3
+
+
+def explore_with_symcc(
+    args: argparse.Namespace,
+    symcc_bin: Path,
+    corpus_dir: Path,
+    generated_dir: Path,
+    evaluate_candidate: Callable[[Path, float], CoverageResult],
+) -> SymCCExplorationResult:
+    """Explore SymCC outputs and classify them online before deciding retention."""
     generated_dir.mkdir(parents=True, exist_ok=True)
     symcc_out = generated_dir / "symcc_out"
+    evaluated_dir = generated_dir / "evaluated_candidates"
     symcc_out.mkdir(parents=True, exist_ok=True)
+    evaluated_dir.mkdir(parents=True, exist_ok=True)
 
     known_hashes = {sha256_file(path) for path in sorted(corpus_dir.iterdir()) if path.is_file()}
+    seen_hashes = set(known_hashes)
     all_corpus = sorted(path for path in corpus_dir.iterdir() if path.is_file())
-    frontier = list(all_corpus)
-    processed_count = 0
+    initial_frontier_cap = max(1, int(getattr(args, "initial_frontier_cap", 30) or 30))
+    frontier = deterministic_stratified_sample(all_corpus, initial_frontier_cap)
     fuzz_target_path = Path(args.fuzz_target).resolve()
     use_cxx = path_language(fuzz_target_path) == "c++"
-    wall_clock_budget = int(getattr(args, "wall_clock_budget_sec", 0) or 0)
+    wall_clock_budget = float(getattr(args, "wall_clock_budget_sec", 0) or 0)
+    max_candidate_evaluations = max(1, int(getattr(args, "max_candidate_evaluations", 200) or 200))
+    retained_arg = getattr(args, "max_retained_seeds", None)
+    if retained_arg is None:
+        retained_arg = getattr(args, "max_total_seeds", 60)
+    max_retained_seeds = max(1, int(retained_arg or 60))
     budget_start = time.monotonic()
 
-    for generation in range(1, args.max_generations + 1):
-        if not frontier or processed_count >= args.max_total_seeds:
+    evaluations: list[CandidateEvaluation] = []
+    oracle_errors: dict[str, int] = {}
+    solved: CoverageResult | None = None
+    stop_reason = "frontier_exhausted"
+    generations_completed = 0
+    symcc_executions = 0
+    outputs_discovered = 0
+    retained_seed_count = 0
+
+    def remaining_seconds() -> float | None:
+        if wall_clock_budget <= 0:
+            return None
+        return max(0.0, wall_clock_budget - (time.monotonic() - budget_start))
+
+    def bounded_timeout(configured_timeout: float) -> float | None:
+        remaining = remaining_seconds()
+        if remaining is None:
+            return max(0.1, configured_timeout)
+        if remaining <= 0:
+            return None
+        return max(0.1, min(configured_timeout, remaining))
+
+    for generation in range(1, int(args.max_generations) + 1):
+        if not frontier:
+            stop_reason = "frontier_exhausted"
             break
-        if wall_clock_budget > 0 and (time.monotonic() - budget_start) >= wall_clock_budget:
-            log(f"[info] wall-clock budget {wall_clock_budget}s reached, stopping exploration")
+        remaining_eval_budget = max_candidate_evaluations - len(evaluations)
+        if remaining_eval_budget <= 0:
+            stop_reason = "candidate_eval_budget_exhausted"
+            break
+        if bounded_timeout(float(args.timeout_sec)) is None:
+            stop_reason = "deadline_exhausted"
             break
 
-        log(f"[info] SymCC generation {generation}: {len(frontier)} seed(s)")
-        next_frontier: list[Path] = []
+        # When fewer evaluations than frontier seeds remain, sample the frontier
+        # itself so the remaining work is not biased toward its filename prefix.
+        active_frontier = deterministic_stratified_sample(
+            frontier,
+            min(len(frontier), remaining_eval_budget),
+        )
+        log(
+            f"[info] SymCC generation {generation}: {len(active_frontier)} active seed(s), "
+            f"{remaining_eval_budget} cumulative evaluation slot(s) remaining"
+        )
+        generation_candidates: list[CandidateEvaluation] = []
 
-        for seed_path in frontier:
-            if processed_count >= args.max_total_seeds:
+        for frontier_index, seed_path in enumerate(active_frontier):
+            remaining_eval_budget = max_candidate_evaluations - len(evaluations)
+            if remaining_eval_budget <= 0:
+                stop_reason = "candidate_eval_budget_exhausted"
                 break
-            if wall_clock_budget > 0 and (time.monotonic() - budget_start) >= wall_clock_budget:
-                log(f"[info] wall-clock budget {wall_clock_budget}s reached mid-generation, stopping")
+            symcc_timeout = bounded_timeout(float(args.timeout_sec))
+            if symcc_timeout is None:
+                stop_reason = "deadline_exhausted"
                 break
 
             shutil.rmtree(symcc_out)
             symcc_out.mkdir(parents=True, exist_ok=True)
-
             symcc_env = os.environ.copy()
             symcc_env["SYMCC_OUTPUT_DIR"] = str(symcc_out)
             symcc_env["SYMCC_ENABLE_LINEARIZATION"] = "1"
@@ -825,32 +1021,132 @@ def explore_with_symcc(args: argparse.Namespace, symcc_bin: Path, corpus_dir: Pa
                     seed_path=seed_path,
                     target_args=args.target_args,
                     input_mode=args.input_mode,
-                    timeout_sec=args.timeout_sec,
+                    timeout_sec=symcc_timeout,
                     env=symcc_env,
                 )
             except subprocess.TimeoutExpired:
-                log(f"[warn] timeout on {seed_path.name}")
-                processed_count += 1
+                log(f"[warn] SymCC timeout on {seed_path.name}")
+                symcc_executions += 1
                 continue
 
+            symcc_executions += 1
             if result.returncode not in (0, 1):
                 log(f"[info] seed {seed_path.name} exited with code {result.returncode}")
 
-            new_outputs = sorted(path for path in symcc_out.iterdir() if path.is_file())
-            for output_seed in new_outputs:
-                added = add_seed_to_corpus(output_seed, corpus_dir, known_hashes)
-                if added is not None:
-                    next_frontier.append(added)
+            unique_outputs: list[tuple[Path, str]] = []
+            for output_seed in sorted(path for path in symcc_out.iterdir() if path.is_file()):
+                output_hash = sha256_file(output_seed)
+                if output_hash in seen_hashes:
+                    continue
+                seen_hashes.add(output_hash)
+                unique_outputs.append((output_seed, output_hash))
+            outputs_discovered += len(unique_outputs)
 
-            processed_count += 1
+            remaining_frontier_count = len(active_frontier) - frontier_index
+            fair_quota = max(1, remaining_eval_budget // max(remaining_frontier_count, 1))
+            sampled_outputs = deterministic_stratified_sample(
+                unique_outputs,
+                min(len(unique_outputs), fair_quota),
+            )
+            log(
+                f"[info] frontier seed {seed_path.name}: {len(unique_outputs)} unique output(s), "
+                f"replaying {len(sampled_outputs)} with fair quota {fair_quota}"
+            )
 
+            for output_seed, output_hash in sampled_outputs:
+                candidate_path = evaluated_dir / seed_name(output_hash, output_seed)
+                if not candidate_path.exists():
+                    shutil.copy2(output_seed, candidate_path)
+
+                coverage_timeout = bounded_timeout(float(args.timeout_sec))
+                if coverage_timeout is None:
+                    stop_reason = "deadline_exhausted"
+                    break
+
+                try:
+                    coverage = evaluate_candidate(candidate_path, coverage_timeout)
+                    candidate = CandidateEvaluation(
+                        seed=candidate_path,
+                        coverage=coverage,
+                        status=("blocked_side" if coverage.blocked_side_line_reached else "evaluated"),
+                    )
+                except Exception as exc:
+                    error_kind, systemic = classify_coverage_oracle_error(exc)
+                    oracle_errors[error_kind] = oracle_errors.get(error_kind, 0) + 1
+                    candidate = CandidateEvaluation(
+                        seed=candidate_path,
+                        coverage=None,
+                        status="coverage_unknown",
+                        error_kind=error_kind,
+                        error=str(exc),
+                    )
+
+                    branch_identity_failed = (
+                        error_kind == "branch_line_missing" and oracle_errors[error_kind] >= 2
+                    )
+                    if systemic or branch_identity_failed:
+                        stop_reason = "oracle_unavailable"
+
+                evaluations.append(candidate)
+                generation_candidates.append(candidate)
+                if candidate.coverage and candidate.coverage.blocked_side_line_reached:
+                    solved = candidate.coverage
+                    stop_reason = "blocked_side_reached"
+                    break
+                if stop_reason == "oracle_unavailable":
+                    break
+
+            if solved or stop_reason in {"oracle_unavailable", "deadline_exhausted"}:
+                break
+
+        generations_completed = generation
+        if solved or stop_reason in {"oracle_unavailable", "deadline_exhausted"}:
+            break
+
+        ranked_candidates = sorted(
+            generation_candidates,
+            key=lambda candidate: (_candidate_rank(candidate), candidate.seed.name),
+        )
+        retained = ranked_candidates[:max_retained_seeds]
+        next_frontier: list[Path] = []
+        for candidate in retained:
+            added = add_seed_to_corpus(candidate.seed, corpus_dir, known_hashes)
+            if added is not None:
+                next_frontier.append(added)
+        retained_seed_count += len(next_frontier)
         frontier = next_frontier
-        if not frontier:
+
+        if len(evaluations) >= max_candidate_evaluations:
+            stop_reason = "candidate_eval_budget_exhausted"
             break
-        if len(known_hashes) >= args.max_total_seeds:
+        if not frontier:
+            stop_reason = "frontier_exhausted"
             break
 
-    return sorted(path for path in corpus_dir.iterdir() if path.is_file())
+    elapsed_seconds = time.monotonic() - budget_start
+    if (
+        stop_reason == "frontier_exhausted"
+        and frontier
+        and generations_completed >= int(args.max_generations)
+    ):
+        stop_reason = "generation_limit_reached"
+    return SymCCExplorationResult(
+        corpus=sorted(path for path in corpus_dir.iterdir() if path.is_file()),
+        evaluations=evaluations,
+        solved=solved,
+        stop_reason=stop_reason,
+        generations_completed=generations_completed,
+        symcc_executions=symcc_executions,
+        outputs_discovered=outputs_discovered,
+        candidate_evaluations=len(evaluations),
+        retained_seed_count=retained_seed_count,
+        oracle_errors=oracle_errors,
+        elapsed_seconds=elapsed_seconds,
+        candidate_eval_budget=max_candidate_evaluations,
+        retention_limit=max_retained_seeds,
+        initial_frontier_cap=initial_frontier_cap,
+        deadline_seconds=wall_clock_budget,
+    )
 
 
 def evaluate_seed_with_coverage(
@@ -886,7 +1182,10 @@ def evaluate_seed_with_coverage(
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Coverage run timed out for {seed_path}: {exc}") from exc
+        raise CoverageOracleError(
+            "target_timeout",
+            f"Coverage run timed out for {seed_path}: {exc}",
+        ) from exc
 
     if run_result.returncode not in (0, 1):
         log(f"[info] coverage run for {seed_path.name} exited with code {run_result.returncode}")
@@ -894,8 +1193,10 @@ def evaluate_seed_with_coverage(
     merge_cmd = [llvm_profdata, "merge", "-sparse", str(raw_profile), "-o", str(profdata)]
     merge_result = run_cmd(merge_cmd)
     if merge_result.returncode != 0:
-        raise RuntimeError(
-            f"llvm-profdata failed for {seed_path}\nstdout:\n{merge_result.stdout}\nstderr:\n{merge_result.stderr}"
+        raise CoverageOracleError(
+            "llvm_profdata_failed",
+            f"llvm-profdata failed for {seed_path}\nstdout:\n{merge_result.stdout}\nstderr:\n{merge_result.stderr}",
+            systemic=True,
         )
 
     cov_cmd = [
@@ -909,8 +1210,10 @@ def evaluate_seed_with_coverage(
     ]
     cov_result = run_cmd(cov_cmd)
     if cov_result.returncode != 0:
-        raise RuntimeError(
-            f"llvm-cov failed for {seed_path}\nstdout:\n{cov_result.stdout}\nstderr:\n{cov_result.stderr}"
+        raise CoverageOracleError(
+            "llvm_cov_failed",
+            f"llvm-cov failed for {seed_path}\nstdout:\n{cov_result.stdout}\nstderr:\n{cov_result.stderr}",
+            systemic=True,
         )
 
     report = cov_result.stdout
@@ -920,9 +1223,10 @@ def evaluate_seed_with_coverage(
     branch_raw = get_line_execution_count(report, branch_line)
     blocked_raw = get_line_execution_count(report, blocked_side_line)
     if not branch_raw:
-        raise RuntimeError(
+        raise CoverageOracleError(
+            "branch_line_missing",
             "llvm-cov report did not contain blocker branch line "
-            f"{branch_line} (local_source={branch_source}, coverage_source={coverage_source or branch_source})"
+            f"{branch_line} (local_source={branch_source}, coverage_source={coverage_source or branch_source})",
         )
     branch_count = normalize_count(branch_raw)
     blocked_count = normalize_count(blocked_raw)
@@ -1056,7 +1360,7 @@ def supplement_corpus_from_ossfuzz(
     llvm_cov: str,
     max_supplement: int = 4,
     max_candidates: int = 32,
-) -> int:
+) -> tuple[int, CoverageResult | None]:
     """Supplement SymCC corpus with branch-reaching seeds from the OSS-Fuzz corpus.
 
     Scans for SHA1-named (40-char hex, fuzzer-discovered) seeds, evaluates each with the
@@ -1065,8 +1369,8 @@ def supplement_corpus_from_ossfuzz(
     Only hex-named seeds are considered because they are in the native binary format the
     fuzz target expects; .txt/.bpf LLM seeds may have format mismatches.
     """
-    if not ossfuzz_corpus_dir.is_dir():
-        return 0
+    if max_supplement <= 0 or not ossfuzz_corpus_dir.is_dir():
+        return 0, None
 
     candidates: list[tuple[int, Path]] = []
     for seed_path in ossfuzz_corpus_dir.iterdir():
@@ -1090,6 +1394,7 @@ def supplement_corpus_from_ossfuzz(
 
     coverage_dir.mkdir(parents=True, exist_ok=True)
     added = 0
+    blocked_side_result: CoverageResult | None = None
     for _, seed_path in selected:
         result = evaluate_seed_with_coverage(
             coverage_bin=coverage_bin,
@@ -1109,16 +1414,22 @@ def supplement_corpus_from_ossfuzz(
         if result.branch_hit_count > 0:
             dest = add_seed_to_corpus(seed_path, corpus_dir, known_hashes)
             if dest is not None:
+                result.seed = dest
                 log(f"[info] corpus supplement: {seed_path.name} (branch_hits={result.branch_hit_count})")
                 added += 1
+                if result.blocked_side_line_reached:
+                    blocked_side_result = result
+                    break
         if added >= max_supplement:
             break
 
-    return added
+    return added, blocked_side_result
 
 
 def main() -> int:
     args = parse_args()
+    if args.fidelity_only and not args.fidelity_seed:
+        raise SystemExit("--fidelity-only requires --fidelity-seed.")
     coverage_source = str(args.coverage_source or args.branch_source)
     loaded_context = None
     if args.build_context_file:
@@ -1131,6 +1442,18 @@ def main() -> int:
     initial_seeds = collect_seed_paths(args.seed, args.seed_dir)
     if not initial_seeds:
         raise SystemExit("At least one seed is required via --seed or --seed-dir.")
+    max_retained_seeds = max(
+        1,
+        int(args.max_retained_seeds if args.max_retained_seeds is not None else args.max_total_seeds),
+    )
+    args.max_retained_seeds = max_retained_seeds
+    initial_frontier_cap = max(1, int(args.initial_frontier_cap))
+    if len(initial_seeds) > initial_frontier_cap:
+        log(
+            f"[info] truncating initial SymCC seeds from {len(initial_seeds)} "
+            f"to initial frontier cap {initial_frontier_cap}"
+        )
+        initial_seeds = deterministic_stratified_sample(initial_seeds, initial_frontier_cap)
 
     branch_source = Path(args.branch_source).resolve()
     if not branch_source.is_file():
@@ -1199,81 +1522,141 @@ def main() -> int:
         if fidelity_result["status"] == "incompatible":
             log("Status: Generated harness is incompatible with the branch-reaching fidelity seed.")
             return 4
+        if args.fidelity_only:
+            log("Status: Generated harness fidelity preflight passed.")
+            return 0
 
     log("[info] evaluating baseline seeds")
-    baseline_results = evaluate_corpus(
-        coverage_bin=coverage_bin,
-        branch_source=branch_source,
-        coverage_source=coverage_source,
-        branch_line=args.branch_line,
-        blocked_side_line=args.blocked_side_line,
-        corpus=sorted(path for path in baseline_dir.iterdir() if path.is_file()),
-        target_args=args.target_args,
-        input_mode=args.input_mode,
-        timeout_sec=args.timeout_sec,
-        coverage_dir=baseline_cov_dir,
-        keep_report=args.keep_coverage_reports,
-        llvm_profdata=llvm_profdata,
-        llvm_cov=llvm_cov,
-    )
-
-    baseline_reached = any(result.blocked_side_line_reached for result in baseline_results)
-    log(f"[info] baseline reached blocked-side line: {'yes' if baseline_reached else 'no'}")
-
-    # Supplement corpus with branch-reaching seeds from OSS-Fuzz when initial seeds are sparse.
-    if getattr(args, "ossfuzz_supplement_corpus_dir", None) and len(initial_seeds) < 4:
-        supplement_cov_dir = work_dir / "coverage" / "supplement"
-        n_supplemented = supplement_corpus_from_ossfuzz(
-            corpus_dir=corpus_dir,
-            known_hashes=known_hashes,
-            ossfuzz_corpus_dir=Path(args.ossfuzz_supplement_corpus_dir),
+    try:
+        baseline_results = evaluate_corpus(
             coverage_bin=coverage_bin,
             branch_source=branch_source,
             coverage_source=coverage_source,
             branch_line=args.branch_line,
             blocked_side_line=args.blocked_side_line,
+            corpus=sorted(path for path in baseline_dir.iterdir() if path.is_file()),
             target_args=args.target_args,
             input_mode=args.input_mode,
             timeout_sec=args.timeout_sec,
-            coverage_dir=supplement_cov_dir,
+            coverage_dir=baseline_cov_dir,
+            keep_report=args.keep_coverage_reports,
             llvm_profdata=llvm_profdata,
             llvm_cov=llvm_cov,
-            max_supplement=4 - len(initial_seeds),
-            max_candidates=32,
         )
+    except (OSError, RuntimeError) as exc:
+        error_kind, _ = classify_coverage_oracle_error(exc)
+        failure = {
+            "stop_reason": "oracle_unavailable",
+            "phase": "baseline",
+            "oracle_errors": {error_kind: 1},
+            "error": str(exc),
+        }
+        log("SYMCC_EXPLORATION_JSON=" + json.dumps(failure, ensure_ascii=False))
+        print("Status: Coverage oracle unavailable; SymCC result is inconclusive and retryable.")
+        return 5
+
+    baseline_reached = any(result.blocked_side_line_reached for result in baseline_results)
+    log(f"[info] baseline reached blocked-side line: {'yes' if baseline_reached else 'no'}")
+
+    # Supplement corpus with branch-reaching seeds from OSS-Fuzz when initial seeds are sparse.
+    supplement_reached: CoverageResult | None = None
+    if getattr(args, "ossfuzz_supplement_corpus_dir", None) and len(initial_seeds) < 4:
+        supplement_cov_dir = work_dir / "coverage" / "supplement"
+        try:
+            n_supplemented, supplement_reached = supplement_corpus_from_ossfuzz(
+                corpus_dir=corpus_dir,
+                known_hashes=known_hashes,
+                ossfuzz_corpus_dir=Path(args.ossfuzz_supplement_corpus_dir),
+                coverage_bin=coverage_bin,
+                branch_source=branch_source,
+                coverage_source=coverage_source,
+                branch_line=args.branch_line,
+                blocked_side_line=args.blocked_side_line,
+                target_args=args.target_args,
+                input_mode=args.input_mode,
+                timeout_sec=args.timeout_sec,
+                coverage_dir=supplement_cov_dir,
+                llvm_profdata=llvm_profdata,
+                llvm_cov=llvm_cov,
+                max_supplement=min(4 - len(initial_seeds), initial_frontier_cap - len(initial_seeds)),
+                max_candidates=32,
+            )
+        except (OSError, RuntimeError) as exc:
+            error_kind, _ = classify_coverage_oracle_error(exc)
+            failure = {
+                "stop_reason": "oracle_unavailable",
+                "phase": "supplement",
+                "oracle_errors": {error_kind: 1},
+                "error": str(exc),
+            }
+            log("SYMCC_EXPLORATION_JSON=" + json.dumps(failure, ensure_ascii=False))
+            print("Status: Coverage oracle unavailable; SymCC result is inconclusive and retryable.")
+            return 5
         if n_supplemented > 0:
             log(f"[info] supplemented corpus with {n_supplemented} branch-reaching seeds from OSS-Fuzz corpus")
 
-    log("[info] starting SymCC exploration")
-    final_corpus = explore_with_symcc(args, symcc_bin, corpus_dir, generated_dir)
-    log(f"[info] total corpus after SymCC: {len(final_corpus)}")
+    log("[info] starting oracle-driven SymCC exploration")
 
-    log("[info] evaluating final corpus")
-    final_results = evaluate_corpus(
-        coverage_bin=coverage_bin,
-        branch_source=branch_source,
-        coverage_source=coverage_source,
-        branch_line=args.branch_line,
-        blocked_side_line=args.blocked_side_line,
-        corpus=final_corpus,
-        target_args=args.target_args,
-        input_mode=args.input_mode,
-        timeout_sec=args.timeout_sec,
-        coverage_dir=final_cov_dir,
-        keep_report=args.keep_coverage_reports,
-        llvm_profdata=llvm_profdata,
-        llvm_cov=llvm_cov,
-    )
+    def evaluate_online_candidate(seed_path: Path, timeout_sec: float) -> CoverageResult:
+        return evaluate_seed_with_coverage(
+            coverage_bin=coverage_bin,
+            branch_source=branch_source,
+            coverage_source=coverage_source,
+            branch_line=args.branch_line,
+            blocked_side_line=args.blocked_side_line,
+            seed_path=seed_path,
+            target_args=args.target_args,
+            input_mode=args.input_mode,
+            timeout_sec=timeout_sec,
+            coverage_dir=final_cov_dir,
+            keep_report=args.keep_coverage_reports,
+            llvm_profdata=llvm_profdata,
+            llvm_cov=llvm_cov,
+        )
 
-    reached_results = [result for result in final_results if result.blocked_side_line_reached]
-    newly_reached = [
-        result for result in reached_results if not (baseline_dir / result.seed.name).exists()
-    ]
+    if baseline_reached or supplement_reached is not None:
+        exploration = SymCCExplorationResult(
+            corpus=sorted(path for path in corpus_dir.iterdir() if path.is_file()),
+            evaluations=[],
+            solved=None,
+            stop_reason=("baseline_already_reached" if baseline_reached else "supplement_already_reached"),
+            generations_completed=0,
+            symcc_executions=0,
+            outputs_discovered=0,
+            candidate_evaluations=0,
+            retained_seed_count=0,
+            oracle_errors={},
+            elapsed_seconds=0.0,
+            candidate_eval_budget=int(args.max_candidate_evaluations),
+            retention_limit=max_retained_seeds,
+            initial_frontier_cap=initial_frontier_cap,
+            deadline_seconds=float(args.wall_clock_budget_sec),
+        )
+    else:
+        exploration = explore_with_symcc(
+            args,
+            symcc_bin,
+            corpus_dir,
+            generated_dir,
+            evaluate_online_candidate,
+        )
+    final_corpus = exploration.corpus
+    log(f"[info] total retained corpus after SymCC: {len(final_corpus)}")
+    log("SYMCC_EXPLORATION_JSON=" + json.dumps(exploration.to_json_dict(), ensure_ascii=False))
+
+    reached_results = [result for result in baseline_results if result.blocked_side_line_reached]
+    if supplement_reached is not None:
+        reached_results.append(supplement_reached)
+    if exploration.solved is not None:
+        reached_results.append(exploration.solved)
+    newly_reached = [exploration.solved] if exploration.solved is not None else []
 
     print("\n=== Summary ===")
     print(f"Work dir: {work_dir}")
     print(f"Baseline seed count: {len(baseline_results)}")
-    print(f"Final corpus size: {len(final_results)}")
+    print(f"Final retained corpus size: {len(final_corpus)}")
+    print(f"Generated candidates evaluated online: {exploration.candidate_evaluations}")
+    print(f"SymCC exploration stop reason: {exploration.stop_reason}")
     print(f"Baseline reached blocked-side line: {'yes' if baseline_reached else 'no'}")
     print(f"Final reached blocked-side line: {'yes' if reached_results else 'no'}")
 
@@ -1296,6 +1679,10 @@ def main() -> int:
         else:
             print("Status: The blocked-side line was already reachable from the initial seeds.")
         return 0
+
+    if exploration.stop_reason == "oracle_unavailable":
+        print("Status: Coverage oracle unavailable; SymCC result is inconclusive and retryable.")
+        return 5
 
     print("Status: No seed reached the blocked-side line.")
     return 1

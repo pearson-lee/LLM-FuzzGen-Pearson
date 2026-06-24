@@ -445,6 +445,7 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
         project_name=args.project_name,
         max_gdb_inputs=getattr(args, "max_gdb_inputs", 0),
         source_root=getattr(args, "callpath_source_root", None),
+        triggering_input=getattr(args, "triggering_input", None),
     )
 
     gdb_result = extraction_result.get("gdb_result", {})
@@ -733,6 +734,10 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
         forwarded.extend(["--max-iterations", str(args.max_iterations)])
     if getattr(args, "fuzz_seconds", None) is not None:
         forwarded.extend(["--fuzz-seconds", str(args.fuzz_seconds)])
+    if getattr(args, "llm_seed_stage_timeout_sec", None) is not None:
+        forwarded.extend(["--llm-seed-stage-timeout-sec", str(args.llm_seed_stage_timeout_sec)])
+    if getattr(args, "llm_harness_stage_timeout_sec", None) is not None:
+        forwarded.extend(["--llm-harness-stage-timeout-sec", str(args.llm_harness_stage_timeout_sec)])
     if getattr(args, "reset_corpus_per_iteration", False):
         forwarded.append("--reset-corpus-per-iteration")
     if getattr(args, "log_dir", None):
@@ -1194,6 +1199,8 @@ def main():
     parser.add_argument("--seed", action="append", default=[])
     parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
+    parser.add_argument("--llm-seed-stage-timeout-sec", type=float, default=900)
+    parser.add_argument("--llm-harness-stage-timeout-sec", type=float, default=300)
     parser.add_argument("--reset-corpus-per-iteration", action="store_true")
     parser.add_argument(
         "--keep-auto-context",

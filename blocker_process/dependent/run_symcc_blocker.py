@@ -91,16 +91,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--blocked-side-line", default=None, type=int)
     parser.add_argument("--seed", action="append", default=[])
     parser.add_argument("--fidelity-seed", default=None)
+    parser.add_argument(
+        "--fidelity-only",
+        action="store_true",
+        help="Validate generated-harness fidelity and exit before SymCC exploration.",
+    )
     parser.add_argument("--seed-dir", default=None)
     parser.add_argument("--target-args", default="@@")
     parser.add_argument("--input-mode", choices=("file", "stdin"), default="file")
     parser.add_argument("--work-dir", default=None)
     parser.add_argument("--json-output", action="store_true", help="Print a final JSON summary to stdout.")
     parser.add_argument("--json-output-file", default=None, help="Optional path to write the final JSON summary.")
-    parser.add_argument("--max-generations", type=int, default=5)
-    parser.add_argument("--max-total-seeds", type=int, default=200)
+    parser.add_argument("--max-generations", type=int, default=3)
+    parser.add_argument("--max-total-seeds", type=int, default=60)
+    parser.add_argument("--max-candidate-evaluations", type=int, default=200)
+    parser.add_argument("--max-retained-seeds", type=int, default=None)
+    parser.add_argument("--initial-frontier-cap", type=int, default=30)
     parser.add_argument("--timeout-sec", type=int, default=30)
-    parser.add_argument("--wall-clock-budget-sec", type=int, default=0, help="Total wall-clock budget for SymCC exploration in seconds. 0 means no limit.")
+    parser.add_argument("--wall-clock-budget-sec", type=int, default=300, help="Total wall-clock budget for SymCC exploration and online coverage replay. 0 means no limit.")
     parser.add_argument("--symcc", default=str(REPO_ROOT / "symcc" / "build" / "symcc"))
     parser.add_argument("--sympp", default=str(REPO_ROOT / "symcc" / "build" / "sym++"))
     parser.add_argument("--clang", default="clang")
@@ -213,7 +221,7 @@ def merge_build_context_overrides(build_context: BuildContext, args: argparse.Na
 
 
 # Phase 1 allowlist: only projects where symcc_library has been validated.
-_SYMCC_LIBRARY_PROJECTS = {"libpcap", "tinyxml2"}
+_SYMCC_LIBRARY_PROJECTS = {"libpcap", "tinyxml2", "lcms"}
 
 
 def _symcc_variant_name(symcc_bin_host: Path, length: int = 8) -> str:
@@ -382,6 +390,12 @@ def symcc_cmd(
         str(args.max_generations),
         "--max-total-seeds",
         str(args.max_total_seeds),
+        "--max-candidate-evaluations",
+        str(args.max_candidate_evaluations),
+        "--max-retained-seeds",
+        str(args.max_retained_seeds if args.max_retained_seeds is not None else args.max_total_seeds),
+        "--initial-frontier-cap",
+        str(args.initial_frontier_cap),
         "--timeout-sec",
         str(args.timeout_sec),
         "--wall-clock-budget-sec",
@@ -414,6 +428,8 @@ def symcc_cmd(
         cmd.extend(["--seed", str(repo_path(seed))])
     if args.fidelity_seed:
         cmd.extend(["--fidelity-seed", str(repo_path(args.fidelity_seed))])
+    if args.fidelity_only:
+        cmd.append("--fidelity-only")
     if args.seed_dir:
         cmd.extend(["--seed-dir", str(repo_path(args.seed_dir))])
     if args.keep_coverage_reports:
@@ -450,6 +466,8 @@ def main() -> int:
         missing.append("--branch-line")
     if getattr(args, "blocked_side_line", None) is None:
         missing.append("--blocked-side-line")
+    if args.fidelity_only and not args.fidelity_seed:
+        missing.append("--fidelity-seed (required with --fidelity-only)")
     if missing:
         raise SystemExit(f"Missing required inputs after blocker metadata resolution: {', '.join(missing)}")
 
@@ -517,7 +535,7 @@ def main() -> int:
     if args.project_name and args.target_name:
         oss_fuzz = OSSFuzz()
         # T9: native archive mode is config-driven via external/oss-fuzz/projects/{project}/symcc_config.json
-        if project_config.get("native_archive", False):
+        if project_config.get("native_archive", False) and not args.fidelity_only:
             native_prepare_info["attempted"] = True
             native_archive_flavor = project_config.get("native_archive_build_flavor", "symcc_native")
             native_build = oss_fuzz.build_fuzzers(
@@ -570,7 +588,7 @@ def main() -> int:
         # symcc_library: re-build the project library with SymCC instrumentation so symbolic tracking
         # can follow execution into library internals (not just the harness).
         seeds_for_check = getattr(args, "seed", []) or []
-        if _should_use_symcc_library(args.project_name, project_config, seeds_for_check):
+        if not args.fidelity_only and _should_use_symcc_library(args.project_name, project_config, seeds_for_check):
             symcc_bin_host = REPO_ROOT / "symcc" / "build_llvm18"
             symcc_variant = _symcc_variant_name(symcc_bin_host)
             symcc_fail_marker = (
@@ -705,13 +723,17 @@ def main() -> int:
     }
 
     if args.fidelity_seed and coverage_binary is None:
-        summary["symcc"] = {
+        failure_summary = {
             "returncode": 3,
             "work_dir": None,
-            "solved": False,
             "failure_kind": "harness_fidelity_unknown",
             "output": "Coverage replay binary preparation failed before harness fidelity validation.",
         }
+        if args.fidelity_only:
+            summary["fidelity_preflight"] = failure_summary
+            summary["failure_kind"] = "harness_fidelity_unknown"
+        else:
+            summary["symcc"] = {**failure_summary, "solved": False}
         summary["harness_fidelity"] = {
             "status": "unknown",
             "coverage_success": False,
@@ -728,11 +750,12 @@ def main() -> int:
         cwd=REPO_ROOT,
     )
     print(symcc_result.stdout, end="")
-    summary["used_symcc"] = True
-    summary["pipeline_methods"] = ["symcc"]
+    summary["used_symcc"] = not args.fidelity_only
+    summary["pipeline_methods"] = ["harness_fidelity_preflight" if args.fidelity_only else "symcc"]
 
     failure_kind: str | None = None
     fidelity_result: dict | None = None
+    exploration_result: dict | None = None
     fidelity_match = re.search(r"HARNESS_FIDELITY_JSON=(\{.*\})", symcc_result.stdout)
     if fidelity_match:
         try:
@@ -741,12 +764,22 @@ def main() -> int:
                 fidelity_result = parsed_fidelity
         except json.JSONDecodeError:
             fidelity_result = None
+    exploration_match = re.search(r"SYMCC_EXPLORATION_JSON=(\{.*\})", symcc_result.stdout)
+    if exploration_match:
+        try:
+            parsed_exploration = json.loads(exploration_match.group(1))
+            if isinstance(parsed_exploration, dict):
+                exploration_result = parsed_exploration
+        except json.JSONDecodeError:
+            exploration_result = None
     if symcc_result.returncode != 0:
         stdout_lower = symcc_result.stdout.lower()
         if symcc_result.returncode == 3 or "generated harness fidelity is unknown" in stdout_lower:
             failure_kind = "harness_fidelity_unknown"
         elif symcc_result.returncode == 4 or "generated harness is incompatible" in stdout_lower:
             failure_kind = "harness_seed_incompatible"
+        elif symcc_result.returncode == 5 or "coverage oracle unavailable" in stdout_lower:
+            failure_kind = "oracle_unavailable"
         elif "cannot find -l" in stdout_lower:
             failure_kind = "missing_link_library"
         elif "undefined reference to" in stdout_lower:
@@ -766,15 +799,27 @@ def main() -> int:
         else:
             failure_kind = "symcc_no_new_outputs"
 
-    summary["symcc"] = {
+    execution_summary = {
         "returncode": symcc_result.returncode,
         "work_dir": str(symcc_work_dir),
-        "solved": symcc_result.returncode == 0,
         "failure_kind": failure_kind,
+        "attempt_result": "pipeline_error" if failure_kind == "oracle_unavailable" else None,
+        "exploration": exploration_result,
         "output": symcc_result.stdout,
     }
+    if args.fidelity_only:
+        summary["fidelity_preflight"] = execution_summary
+        summary["failure_kind"] = failure_kind
+    else:
+        summary["symcc"] = {
+            **execution_summary,
+            "solved": symcc_result.returncode == 0,
+        }
     summary["harness_fidelity"] = fidelity_result
     summary["success"] = symcc_result.returncode == 0
+    summary["attempt_result"] = "pipeline_error" if failure_kind == "oracle_unavailable" else (
+        "success" if symcc_result.returncode == 0 else "failed"
+    )
     emit_summary(args, summary)
     return symcc_result.returncode
 
