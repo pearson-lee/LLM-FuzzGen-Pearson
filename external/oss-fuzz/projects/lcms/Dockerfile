@@ -16,7 +16,15 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool
-RUN git clone --branch lcms2.15 --depth 1 https://github.com/mm2/Little-CMS.git lcms
+ARG LCMS_COMMIT=04ace9c100fc6850f09223dd6c7ad8fa634acd06
+
+RUN git init lcms && \
+    cd lcms && \
+    git remote add origin https://github.com/mm2/Little-CMS.git && \
+    git fetch --depth 1 origin "$LCMS_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$LCMS_COMMIT"
+
 RUN mkdir $SRC/seeds && \
     cd seeds && \
     cp $SRC/lcms/testbed/bad.icc . && \
