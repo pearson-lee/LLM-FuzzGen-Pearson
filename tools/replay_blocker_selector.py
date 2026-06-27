@@ -15,18 +15,13 @@ from blocker_process.global_blocker_selector import (
     _extract_range,
     _fetch_file_lines,
     _safe_int,
+    canonical_blocker_key,
     rescore_existing_blockers,
 )
 
 
 def _key(blocker: dict[str, Any]) -> str:
-    return ":".join(
-        (
-            str(blocker.get("function_name", "")),
-            str(blocker.get("branch_line_number", "")),
-            str(blocker.get("blocked_side", "")),
-        )
-    )
+    return ":".join(canonical_blocker_key(blocker))
 
 
 def _rank_map(blockers: list[dict[str, Any]]) -> dict[str, int]:

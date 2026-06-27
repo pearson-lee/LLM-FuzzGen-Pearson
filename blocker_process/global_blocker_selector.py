@@ -456,12 +456,17 @@ def _enrich_with_snippet_solvability(
     return scored
 
 
-def _blocker_key(blocker: Dict[str, Any]) -> tuple[str, str, str]:
+def canonical_blocker_key(blocker: Dict[str, Any]) -> tuple[str, str, str, str]:
     return (
-        str(blocker.get("source_file", "")),
+        _normalize_source_path(blocker.get("source_file", "")),
+        str(blocker.get("function_name", "")).strip(),
         str(blocker.get("branch_line_number", "")),
         str(blocker.get("blocked_side", "")),
     )
+
+
+def _blocker_key(blocker: Dict[str, Any]) -> tuple[str, str, str, str]:
+    return canonical_blocker_key(blocker)
 
 
 def _select_source_evidence_candidates(
@@ -479,7 +484,7 @@ def _select_source_evidence_candidates(
     )[:_SOURCE_BENEFIT_POOL_SIZE]
 
     selected: List[Dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for blocker in primary + by_benefit:
         key = _blocker_key(blocker)
         if key in seen:
@@ -891,23 +896,31 @@ def aggregate_and_score_blockers(
     function_coverage_map = load_project_function_coverage(all_functions_js_path)
     file_coverage_map = load_project_file_coverage(summary_json_path)
 
-    global_blockers: Dict[tuple[str, str, str], Dict[str, Any]] = {}
+    global_blockers: Dict[tuple[str, str, str, str], Dict[str, Any]] = {}
 
     for target_name, blockers in data.items():
         for blocker in blockers:
             blocker = _canonicalize_blocker(blocker)
+            function_name = str(blocker.get("function_name", "")).strip()
             source_file = _normalize_source_path(blocker.get("source_file", ""))
             branch_line = str(blocker.get("branch_line_number", ""))
             blocked_side = str(blocker.get("blocked_side", ""))
             blocked_side_line_number = blocker["blocked_side_line_number"]
-            key = (source_file, branch_line, blocked_side)
+            key = canonical_blocker_key(
+                {
+                    "source_file": source_file,
+                    "function_name": function_name,
+                    "branch_line_number": branch_line,
+                    "blocked_side": blocked_side,
+                }
+            )
 
             if key not in global_blockers:
                 global_blockers[key] = {
                     "source_file": source_file,
                     "branch_line_number": branch_line,
                     "blocked_side": blocked_side,
-                    "function_name": blocker.get("function_name", ""),
+                    "function_name": function_name,
                     "blocked_side_line_number": blocked_side_line_number,
                     "occurrence_count": 0,
                     "blocked_unique_not_covered_complexity": 0,
@@ -950,6 +963,7 @@ def aggregate_and_score_blockers(
             if (current_complexity, current_hitcount) > gb["best_target_score"]:
                 gb["best_target_score"] = (current_complexity, current_hitcount)
                 gb["best_target"] = target_name
+                gb["blocked_side_line_number"] = blocked_side_line_number
 
             funcs = blocker.get("blocked_unique_functions", [])
             if funcs:
@@ -986,23 +1000,31 @@ def aggregate_blockers(
         print(f"[Error] File not found: {json_path}")
         return []
 
-    global_blockers: Dict[tuple[str, str, str], Dict[str, Any]] = {}
+    global_blockers: Dict[tuple[str, str, str, str], Dict[str, Any]] = {}
 
     for target_name, blockers in data.items():
         for blocker in blockers:
             blocker = _canonicalize_blocker(blocker)
-            source_file = blocker.get("source_file", "")
+            function_name = str(blocker.get("function_name", "")).strip()
+            source_file = _normalize_source_path(blocker.get("source_file", ""))
             branch_line = str(blocker.get("branch_line_number", ""))
             blocked_side = str(blocker.get("blocked_side", ""))
             blocked_side_line_number = blocker["blocked_side_line_number"]
-            key = (source_file, branch_line, blocked_side)
+            key = canonical_blocker_key(
+                {
+                    "source_file": source_file,
+                    "function_name": function_name,
+                    "branch_line_number": branch_line,
+                    "blocked_side": blocked_side,
+                }
+            )
 
             if key not in global_blockers:
                 global_blockers[key] = {
                     "source_file": source_file,
                     "branch_line_number": branch_line,
                     "blocked_side": blocked_side,
-                    "function_name": blocker.get("function_name", ""),
+                    "function_name": function_name,
                     "blocked_side_line_number": blocked_side_line_number,
                     "occurrence_count": 0,
                     "blocked_unique_not_covered_complexity": 0,
@@ -1045,6 +1067,7 @@ def aggregate_blockers(
             if (current_complexity, current_hitcount) > gb["best_target_score"]:
                 gb["best_target_score"] = (current_complexity, current_hitcount)
                 gb["best_target"] = target_name
+                gb["blocked_side_line_number"] = blocked_side_line_number
 
             funcs = blocker.get("blocked_unique_functions", [])
             if funcs:

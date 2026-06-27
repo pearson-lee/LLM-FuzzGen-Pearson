@@ -17,7 +17,10 @@ import prompts.prompt_generator as prompt_generator
 from blocker_process.blocker_classifier import classify_blocker
 from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.dependent.input_dependent_seed_generator import evaluate_iteration_with_coverage
-from blocker_process.global_blocker_selector import aggregate_score_and_revalidate_blockers
+from blocker_process.global_blocker_selector import (
+    aggregate_score_and_revalidate_blockers,
+    canonical_blocker_key,
+)
 from crash_analyzer.crash_analyzer import CrashAnalyzer
 from experiment_logger import ExperimentLogger
 from external.introspector import Introspector
@@ -56,7 +59,7 @@ class BlockerRuntimeState:
     pending_target_fingerprint: str | None = None
     new_targets_since_full_rebuild: int = 0
     light_refreshes_since_full_rebuild: int = 0
-    attempted_blocker_keys: set[tuple[str, str, str]] = field(default_factory=set)
+    attempted_blocker_keys: set[tuple[str, str, str, str]] = field(default_factory=set)
 
 
 @dataclass
@@ -945,12 +948,8 @@ def _build_blocker_immediate_validation_record(
     }
 
 
-def _blocker_identity(blocker: dict) -> tuple[str, str, str]:
-    return (
-        str(blocker.get("source_file", "")),
-        str(blocker.get("branch_line_number", "")),
-        str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", ""))),
-    )
+def _blocker_identity(blocker: dict) -> tuple[str, str, str, str]:
+    return canonical_blocker_key(blocker)
 
 
 def _should_persist_blocker_attempt(pipeline_result: dict) -> bool:
@@ -1750,7 +1749,7 @@ def run_blocker_session(
     pipeline_errors = 0
     skipped_before_solver = 0
     session_reason = "completed"
-    session_seen_blocker_keys: set[tuple[str, str, str]] = set()
+    session_seen_blocker_keys: set[tuple[str, str, str, str]] = set()
     selected_blockers: list[dict] = []
     for blocker in blockers:
         blocker_key = _blocker_identity(blocker)
