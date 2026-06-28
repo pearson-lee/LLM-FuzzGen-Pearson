@@ -2817,7 +2817,7 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="The number of fuzz targets to run in parallel within a project. "
-        "Defaults to Python's ThreadPoolExecutor default (core-dependent).",
+        "In scheduled/blocker mode, defaults to min(6, target_count).",
     )
     parser_run.add_argument(
         "--print-coverage",

@@ -64,6 +64,7 @@ class HelperCommandResult:
     stdout: str
     stderr: str
     timed_out: bool = False
+    output_log_path: str = ""
 
 
 class OSSFuzz:
@@ -71,6 +72,7 @@ class OSSFuzz:
     DEFAULT_FUZZ_QUANTUM_SECONDS = 300 #per target fuzzing time slice for scheduled execution
     DEFAULT_FUZZER_TIMEOUT_BUFFER_SECONDS = 120
     DEFAULT_SCHEDULER_DRAIN_TIMEOUT_SECONDS = 120
+    HELPER_OUTPUT_TAIL_BYTES = 32 * 1024
     FUZZER_OUTPUT_ARTIFACT_MARKERS = (
         "_crash-",
         "_oom-",
@@ -104,8 +106,11 @@ class OSSFuzz:
         args: list[str],
         timeout: float | None = None,
         extra_env: dict[str, str] | None = None,
+        output_log_path: Path | None = None,
+        tail_bytes: int | None = None,
     ) -> HelperCommandResult:
         """Run helper.py command and return success status, stdout, stderr, and timeout state."""
+        tail_bytes = tail_bytes or self.HELPER_OUTPUT_TAIL_BYTES
         try:
             helper_args = list(args)
             if extra_env:
@@ -113,6 +118,25 @@ class OSSFuzz:
                 for key, value in extra_env.items():
                     helper_env_args.extend(["-e", f"{key}={value}"])
                 helper_args = [*helper_args, *helper_env_args]
+
+            if output_log_path is not None:
+                output_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with output_log_path.open("wb") as output_log:
+                    process = subprocess.run(
+                        [sys.executable, str(self.helper_script)] + helper_args,
+                        stdin=subprocess.DEVNULL,
+                        stdout=output_log,
+                        stderr=subprocess.STDOUT,
+                        check=False,
+                        timeout=timeout,
+                    )
+                return HelperCommandResult(
+                    process.returncode == 0,
+                    self._read_file_tail(output_log_path, tail_bytes),
+                    "",
+                    output_log_path=str(output_log_path),
+                )
+
             process = subprocess.run(
                 [sys.executable, str(self.helper_script)] + helper_args,
                 stdin=subprocess.DEVNULL,
@@ -125,12 +149,52 @@ class OSSFuzz:
             return HelperCommandResult(process.returncode == 0, process.stdout, process.stderr)
         except subprocess.TimeoutExpired as e:
             logger.warning(f"Helper command '{args}' timed out after {timeout:.2f}s")
+            if output_log_path is not None:
+                try:
+                    with output_log_path.open("ab") as output_log:
+                        output_log.write(
+                            f"\n[LLM-FuzzGen] helper command timed out after {timeout:.2f}s\n".encode("utf-8")
+                        )
+                except OSError:
+                    pass
+                return HelperCommandResult(
+                    False,
+                    self._read_file_tail(output_log_path, tail_bytes),
+                    "timed out",
+                    timed_out=True,
+                    output_log_path=str(output_log_path),
+                )
             stdout = e.stdout.decode(errors="ignore") if isinstance(e.stdout, bytes) else e.stdout
             stderr = e.stderr.decode(errors="ignore") if isinstance(e.stderr, bytes) else e.stderr
             return HelperCommandResult(False, stdout or "", stderr or "timed out", timed_out=True)
         except BaseException as e:
             logger.warning(f"Helper command '{args}' failed with exception: {e}")
+            if output_log_path is not None:
+                return HelperCommandResult(
+                    False,
+                    self._read_file_tail(output_log_path, tail_bytes),
+                    str(e),
+                    output_log_path=str(output_log_path),
+                )
             return HelperCommandResult(False, "", str(e))
+
+    def _read_file_tail(self, path: Path, max_bytes: int) -> str:
+        if max_bytes <= 0:
+            return ""
+        try:
+            size = path.stat().st_size
+            with path.open("rb") as f:
+                if size > max_bytes:
+                    f.seek(-max_bytes, os.SEEK_END)
+                return f.read().decode(errors="ignore")
+        except OSError:
+            return ""
+
+    def _run_fuzzer_log_path(self, proj_name: str, fuzzer_name: str) -> Path:
+        safe_fuzzer = re.sub(r"[^A-Za-z0-9_.-]+", "_", fuzzer_name)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"{timestamp}_{safe_fuzzer}_{uuid.uuid4().hex[:8]}.log"
+        return self.oss_fuzz_dir / "build" / "logs" / proj_name / "run_fuzzer" / filename
 
     def _remaining_timeout(self, deadline: float | None) -> float | None:
         if deadline is None:
@@ -578,6 +642,7 @@ class OSSFuzz:
                 return CompilationResult(success=False, error="deadline reached")
             seconds = min(seconds, max(1, int(remaining)))
         timeout, deadline_limited_timeout = self._bounded_fuzzer_timeout(seconds, deadline)
+        output_log_path = self._run_fuzzer_log_path(proj_name, fuzzer_name)
 
         helper_result = self._run_helper_command(
             [
@@ -588,12 +653,14 @@ class OSSFuzz:
                 f" -max_total_time={seconds} ",  # Add space to avoid issues with command parsing
             ],
             timeout=timeout,
+            output_log_path=output_log_path,
+            tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
         )
 
         if not helper_result.success:
-            full_output = helper_result.stdout + helper_result.stderr
+            output_tail = helper_result.stdout + helper_result.stderr
             error_pattern = r"==\d+==\s*ERROR:.*"
-            match = re.search(error_pattern, full_output, re.DOTALL)
+            match = re.search(error_pattern, output_tail, re.DOTALL)
             if helper_result.timed_out and match is None:
                 if deadline_limited_timeout:
                     logger.info(
@@ -603,17 +670,23 @@ class OSSFuzz:
                     )
                     return CompilationResult(success=False, error="deadline reached")
                 logger.error(
-                    "Fuzzer %s timed out after %.2fs for a %ds slice.",
+                    "Fuzzer %s timed out after %.2fs for a %ds slice. Full output log: %s",
                     fuzzer_name,
                     timeout,
                     seconds,
+                    helper_result.output_log_path,
                 )
                 return CompilationResult(success=False, error="fuzzer timeout")
-            error_message = match.group(0) if match else full_output
+            error_message = match.group(0) if match else output_tail
+            if helper_result.output_log_path:
+                error_message = (
+                    f"{error_message.rstrip()}\n"
+                    f"[full run_fuzzer output log: {helper_result.output_log_path}]"
+                )
             logger.error(f"Failed to run fuzzer {fuzzer_name}: \n{error_message}")
             return CompilationResult(success=False, error=error_message)
 
-        logger.info(f"Fuzzer {fuzzer_name} ran successfully")
+        logger.info("Fuzzer %s ran successfully; output log: %s", fuzzer_name, helper_result.output_log_path)
         return CompilationResult(success=True, error="")
 
     def _list_project_fuzzers(self, project_name: str) -> list[str]:

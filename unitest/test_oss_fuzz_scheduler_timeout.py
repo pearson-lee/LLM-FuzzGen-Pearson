@@ -12,7 +12,7 @@ class _FakeRunFuzzerOSSFuzz(OSSFuzz):
         self.helper_timeouts = []
         self.helper_args = []
 
-    def _run_helper_command(self, args, timeout=None, extra_env=None):
+    def _run_helper_command(self, args, timeout=None, extra_env=None, output_log_path=None, tail_bytes=None):
         self.helper_args.append(args)
         self.helper_timeouts.append(timeout)
         return self.helper_result
