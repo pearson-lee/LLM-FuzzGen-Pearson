@@ -94,6 +94,7 @@ class OSSFuzz:
         self.build_cache_dir: Path = self.oss_fuzz_dir / "build" / "artifact_cache"
         self._project_build_state: dict[str, BuildState] = {}
         self._fuzzer_served_seconds: dict[str, dict[str, float]] = {}
+        self._fuzzer_terminal_failures: dict[str, set[str]] = {}
 
     def _get_project_yaml(self, proj_name: str) -> dict:
         """Read and parse project.yaml file."""
@@ -195,6 +196,13 @@ class OSSFuzz:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"{timestamp}_{safe_fuzzer}_{uuid.uuid4().hex[:8]}.log"
         return self.oss_fuzz_dir / "build" / "logs" / proj_name / "run_fuzzer" / filename
+
+    def _helper_log_path(self, proj_name: str, operation: str, label: str = "") -> Path:
+        safe_operation = re.sub(r"[^A-Za-z0-9_.-]+", "_", operation)
+        safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label) if label else "project"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"{timestamp}_{safe_label}_{uuid.uuid4().hex[:8]}.log"
+        return self.oss_fuzz_dir / "build" / "logs" / proj_name / safe_operation / filename
 
     def _remaining_timeout(self, deadline: float | None) -> float | None:
         if deadline is None:
@@ -590,6 +598,8 @@ class OSSFuzz:
             ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
             timeout=timeout,
             extra_env=combined_env if combined_env else None,
+            output_log_path=self._helper_log_path(proj_name, "build_fuzzers", f"{sanitizer}_{variant}"),
+            tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
         )
 
         if helper_result.success:
@@ -598,15 +608,21 @@ class OSSFuzz:
             self._normalize_artifact_permissions(proj_name, self.build_out_dir / proj_name)
             self._store_build_artifacts_in_cache(proj_name, sanitizer, fingerprint, variant)
             logger.info(
-                "Completed %s/%s rebuild for %s with fingerprint %s.",
+                "Completed %s/%s rebuild for %s with fingerprint %s. Output log: %s",
                 sanitizer,
                 variant,
                 proj_name,
                 fingerprint[:12],
+                helper_result.output_log_path,
             )
             return CompilationResult(success=True)
 
         error_message = self._extract_build_error_message(helper_result.stdout + helper_result.stderr)
+        if helper_result.output_log_path:
+            error_message = (
+                f"{error_message.rstrip()}\n"
+                f"[full build_fuzzers output log: {helper_result.output_log_path}]"
+            )
         logger.error(f"Compilation failed: {error_message}")
         return CompilationResult(success=False, error=error_message)
 
@@ -701,6 +717,8 @@ class OSSFuzz:
         for stale in list(served):
             if stale not in active:
                 del served[stale]
+        terminal_failures = self._fuzzer_terminal_failures.setdefault(project_name, set())
+        terminal_failures.intersection_update(active)
         for fuzzer_name in fuzzers_to_run:
             served.setdefault(fuzzer_name, 0.0)
         return served
@@ -796,6 +814,7 @@ class OSSFuzz:
             return
 
         served_seconds = self._sync_project_fuzzer_stats(project_name, fuzzers_to_run)
+        terminal_failures = self._fuzzer_terminal_failures.setdefault(project_name, set())
         chunk_deadline = time.monotonic() + max(1, seconds)
         effective_deadline = min(deadline, chunk_deadline) if deadline is not None else chunk_deadline
         max_workers = max_workers or min(6, len(fuzzers_to_run)) or 1
@@ -818,7 +837,11 @@ class OSSFuzz:
                 remaining = effective_deadline - time.monotonic()
                 if remaining <= 1:
                     return False
-                available = [name for name in fuzzers_to_run if name not in in_flight.values()]
+                available = [
+                    name
+                    for name in fuzzers_to_run
+                    if name not in in_flight.values() and name not in terminal_failures
+                ]
                 if not available:
                     return False
                 next_fuzzer = min(available, key=lambda name: (served_seconds.get(name, 0.0), name))
@@ -883,17 +906,33 @@ class OSSFuzz:
                         )
                         if not slice_result.success and slice_result.error != "deadline reached":
                             logger.error("Fuzzer %s slice failed: %s", fuzzer_name, slice_result.error)
+                            terminal_failures.add(fuzzer_name)
+                            logger.warning(
+                                "Marking %s as terminally failed for this run; it will not be rescheduled "
+                                "until a new run_all_fuzzer process starts.",
+                                fuzzer_name,
+                            )
                     except BaseException as exc:
                         logger.error(f"Fuzzer execution generated an exception: {exc}")
+                        terminal_failures.add(fuzzer_name)
+                        logger.warning(
+                            "Marking %s as terminally failed for this run after scheduler exception.",
+                            fuzzer_name,
+                        )
                 while len(in_flight) < max_workers and schedule_one():
                     pass
 
             logger.info(
-                "Finished wall-clock fuzzing chunk for %s. Top least-served targets: %s",
+                "Finished wall-clock fuzzing chunk for %s. Terminal failures this run: %d. "
+                "Top least-served runnable targets: %s",
                 project_name,
+                len(terminal_failures),
                 ", ".join(
                     f"{name}={served_seconds[name]:.2f}s"
-                    for name in sorted(served_seconds, key=lambda item: (served_seconds[item], item))[:5]
+                    for name in sorted(
+                        (name for name in served_seconds if name not in terminal_failures),
+                        key=lambda item: (served_seconds[item], item),
+                    )[:5]
                 ),
             )
         except KeyboardInterrupt:
@@ -941,10 +980,21 @@ class OSSFuzz:
         if timeout == 0:
             logger.info(f"Skipping coverage report for {proj_name}; deadline reached.")
             return None
-        helper_result = self._run_helper_command(cmd, timeout=timeout)
+        coverage_label = fuzzer_name or "project"
+        helper_result = self._run_helper_command(
+            cmd,
+            timeout=timeout,
+            output_log_path=self._helper_log_path(proj_name, "coverage", coverage_label),
+            tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
+        )
 
         if not helper_result.success:
-            logger.error(f"Coverage computation failed: \n {helper_result.stdout}{helper_result.stderr}")
+            log_note = (
+                f"\n[full coverage output log: {helper_result.output_log_path}]"
+                if helper_result.output_log_path
+                else ""
+            )
+            logger.error(f"Coverage computation failed: \n {helper_result.stdout}{helper_result.stderr}{log_note}")
             return None
 
         # Read coverage data
@@ -978,16 +1028,26 @@ class OSSFuzz:
         if timeout == 0:
             logger.info(f"Skipping introspector report for {proj_name}; deadline reached.")
             return False
-        helper_result = self._run_helper_command(cmd, timeout=timeout)
+        helper_result = self._run_helper_command(
+            cmd,
+            timeout=timeout,
+            output_log_path=self._helper_log_path(proj_name, "introspector", "clean" if clean else "reuse"),
+            tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
+        )
         elapsed = time.perf_counter() - started_at
 
         if not helper_result.success:
+            log_note = (
+                f"\n[full introspector output log: {helper_result.output_log_path}]"
+                if helper_result.output_log_path
+                else ""
+            )
             logger.error(
                 "Failed to generate report for %s after %.2fs: \n %s%s",
                 proj_name,
                 elapsed,
                 helper_result.stdout,
-                helper_result.stderr,
+                helper_result.stderr + log_note,
             )
             return False
 
@@ -996,11 +1056,12 @@ class OSSFuzz:
         self._project_build_state.pop(proj_name, None)
 
         logger.info(
-            "Introspector reports created for %s in %.2fs (requested_seconds=%s, clean=%s)",
+            "Introspector reports created for %s in %.2fs (requested_seconds=%s, clean=%s). Output log: %s",
             proj_name,
             elapsed,
             seconds,
             clean,
+            helper_result.output_log_path,
         )
         return True
 

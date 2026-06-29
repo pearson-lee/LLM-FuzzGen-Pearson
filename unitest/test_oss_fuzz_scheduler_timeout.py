@@ -84,3 +84,45 @@ def test_run_all_fuzzers_scheduled_has_bounded_drain(caplog):
 
     assert elapsed < 2.5
     assert "Fuzzer drain timeout" in caplog.text
+
+
+class _TerminalFailureOSSFuzz(OSSFuzz):
+    def __init__(self):
+        super().__init__()
+        self.DEFAULT_FUZZ_QUANTUM_SECONDS = 1
+        self.calls = {"llm_fuzzgen_bad": 0, "llm_fuzzgen_ok": 0}
+
+    def build_fuzzers(self, *args, **kwargs):
+        return CompilationResult(True, "")
+
+    def _list_project_fuzzers(self, project_name):
+        return ["llm_fuzzgen_bad", "llm_fuzzgen_ok"]
+
+    def _run_fuzzer_time_slice(self, project_name, fuzzer_name, seconds, deadline=None):
+        self.calls[fuzzer_name] += 1
+        if fuzzer_name == "llm_fuzzgen_bad":
+            return FuzzerTimeSliceResult(
+                fuzzer_name=fuzzer_name,
+                requested_seconds=seconds,
+                actual_seconds=0.01,
+                success=False,
+                error="asan crash",
+            )
+        time.sleep(0.02)
+        return FuzzerTimeSliceResult(
+            fuzzer_name=fuzzer_name,
+            requested_seconds=seconds,
+            actual_seconds=0.02,
+            success=True,
+        )
+
+
+def test_run_all_fuzzers_scheduled_does_not_reschedule_terminal_failures(caplog):
+    oss_fuzz = _TerminalFailureOSSFuzz()
+
+    with caplog.at_level(logging.WARNING):
+        oss_fuzz.run_all_fuzzers_scheduled("demo", seconds=2, max_workers=1)
+
+    assert oss_fuzz.calls["llm_fuzzgen_bad"] == 1
+    assert oss_fuzz.calls["llm_fuzzgen_ok"] >= 1
+    assert "terminally failed for this run" in caplog.text
