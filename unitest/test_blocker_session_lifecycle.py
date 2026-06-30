@@ -251,6 +251,34 @@ def test_refresh_budget_guard_does_not_start_expensive_refresh(monkeypatch):
     assert state.last_artifact_refresh_skip_reason == "insufficient_time_budget"
 
 
+def test_light_refresh_failure_reuses_existing_artifacts_without_full_fallback(monkeypatch):
+    state = main.BlockerRuntimeState(artifacts_ready=True, artifacts_dirty=True)
+    monkeypatch.setattr(
+        main.oss_fuzz,
+        "refresh_blocker_report_from_existing_introspector",
+        lambda *args, **kwargs: False,
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("full refresh fallback should not start")
+
+    monkeypatch.setattr(main.oss_fuzz, "generate_report", fail_if_called)
+
+    success = main.ensure_blocker_artifacts(
+        project_name="demo",
+        report_seconds=30,
+        state=state,
+        force_refresh=True,
+        prefer_full_refresh=False,
+    )
+
+    assert success
+    assert state.artifacts_ready
+    assert state.artifacts_dirty
+    assert state.last_artifact_refresh_reused_existing
+    assert state.last_artifact_refresh_skip_reason == "light_refresh_failed_reused_existing_artifacts"
+
+
 def test_session_keeps_running_after_live_blocker_json_disappears(monkeypatch, tmp_path):
     blockers = [
         _blocker("first", 10, "target_a"),

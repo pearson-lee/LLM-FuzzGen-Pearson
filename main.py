@@ -53,6 +53,7 @@ class BlockerRuntimeState:
     max_coverage_elapsed: float | None = None
     max_blocker_attempt_elapsed: float | None = None
     last_artifact_refresh_skip_reason: str | None = None
+    last_artifact_refresh_reused_existing: bool = False
     last_stall_elapsed: int | None = None
     artifact_branch_covered_baseline: int | None = None
     artifact_target_fingerprint: str | None = None
@@ -565,6 +566,7 @@ def ensure_blocker_artifacts(
     post_refresh_reserve_seconds: float = 0.0,
 ) -> bool:
     state.last_artifact_refresh_skip_reason = None
+    state.last_artifact_refresh_reused_existing = False
     if deadline is not None and deadline - time.monotonic() <= 0:
         logger.info("Skipping blocker artifact refresh for %s because the fuzzing deadline was reached.", project_name)
         state.last_artifact_refresh_skip_reason = "deadline_reached"
@@ -610,32 +612,24 @@ def ensure_blocker_artifacts(
         )
         if not success:
             logger.warning(
-                "Light blocker artifact refresh failed for %s; retrying with full refresh.",
+                "Light blocker artifact refresh failed for %s; reusing existing blocker artifacts instead of "
+                "falling back to a full Introspector refresh.",
                 project_name,
             )
-            refresh_mode = "full_refresh_fallback"
-            fallback_available = (refresh_deadline - time.monotonic()) if refresh_deadline is not None else None
-            fallback_estimate = _refresh_elapsed_estimate(state, "full_refresh")
-            if (
-                post_refresh_reserve_seconds > 0
-                and fallback_available is not None
-                and fallback_estimate > fallback_available
-            ):
-                state.last_artifact_refresh_skip_reason = "insufficient_time_for_full_refresh_fallback"
-                logger.info(
-                    "Skipping full blocker artifact refresh fallback for %s: estimate=%.2fs available=%.2fs.",
-                    project_name,
-                    fallback_estimate,
-                    max(0.0, fallback_available),
-                )
-                success = False
-            else:
-                success = oss_fuzz.generate_report(
-                    project_name,
-                    seconds=report_seconds,
-                    clean=False,
-                    deadline=refresh_deadline,
-                )
+            elapsed = time.perf_counter() - started_at
+            state.last_artifact_refresh_skip_reason = "light_refresh_failed_reused_existing_artifacts"
+            state.last_artifact_refresh_reused_existing = True
+            _log_experiment_event(
+                "blocker_artifacts_refresh_finished",
+                success=True,
+                project_name=project_name,
+                refresh_mode="light_refresh_reused_existing",
+                force_refresh=force_refresh,
+                report_seconds=report_seconds,
+                elapsed_seconds=elapsed,
+                reason=state.last_artifact_refresh_skip_reason,
+            )
+            return True
     else:
         success = oss_fuzz.generate_report(
             project_name,
@@ -1624,7 +1618,7 @@ def run_blocker_session(
             state.new_targets_since_full_rebuild,
             state.light_refreshes_since_full_rebuild,
         )
-    refreshed_artifacts = (not state.artifacts_ready) or force_refresh
+    requested_artifact_refresh = (not state.artifacts_ready) or force_refresh
     if not ensure_blocker_artifacts(
         project_name=project_name,
         report_seconds=blocker_artifact_report_seconds,
@@ -1648,6 +1642,7 @@ def run_blocker_session(
             "succeeded": 0,
             "reason": state.last_artifact_refresh_skip_reason or "artifact_refresh_failed",
         }
+    refreshed_artifacts = requested_artifact_refresh and not state.last_artifact_refresh_reused_existing
     baseline_summary: TotalCoverageSummary | None = None
     if refreshed_artifacts:
         attempt_reserve = _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
