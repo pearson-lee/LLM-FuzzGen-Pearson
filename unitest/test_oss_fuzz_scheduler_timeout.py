@@ -211,3 +211,19 @@ def test_newly_discovered_fuzzer_gets_priority_window():
     )
 
     assert oss_fuzz.calls[0] == "llm_fuzzgen_new"
+
+
+def test_target_exposure_min_seconds_limits_initial_slice_size():
+    oss_fuzz = _CpuBudgetOSSFuzz()
+
+    result = oss_fuzz.run_all_fuzzers_scheduled(
+        "demo",
+        seconds=100,
+        max_workers=4,
+        served_seconds_budget=12,
+        target_exposure_min_seconds=3,
+    )
+
+    assert result.charged_seconds == 12
+    assert len(oss_fuzz.calls) == 4
+    assert all(seconds == 3 for _name, seconds in oss_fuzz.calls)

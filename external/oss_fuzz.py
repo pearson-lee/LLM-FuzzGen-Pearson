@@ -841,6 +841,7 @@ class OSSFuzz:
         deadline: float | None = None,
         served_seconds_budget: float | None = None,
         generated_target_priority_seconds: int = 0,
+        target_exposure_min_seconds: int = 0,
     ) -> FuzzerScheduleChunkResult:
         """Run fuzzers within a wall-clock budget using least-served-first scheduling."""
         logger.info(f"Building all fuzzers for project {project_name}")
@@ -901,15 +902,38 @@ class OSSFuzz:
                     return False
                 def scheduling_key(name: str) -> tuple[int, float, str]:
                     served = served_seconds.get(name, 0.0)
+                    under_exposed = (
+                        target_exposure_min_seconds > 0
+                        and served < float(target_exposure_min_seconds)
+                    )
                     in_generated_priority_window = (
                         generated_target_priority_seconds > 0
                         and name in new_fuzzers
                         and served < float(generated_target_priority_seconds)
                     )
-                    return (0 if in_generated_priority_window else 1, served, name)
+                    if under_exposed:
+                        return (0, served, name)
+                    if in_generated_priority_window:
+                        return (1, served, name)
+                    return (2, served, name)
 
                 next_fuzzer = min(available, key=scheduling_key)
+                next_served = served_seconds.get(next_fuzzer, 0.0)
                 slice_budget = quantum_seconds
+                if target_exposure_min_seconds > 0 and next_served < float(target_exposure_min_seconds):
+                    slice_budget = min(
+                        slice_budget,
+                        max(1, int(float(target_exposure_min_seconds) - next_served)),
+                    )
+                elif (
+                    generated_target_priority_seconds > 0
+                    and next_fuzzer in new_fuzzers
+                    and next_served < float(generated_target_priority_seconds)
+                ):
+                    slice_budget = min(
+                        slice_budget,
+                        max(1, int(float(generated_target_priority_seconds) - next_served)),
+                    )
                 if served_seconds_budget is not None:
                     slice_budget = min(slice_budget, max(1, int(remaining_served_budget)))
                 slice_seconds = max(1, min(slice_budget, int(remaining)))

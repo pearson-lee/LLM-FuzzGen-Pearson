@@ -2371,6 +2371,7 @@ def run_fuzzers_and_get_coverage(
                     deadline=None,
                     served_seconds_budget=chunk_budget,
                     generated_target_priority_seconds=generated_target_priority_seconds,
+                    target_exposure_min_seconds=target_exposure_min_seconds,
                 )
                 if result.charged_seconds <= 0:
                     logger.warning(
@@ -2416,6 +2417,7 @@ def run_fuzzers_and_get_coverage(
                     deadline=None,
                     served_seconds_budget=chunk_budget,
                     generated_target_priority_seconds=generated_target_priority_seconds,
+                    target_exposure_min_seconds=target_exposure_min_seconds,
                 )
                 if result.charged_seconds <= 0:
                     logger.warning(
@@ -2514,6 +2516,7 @@ def run_fuzzers_and_get_coverage(
             deadline=deadline,
             served_seconds_budget=chunk_seconds if budget_mode == "fuzzing-cpu" else None,
             generated_target_priority_seconds=generated_target_priority_seconds,
+            target_exposure_min_seconds=target_exposure_min_seconds if budget_mode == "fuzzing-cpu" else 0,
         )
         if budget_mode == "fuzzing-cpu":
             fuzzing_budget_consumed += chunk_result.charged_seconds
