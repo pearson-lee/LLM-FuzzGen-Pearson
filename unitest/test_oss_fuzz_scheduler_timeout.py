@@ -126,3 +126,88 @@ def test_run_all_fuzzers_scheduled_does_not_reschedule_terminal_failures(caplog)
     assert oss_fuzz.calls["llm_fuzzgen_bad"] == 1
     assert oss_fuzz.calls["llm_fuzzgen_ok"] >= 1
     assert "terminally failed for this run" in caplog.text
+
+
+class _CpuBudgetOSSFuzz(OSSFuzz):
+    def __init__(self):
+        super().__init__()
+        self.DEFAULT_FUZZ_QUANTUM_SECONDS = 10
+        self.calls = []
+
+    def build_fuzzers(self, *args, **kwargs):
+        return CompilationResult(True, "")
+
+    def _list_project_fuzzers(self, project_name):
+        return [f"llm_fuzzgen_{idx}" for idx in range(10)]
+
+    def _run_fuzzer_time_slice(self, project_name, fuzzer_name, seconds, deadline=None):
+        self.calls.append((fuzzer_name, seconds))
+        return FuzzerTimeSliceResult(
+            fuzzer_name=fuzzer_name,
+            requested_seconds=seconds,
+            actual_seconds=float(seconds),
+            success=True,
+        )
+
+
+def test_run_all_fuzzers_scheduled_respects_served_seconds_budget():
+    oss_fuzz = _CpuBudgetOSSFuzz()
+
+    result = oss_fuzz.run_all_fuzzers_scheduled(
+        "demo",
+        seconds=100,
+        max_workers=4,
+        served_seconds_budget=3,
+    )
+
+    assert result.charged_seconds == 3
+    assert sum(seconds for _name, seconds in oss_fuzz.calls) == 3
+    assert len(oss_fuzz.calls) <= 3
+
+
+class _GeneratedTargetPriorityOSSFuzz(OSSFuzz):
+    def __init__(self):
+        super().__init__()
+        self.DEFAULT_FUZZ_QUANTUM_SECONDS = 10
+        self.targets = ["llm_fuzzgen_old_a", "llm_fuzzgen_old_b"]
+        self.calls = []
+
+    def build_fuzzers(self, *args, **kwargs):
+        return CompilationResult(True, "")
+
+    def _list_project_fuzzers(self, project_name):
+        return list(self.targets)
+
+    def _run_fuzzer_time_slice(self, project_name, fuzzer_name, seconds, deadline=None):
+        self.calls.append(fuzzer_name)
+        return FuzzerTimeSliceResult(
+            fuzzer_name=fuzzer_name,
+            requested_seconds=seconds,
+            actual_seconds=float(seconds),
+            success=True,
+        )
+
+
+def test_newly_discovered_fuzzer_gets_priority_window():
+    oss_fuzz = _GeneratedTargetPriorityOSSFuzz()
+
+    oss_fuzz.run_all_fuzzers_scheduled(
+        "demo",
+        seconds=20,
+        max_workers=1,
+        served_seconds_budget=20,
+        generated_target_priority_seconds=10,
+    )
+    assert set(oss_fuzz.calls) == {"llm_fuzzgen_old_a", "llm_fuzzgen_old_b"}
+
+    oss_fuzz.calls.clear()
+    oss_fuzz.targets.append("llm_fuzzgen_new")
+    oss_fuzz.run_all_fuzzers_scheduled(
+        "demo",
+        seconds=10,
+        max_workers=1,
+        served_seconds_budget=10,
+        generated_target_priority_seconds=10,
+    )
+
+    assert oss_fuzz.calls[0] == "llm_fuzzgen_new"

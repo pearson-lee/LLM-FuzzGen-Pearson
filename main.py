@@ -2347,6 +2347,9 @@ def run_fuzzers_and_get_coverage(
     blocker_refresh_branch_growth_floor: int = 50,
     llm_backend: str = "vertexai",
     model_name: str | None = None,
+    budget_mode: str = "wall-clock",
+    target_exposure_min_seconds: int = 0,
+    generated_target_priority_seconds: int = 300,
 ):
     """Helper function to run all fuzzers and then optionally get coverage."""
     initial_growth_summary: TotalCoverageSummary | None = None
@@ -2354,9 +2357,37 @@ def run_fuzzers_and_get_coverage(
         generate_report_and_start_webapp(proj_name, 10, clean=True)
     if minimize_corpus:
         oss_fuzz.minimize_corpus(proj_name)
-    deadline = time.monotonic() + run_seconds
+    deadline = time.monotonic() + run_seconds if budget_mode == "wall-clock" else None
 
     if not use_blocker:
+        if budget_mode == "fuzzing-cpu":
+            remaining_budget = float(run_seconds)
+            while remaining_budget > 0:
+                chunk_budget = min(float(coverage_interval or run_seconds), remaining_budget)
+                result = oss_fuzz.run_all_fuzzers_scheduled(
+                    proj_name,
+                    seconds=max(1, int(chunk_budget)),
+                    max_workers=fuzz_targets_parallel,
+                    deadline=None,
+                    served_seconds_budget=chunk_budget,
+                    generated_target_priority_seconds=generated_target_priority_seconds,
+                )
+                if result.charged_seconds <= 0:
+                    logger.warning(
+                        "Stopping fuzzing CPU-budget run for %s because no additional target-seconds were charged.",
+                        proj_name,
+                    )
+                    break
+                remaining_budget -= result.charged_seconds
+            if get_coverage:
+                _log_final_run_coverage(
+                    proj_name,
+                    run_seconds,
+                    oss_fuzz.coverage(proj_name),
+                    includes_blocker=False,
+                    initial_summary=initial_growth_summary,
+                )
+            return
         oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
         if get_coverage:
             _log_final_run_coverage(
@@ -2374,7 +2405,27 @@ def run_fuzzers_and_get_coverage(
             "Falling back to baseline fuzzing because --coverage-interval is not smaller than the fuzzing duration.",
             proj_name,
         )
-        oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
+        if budget_mode == "fuzzing-cpu":
+            remaining_budget = float(run_seconds)
+            while remaining_budget > 0:
+                chunk_budget = remaining_budget
+                result = oss_fuzz.run_all_fuzzers_scheduled(
+                    proj_name,
+                    seconds=max(1, int(chunk_budget)),
+                    max_workers=fuzz_targets_parallel,
+                    deadline=None,
+                    served_seconds_budget=chunk_budget,
+                    generated_target_priority_seconds=generated_target_priority_seconds,
+                )
+                if result.charged_seconds <= 0:
+                    logger.warning(
+                        "Stopping fallback fuzzing CPU-budget run for %s because no target-seconds were charged.",
+                        proj_name,
+                    )
+                    break
+                remaining_budget -= result.charged_seconds
+        else:
+            oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
         if get_coverage:
             _log_final_run_coverage(
                 proj_name,
@@ -2419,33 +2470,75 @@ def run_fuzzers_and_get_coverage(
             deadline=deadline,
         )
     start_wall_time = time.monotonic()
+    fuzzing_budget_consumed = 0.0
     while True:
         real_elapsed_seconds = time.monotonic() - start_wall_time
-        remaining_seconds = deadline - time.monotonic()
+        if budget_mode == "fuzzing-cpu":
+            remaining_seconds = float(run_seconds) - fuzzing_budget_consumed
+        else:
+            remaining_seconds = deadline - time.monotonic() if deadline is not None else 0.0
 
         if remaining_seconds <= 0:
-            logger.info(
-                "Maximum wall-clock time reached (%.2fs). Terminating fuzzing loop.",
-                real_elapsed_seconds
-            )
+            if budget_mode == "fuzzing-cpu":
+                logger.info(
+                    "Maximum fuzzing CPU budget reached (%.2f target-seconds). Terminating fuzzing loop.",
+                    fuzzing_budget_consumed,
+                )
+            else:
+                logger.info(
+                    "Maximum wall-clock time reached (%.2fs). Terminating fuzzing loop.",
+                    real_elapsed_seconds,
+                )
             break
 
         chunk_seconds = max(1, int(min(coverage_interval, remaining_seconds)))
 
-        logger.info(
-            "Starting next fuzzing chunk for %d seconds (Remaining wall-clock budget: %d seconds)...", 
-            chunk_seconds, int(remaining_seconds)
-        )
+        if budget_mode == "fuzzing-cpu":
+            logger.info(
+                "Starting next fuzzing chunk with target-second budget=%d "
+                "(remaining fuzzing budget: %.2f target-seconds)...",
+                chunk_seconds,
+                remaining_seconds,
+            )
+        else:
+            logger.info(
+                "Starting next fuzzing chunk for %d seconds (Remaining wall-clock budget: %d seconds)...",
+                chunk_seconds,
+                int(remaining_seconds),
+            )
         
-        oss_fuzz.run_all_fuzzers_scheduled(
+        chunk_result = oss_fuzz.run_all_fuzzers_scheduled(
             proj_name,
             chunk_seconds,
             max_workers=fuzz_targets_parallel,
             deadline=deadline,
+            served_seconds_budget=chunk_seconds if budget_mode == "fuzzing-cpu" else None,
+            generated_target_priority_seconds=generated_target_priority_seconds,
         )
+        if budget_mode == "fuzzing-cpu":
+            fuzzing_budget_consumed += chunk_result.charged_seconds
+            _log_experiment_event(
+                "fuzzing_cpu_budget_consumed",
+                project_name=proj_name,
+                chunk_charged_seconds=chunk_result.charged_seconds,
+                cumulative_charged_seconds=fuzzing_budget_consumed,
+                fuzzing_budget_seconds=run_seconds,
+                runnable_targets=chunk_result.runnable_targets,
+                terminal_failures=chunk_result.terminal_failures,
+            )
+            if chunk_result.charged_seconds <= 0:
+                logger.warning(
+                    "Stopping fuzzing CPU-budget loop for %s because the scheduler charged no target-seconds.",
+                    proj_name,
+                )
+                break
 
-        fuzzing_elapsed_seconds = int(time.monotonic() - start_wall_time)
-        if time.monotonic() >= deadline:
+        fuzzing_elapsed_seconds = (
+            int(fuzzing_budget_consumed)
+            if budget_mode == "fuzzing-cpu"
+            else int(time.monotonic() - start_wall_time)
+        )
+        if budget_mode == "wall-clock" and deadline is not None and time.monotonic() >= deadline:
             logger.info("Maximum wall-clock time reached after fuzzing chunk. Skipping coverage/blocker work.")
             break
 
@@ -2455,6 +2548,32 @@ def run_fuzzers_and_get_coverage(
         recorder.record(fuzzing_elapsed_seconds, summary) 
 
         if recorder.is_stagnated():
+            if budget_mode == "fuzzing-cpu" and target_exposure_min_seconds > 0:
+                exposure = oss_fuzz.get_project_exposure_seconds(proj_name, include_terminal_failures=False)
+                underexposed = {
+                    name: seconds
+                    for name, seconds in exposure.items()
+                    if seconds < float(target_exposure_min_seconds)
+                }
+                if underexposed:
+                    logger.info(
+                        "Skipping blocker session for %s because target exposure is incomplete: "
+                        "%d/%d runnable target(s) below %ds.",
+                        proj_name,
+                        len(underexposed),
+                        len(exposure),
+                        target_exposure_min_seconds,
+                    )
+                    _log_experiment_event(
+                        "blocker_trigger_deferred",
+                        project_name=proj_name,
+                        reason="target_exposure_incomplete",
+                        elapsed_seconds=fuzzing_elapsed_seconds,
+                        target_exposure_min_seconds=target_exposure_min_seconds,
+                        underexposed_target_count=len(underexposed),
+                        active_target_count=len(exposure),
+                    )
+                    continue
             if use_blocker:
                 run_blocker_session(
                     project_name=proj_name,
@@ -2528,6 +2647,9 @@ def run_all_fuzzer(
     blocker_refresh_branch_growth_floor: int = 50,
     llm_backend: str = "vertexai",
     model_name: str | None = None,
+    budget_mode: str = "wall-clock",
+    target_exposure_min_seconds: int = 0,
+    generated_target_priority_seconds: int = 300,
 ):
     """
     Runs all fuzzers for the specified projects, optionally analyzes crashes,
@@ -2586,6 +2708,9 @@ def run_all_fuzzer(
                     blocker_refresh_branch_growth_floor,
                     llm_backend,
                     model_name,
+                    budget_mode,
+                    target_exposure_min_seconds,
+                    generated_target_priority_seconds,
                 ): project_name
                 for project_name in projects_to_process
             }
@@ -2956,6 +3081,35 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Minimum denominator used when computing covered branch growth ratio for blocker artifact refresh. "
             "Default 50."
+        ),
+    )
+    parser_run.add_argument(
+        "--budget-mode",
+        choices=["wall-clock", "fuzzing-cpu"],
+        default="wall-clock",
+        help=(
+            "Budget accounting mode for run_all_fuzzer. "
+            "'wall-clock' keeps the existing end-to-end wall-clock behavior. "
+            "'fuzzing-cpu' treats --run-fuzzers as a global target-second fuzzing budget."
+        ),
+    )
+    parser_run.add_argument(
+        "--target-exposure-min-seconds",
+        type=int,
+        default=0,
+        help=(
+            "In --budget-mode fuzzing-cpu, defer blocker triggering until every non-terminal active target "
+            "has received at least this many served target-seconds. Default 0 disables the gate."
+        ),
+    )
+    parser_run.add_argument(
+        "--generated-target-priority-seconds",
+        type=int,
+        default=300,
+        help=(
+            "Give fuzz targets that newly appear during the current run priority scheduling until they have "
+            "received this many served target-seconds. The time is still charged to the same fuzzing budget. "
+            "Default 300; set 0 to disable."
         ),
     )
     add_periodic_coverage_args(parser_run)
@@ -3589,6 +3743,9 @@ def main() -> None:
                 args.blocker_refresh_branch_growth_floor,
                 args.llm,
                 args.model,
+                args.budget_mode,
+                args.target_exposure_min_seconds,
+                args.generated_target_priority_seconds,
             )
             _log_experiment_event("run_finished", success=run_success, total_seconds=time.perf_counter() - t0)
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")

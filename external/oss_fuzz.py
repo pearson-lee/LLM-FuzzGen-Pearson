@@ -59,6 +59,14 @@ class FuzzerTimeSliceResult:
 
 
 @dataclass
+class FuzzerScheduleChunkResult:
+    charged_seconds: float = 0.0
+    requested_seconds: float = 0.0
+    terminal_failures: int = 0
+    runnable_targets: int = 0
+
+
+@dataclass
 class HelperCommandResult:
     success: bool
     stdout: str
@@ -95,6 +103,8 @@ class OSSFuzz:
         self._project_build_state: dict[str, BuildState] = {}
         self._fuzzer_served_seconds: dict[str, dict[str, float]] = {}
         self._fuzzer_terminal_failures: dict[str, set[str]] = {}
+        self._known_project_fuzzers: dict[str, set[str]] = {}
+        self._new_project_fuzzers: dict[str, set[str]] = {}
 
     def _get_project_yaml(self, proj_name: str) -> dict:
         """Read and parse project.yaml file."""
@@ -714,14 +724,46 @@ class OSSFuzz:
     def _sync_project_fuzzer_stats(self, project_name: str, fuzzers_to_run: list[str]) -> dict[str, float]:
         served = self._fuzzer_served_seconds.setdefault(project_name, {})
         active = set(fuzzers_to_run)
+        known = self._known_project_fuzzers.setdefault(project_name, set(active))
+        new_fuzzers = active - known
+        if new_fuzzers:
+            self._new_project_fuzzers.setdefault(project_name, set()).update(new_fuzzers)
+            known.update(new_fuzzers)
+            logger.info(
+                "Detected %d newly active fuzzer target(s) for %s: %s",
+                len(new_fuzzers),
+                project_name,
+                ", ".join(sorted(new_fuzzers)[:10]),
+            )
         for stale in list(served):
             if stale not in active:
                 del served[stale]
         terminal_failures = self._fuzzer_terminal_failures.setdefault(project_name, set())
         terminal_failures.intersection_update(active)
+        self._new_project_fuzzers.setdefault(project_name, set()).intersection_update(active)
         for fuzzer_name in fuzzers_to_run:
             served.setdefault(fuzzer_name, 0.0)
         return served
+
+    def get_project_served_seconds(self, project_name: str, include_terminal_failures: bool = True) -> float:
+        fuzzers_to_run = self._list_project_fuzzers(project_name)
+        served = self._sync_project_fuzzer_stats(project_name, fuzzers_to_run)
+        terminal_failures = self._fuzzer_terminal_failures.setdefault(project_name, set())
+        return sum(
+            seconds
+            for name, seconds in served.items()
+            if include_terminal_failures or name not in terminal_failures
+        )
+
+    def get_project_exposure_seconds(self, project_name: str, include_terminal_failures: bool = False) -> dict[str, float]:
+        fuzzers_to_run = self._list_project_fuzzers(project_name)
+        served = self._sync_project_fuzzer_stats(project_name, fuzzers_to_run)
+        terminal_failures = self._fuzzer_terminal_failures.setdefault(project_name, set())
+        return {
+            name: served.get(name, 0.0)
+            for name in fuzzers_to_run
+            if include_terminal_failures or name not in terminal_failures
+        }
 
     def _run_fuzzer_time_slice(
         self,
@@ -797,35 +839,43 @@ class OSSFuzz:
         seconds: int = 30,
         max_workers: int | None = None,
         deadline: float | None = None,
-    ):
+        served_seconds_budget: float | None = None,
+        generated_target_priority_seconds: int = 0,
+    ) -> FuzzerScheduleChunkResult:
         """Run fuzzers within a wall-clock budget using least-served-first scheduling."""
         logger.info(f"Building all fuzzers for project {project_name}")
         build_result = self.build_fuzzers(project_name, deadline=deadline)
         if not build_result.success:
             logger.error(f"Failed to build fuzzers for project {project_name}.")
-            return
+            return FuzzerScheduleChunkResult()
         if deadline is not None and deadline - time.monotonic() <= 0:
             logger.info(f"Skipping fuzzers for {project_name}; deadline reached after build.")
-            return
+            return FuzzerScheduleChunkResult()
 
         fuzzers_to_run = self._list_project_fuzzers(project_name)
         if not fuzzers_to_run:
             logger.warning("No llm_fuzzgen fuzzers found for %s.", project_name)
-            return
+            return FuzzerScheduleChunkResult()
 
         served_seconds = self._sync_project_fuzzer_stats(project_name, fuzzers_to_run)
         terminal_failures = self._fuzzer_terminal_failures.setdefault(project_name, set())
+        new_fuzzers = self._new_project_fuzzers.setdefault(project_name, set())
         chunk_deadline = time.monotonic() + max(1, seconds)
         effective_deadline = min(deadline, chunk_deadline) if deadline is not None else chunk_deadline
         max_workers = max_workers or min(6, len(fuzzers_to_run)) or 1
         quantum_seconds = max(1, min(self.DEFAULT_FUZZ_QUANTUM_SECONDS, seconds))
+        chunk_charged_seconds = 0.0
+        chunk_reserved_seconds = 0.0
+        chunk_requested_seconds = 0.0
         logger.info(
-            "Scheduling %d fuzzers for %s with wall-clock budget=%ds, workers=%d, quantum=%ds using least-served-first.",
+            "Scheduling %d fuzzers for %s with wall-clock budget=%ds, workers=%d, quantum=%ds, "
+            "served_seconds_budget=%s using least-served-first.",
             len(fuzzers_to_run),
             project_name,
             seconds,
             max_workers,
             quantum_seconds,
+            f"{served_seconds_budget:.2f}" if served_seconds_budget is not None else "unbounded",
         )
 
         executor = ThreadPoolExecutor(max_workers)
@@ -834,9 +884,14 @@ class OSSFuzz:
             in_flight: dict = {}
 
             def schedule_one() -> bool:
+                nonlocal chunk_reserved_seconds, chunk_requested_seconds
                 remaining = effective_deadline - time.monotonic()
                 if remaining <= 1:
                     return False
+                if served_seconds_budget is not None:
+                    remaining_served_budget = served_seconds_budget - chunk_charged_seconds - chunk_reserved_seconds
+                    if remaining_served_budget <= 0:
+                        return False
                 available = [
                     name
                     for name in fuzzers_to_run
@@ -844,8 +899,20 @@ class OSSFuzz:
                 ]
                 if not available:
                     return False
-                next_fuzzer = min(available, key=lambda name: (served_seconds.get(name, 0.0), name))
-                slice_seconds = max(1, min(quantum_seconds, int(remaining)))
+                def scheduling_key(name: str) -> tuple[int, float, str]:
+                    served = served_seconds.get(name, 0.0)
+                    in_generated_priority_window = (
+                        generated_target_priority_seconds > 0
+                        and name in new_fuzzers
+                        and served < float(generated_target_priority_seconds)
+                    )
+                    return (0 if in_generated_priority_window else 1, served, name)
+
+                next_fuzzer = min(available, key=scheduling_key)
+                slice_budget = quantum_seconds
+                if served_seconds_budget is not None:
+                    slice_budget = min(slice_budget, max(1, int(remaining_served_budget)))
+                slice_seconds = max(1, min(slice_budget, int(remaining)))
                 logger.info(
                     "Dispatching %s for %ds (served_so_far=%.2fs, remaining_chunk_budget=%.2fs)",
                     next_fuzzer,
@@ -861,6 +928,8 @@ class OSSFuzz:
                     effective_deadline,
                 )
                 in_flight[future] = next_fuzzer
+                chunk_reserved_seconds += float(slice_seconds)
+                chunk_requested_seconds += float(slice_seconds)
                 return True
 
             while len(in_flight) < max_workers and schedule_one():
@@ -890,12 +959,22 @@ class OSSFuzz:
                             future.cancel()
                         should_wait_for_executor = False
                         executor.shutdown(wait=False, cancel_futures=True)
-                        return
+                        return FuzzerScheduleChunkResult(
+                            charged_seconds=chunk_charged_seconds,
+                            requested_seconds=chunk_requested_seconds,
+                            terminal_failures=len(terminal_failures),
+                            runnable_targets=len([name for name in fuzzers_to_run if name not in terminal_failures]),
+                        )
                 for future in done:
                     fuzzer_name = in_flight.pop(future)
                     try:
                         slice_result = future.result()
+                        chunk_reserved_seconds = max(
+                            0.0,
+                            chunk_reserved_seconds - float(slice_result.requested_seconds),
+                        )
                         served_seconds[fuzzer_name] = served_seconds.get(fuzzer_name, 0.0) + slice_result.actual_seconds
+                        chunk_charged_seconds += slice_result.actual_seconds
                         logger.info(
                             "Completed slice for %s: requested=%ds actual=%.2fs cumulative=%.2fs success=%s",
                             fuzzer_name,
@@ -913,6 +992,7 @@ class OSSFuzz:
                                 fuzzer_name,
                             )
                     except BaseException as exc:
+                        chunk_reserved_seconds = 0.0
                         logger.error(f"Fuzzer execution generated an exception: {exc}")
                         terminal_failures.add(fuzzer_name)
                         logger.warning(
@@ -935,8 +1015,20 @@ class OSSFuzz:
                     )[:5]
                 ),
             )
+            return FuzzerScheduleChunkResult(
+                charged_seconds=chunk_charged_seconds,
+                requested_seconds=chunk_requested_seconds,
+                terminal_failures=len(terminal_failures),
+                runnable_targets=len([name for name in fuzzers_to_run if name not in terminal_failures]),
+            )
         except KeyboardInterrupt:
             logger.info("Fuzzing interrupted by user. Shutting down...")
+            return FuzzerScheduleChunkResult(
+                charged_seconds=chunk_charged_seconds,
+                requested_seconds=chunk_requested_seconds,
+                terminal_failures=len(terminal_failures),
+                runnable_targets=len([name for name in fuzzers_to_run if name not in terminal_failures]),
+            )
         finally:
             if should_wait_for_executor:
                 executor.shutdown(wait=True)
