@@ -279,6 +279,68 @@ def test_light_refresh_failure_reuses_existing_artifacts_without_full_fallback(m
     assert state.last_artifact_refresh_skip_reason == "light_refresh_failed_reused_existing_artifacts"
 
 
+def test_session_reuses_cached_artifacts_when_live_blocker_json_is_missing(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a")]
+    build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
+    cached_artifacts = main._create_blocker_session_artifacts("demo", 1, blocker_json, blockers)
+    assert cached_artifacts is not None
+    blocker_json.unlink()
+
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("cached blocker artifacts should not require a webapp restart")
+
+    monkeypatch.setattr(main, "ensure_blocker_webapp_ready", fail_if_called)
+    coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
+
+    def load_context(project_name, path, **kwargs):
+        assert path == cached_artifacts.blocker_json
+        return coverage_context
+
+    monkeypatch.setattr(main, "_load_blocker_coverage_context", load_context)
+    monkeypatch.setattr(main, "_select_project_blockers", lambda *args, **kwargs: list(blockers))
+    monkeypatch.setattr(main, "_coverage_with_timing", lambda *args, **kwargs: main.TotalCoverageSummary())
+
+    captured = {}
+
+    def fake_pipeline(**kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "attempt_result": "success",
+            "dependency_result": "Input Independent",
+            "pipeline_methods": ["reference_guided_generation"],
+            "pipeline_success": True,
+        }
+
+    monkeypatch.setattr(main, "run_blocker_pipeline", fake_pipeline)
+    state = main.BlockerRuntimeState(
+        artifacts_ready=True,
+        artifacts_dirty=True,
+        last_session_artifacts=cached_artifacts,
+    )
+
+    result = main.run_blocker_session(
+        project_name="demo",
+        elapsed_seconds=3600,
+        llm_backend="vertexai",
+        model_name="model",
+        state=state,
+        blocker_session_size=1,
+        blocker_top_k=1,
+        blocker_session_refresh_mode="reuse_session_artifacts",
+    )
+
+    assert result["attempted"] == 1
+    assert result["succeeded"] == 1
+    assert captured["blocker_json_path"] == cached_artifacts.blocker_json
+    assert captured["session_artifacts"] == cached_artifacts
+    assert state.last_session_artifacts == cached_artifacts
+
+
 def test_session_keeps_running_after_live_blocker_json_disappears(monkeypatch, tmp_path):
     blockers = [
         _blocker("first", 10, "target_a"),

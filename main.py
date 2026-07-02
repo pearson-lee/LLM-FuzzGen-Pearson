@@ -60,6 +60,7 @@ class BlockerRuntimeState:
     pending_target_fingerprint: str | None = None
     new_targets_since_full_rebuild: int = 0
     light_refreshes_since_full_rebuild: int = 0
+    last_session_artifacts: "BlockerSessionArtifacts | None" = None
     attempted_blocker_keys: set[tuple[str, str, str, str]] = field(default_factory=set)
 
 
@@ -262,6 +263,18 @@ def _resolve_blocker_json_path(project_name: str, explicit_path: Path | None) ->
     for candidate in candidates:
         if candidate and candidate.exists():
             return candidate
+    return None
+
+
+def _reusable_session_artifacts(
+    state: BlockerRuntimeState,
+    explicit_path: Path | None,
+) -> BlockerSessionArtifacts | None:
+    if explicit_path is not None:
+        return None
+    artifacts = state.last_session_artifacts
+    if artifacts and artifacts.blocker_json.is_file():
+        return artifacts
     return None
 
 
@@ -1659,16 +1672,26 @@ def run_blocker_session(
             state.artifact_branch_covered_baseline,
         )
 
+    session_artifacts = None
     resolved_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
     if resolved_json_path is None:
-        logger.warning("Blocker session skipped for %s because branch-blockers.json is unavailable.", project_name)
-        _log_blocker_session_skipped(
-            project_name,
-            state,
-            "missing_blocker_json",
-            elapsed_seconds,
-        )
-        return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_blocker_json"}
+        session_artifacts = _reusable_session_artifacts(state, blocker_json_path)
+        if session_artifacts is not None:
+            resolved_json_path = session_artifacts.blocker_json
+            logger.info(
+                "Reusing cached blocker session artifacts for %s from %s because live branch-blockers.json is unavailable.",
+                project_name,
+                session_artifacts.root,
+            )
+        else:
+            logger.warning("Blocker session skipped for %s because branch-blockers.json is unavailable.", project_name)
+            _log_blocker_session_skipped(
+                project_name,
+                state,
+                "missing_blocker_json",
+                elapsed_seconds,
+            )
+            return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_blocker_json"}
 
     selection_deadline = (
         deadline - _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
@@ -1692,7 +1715,7 @@ def run_blocker_session(
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "missing_project_target_linecov"}
 
-    if not ensure_blocker_webapp_ready(project_name):
+    if session_artifacts is None and not ensure_blocker_webapp_ready(project_name):
         _log_blocker_session_skipped(
             project_name,
             state,
@@ -1701,6 +1724,8 @@ def run_blocker_session(
             blocker_json_path=str(resolved_json_path),
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "introspector_webapp_unavailable"}
+    if session_artifacts is not None:
+        logger.info("Using cached immutable blocker context for %s without restarting Introspector webapp.", project_name)
 
     blockers = _select_project_blockers(
         project_name,
@@ -1720,14 +1745,16 @@ def run_blocker_session(
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_blockers"}
 
-    session_artifacts = _create_blocker_session_artifacts(
-        project_name=project_name,
-        session_number=state.sessions_run,
-        blocker_json_path=resolved_json_path,
-        candidate_blockers=blockers,
-    )
+    if session_artifacts is None:
+        session_artifacts = _create_blocker_session_artifacts(
+            project_name=project_name,
+            session_number=state.sessions_run,
+            blocker_json_path=resolved_json_path,
+            candidate_blockers=blockers,
+        )
     if session_artifacts is not None:
         resolved_json_path = session_artifacts.blocker_json
+        state.last_session_artifacts = session_artifacts
         logger.info(
             "Using immutable blocker session artifacts for %s from %s.",
             project_name,
@@ -2052,6 +2079,7 @@ def run_blocker_session(
                 if refreshed_session_artifacts is not None:
                     session_artifacts = refreshed_session_artifacts
                     resolved_json_path = session_artifacts.blocker_json
+                    state.last_session_artifacts = session_artifacts
                 elif session_artifacts is not None:
                     logger.warning(
                         "Failed to replace the session artifact cache after refresh for %s; retaining the previous cache.",
