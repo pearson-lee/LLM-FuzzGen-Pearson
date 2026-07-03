@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "sanitizer": "address",
+  "seconds": 10,
+  "elapsed_seconds": 130.0143426249997,
+  "error": "fuzzer timeout",
+  "error_path": "experiments/20260702_224826_run_all_fuzzer/blockers/AllocateDataFormat_1644/independent_target/lcms_AllocateDataFormat_20260703_133419/reference_guided/iter_01/runtime_sanity_error.txt"
+}

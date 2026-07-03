@@ -1,0 +1,46 @@
+{
+  "runtime_confirmed": true,
+  "sanitizer_stable": true,
+  "validated_target": true,
+  "primary_success_quality": "public_api_with_harness_state",
+  "success_quality_labels": [
+    "public_api_with_harness_state"
+  ],
+  "contract_code_alignment": "partial",
+  "quality_flags": [
+    "contract_symbols_missing_public_evidence"
+  ],
+  "needs_manual_review": false,
+  "quality_notes": [
+    "Only part of the Strategy Contract function identifiers appear in the generated code: present=['cmsSetColorSpace', 'cmsStageAllocToneCurves', 'cmsStageAllocMatrix', 'cmsWriteTag', 'cmsGetPostScriptCSA'], missing=['stage'].",
+    "Some Strategy Contract identifiers were not found as public symbols in collected evidence: stage, cmsWriteTag, cmsGetPostScriptCSA."
+  ],
+  "evidence": {
+    "code_call_count": 18,
+    "public_api_calls": [
+      "cmsBuildGamma",
+      "cmsFreeToneCurve",
+      "cmsPipelineInsertStage",
+      "cmsSetColorSpace",
+      "cmsSetPCS",
+      "cmsStageAllocMatrix",
+      "cmsStageAllocToneCurves"
+    ],
+    "internal_api_calls": [],
+    "direct_struct_writes": [],
+    "internal_headers": [],
+    "contract_expected_symbols": [
+      "stage",
+      "cmsSetColorSpace",
+      "cmsStageAllocToneCurves",
+      "cmsStageAllocMatrix",
+      "cmsWriteTag",
+      "cmsGetPostScriptCSA"
+    ],
+    "public_symbol_count": 25
+  },
+  "limitations": [
+    "Heuristic quality labels do not replace runtime coverage success.",
+    "C/C++ macro expansion, templates, overloaded calls, function pointers, and public struct policies may require manual review."
+  ]
+}

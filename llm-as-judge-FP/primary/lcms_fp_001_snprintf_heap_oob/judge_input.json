@@ -1,0 +1,34 @@
+{
+  "judge_case_id": "local_lcms_20260702_001",
+  "project": "lcms",
+  "source": "local-run",
+  "experiment": "experiments/20260702_224826_run_all_fuzzer",
+  "issue_url": "local:experiments/20260702_224826_run_all_fuzzer/run.log:130981",
+  "sanitizer": "AddressSanitizer",
+  "crash_type": "AddressSanitizer heap-buffer-overflow WRITE 24",
+  "crash_function": "LLVMFuzzerTestOneInput",
+  "top_frame": "vsnprintf",
+  "top_library_frame": null,
+  "fuzzer_frame": "/src/llm_fuzzgen_reference_guided_0703133608_875103.c:87:14",
+  "dedup_token": "__interceptor_vsnprintf--__interceptor_snprintf--LLVMFuzzerTestOneInput",
+  "fuzz_target_name": "llm_fuzzgen_reference_guided_0703133608_875103",
+  "api_entrypoint": "cmsIT8LoadFromMem",
+  "blocker": "AllocateDataFormat_1644",
+  "evidence_files": {
+    "target_source": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/target.c",
+    "crash_log": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/crash.log",
+    "run_log_excerpt": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/run_log_excerpt.log",
+    "full_run_fuzzer_log": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/full_run_fuzzer.log",
+    "runtime_sanity": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/runtime_sanity.json",
+    "target_quality_report": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/target_quality_report.json",
+    "prompt_attempt": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/prompt_attempt_02.txt",
+    "crash_input": "llm-as-judge-FP/primary/lcms_fp_001_snprintf_heap_oob/corpus/llm_fuzzgen_reference_guided_0703133608_875103_crash-da39a3ee5e6b4b0d3255bfef95601890afd80709"
+  },
+  "corpus": {
+    "artifact_name": "llm_fuzzgen_reference_guided_0703133608_875103_crash-da39a3ee5e6b4b0d3255bfef95601890afd80709",
+    "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+    "base64": "",
+    "size_bytes": 0,
+    "recovered_from_full_run_fuzzer_log_base64": true
+  }
+}

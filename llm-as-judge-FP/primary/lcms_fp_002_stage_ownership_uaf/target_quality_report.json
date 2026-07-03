@@ -1,0 +1,40 @@
+{
+  "runtime_confirmed": true,
+  "sanitizer_stable": true,
+  "validated_target": true,
+  "primary_success_quality": "public_api_with_harness_state",
+  "success_quality_labels": [
+    "public_api_with_harness_state"
+  ],
+  "contract_code_alignment": "mismatch",
+  "quality_flags": [
+    "contract_symbols_missing_public_evidence"
+  ],
+  "needs_manual_review": false,
+  "quality_notes": [
+    "Strategy Contract describes direct struct/member manipulation, but the generated code did not perform a direct struct-field write.",
+    "Some Strategy Contract identifiers were not found as public symbols in collected evidence: cmsStageAllocToneCurves, cmsStageAllocCLut16bit, cmsPipelineInsertStage, cmsWriteTag, cmsSaveProfileToMem."
+  ],
+  "evidence": {
+    "code_call_count": 14,
+    "public_api_calls": [
+      "cmsPipelineAlloc"
+    ],
+    "internal_api_calls": [],
+    "direct_struct_writes": [],
+    "internal_headers": [],
+    "contract_expected_symbols": [
+      "cmsPipelineAlloc",
+      "cmsStageAllocToneCurves",
+      "cmsStageAllocCLut16bit",
+      "cmsPipelineInsertStage",
+      "cmsWriteTag",
+      "cmsSaveProfileToMem"
+    ],
+    "public_symbol_count": 18
+  },
+  "limitations": [
+    "Heuristic quality labels do not replace runtime coverage success.",
+    "C/C++ macro expansion, templates, overloaded calls, function pointers, and public struct policies may require manual review."
+  ]
+}

@@ -1,0 +1,644 @@
+# Role and Objective
+
+You are an expert software security engineer specializing in LibFuzzer-based coverage-guided fuzzing.
+Your task is to repair the provided blocker-oriented fuzz target so it compiles successfully without discarding its blocker-reaching strategy.
+
+# Primary Goal
+
+- Fix the reported compilation or runtime/build issue.
+- Preserve the candidate's blocker-oriented intent.
+- Return a full standalone fuzz target that is ready to build.
+
+# Project Context
+
+- Project: `lcms`
+- Language: `c`
+
+# Seed Compatibility Constraint
+
+Do not change the existing top-level Data/Size consume order, FuzzedDataProvider consume order, or the semantic layout expected by existing seeds.
+
+
+# Previous Blocker Feedback Summary
+
+```text
+baseline target: /home/kyliechien/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625034646.c (blocked=0)
+```
+
+# Strategy Contract
+
+The following contract records the blocker-solving semantics of the candidate.
+It is guidance for repair; actual success is decided later by runtime coverage.
+
+```text
+required_state: _cmsContextGetClientChunk must be called with a _cmsMemoryClient enum value `mc` such that `(int)mc < 0` or `mc >= MemoryClientMax`.
+state_constructor: A custom error handler is registered via `cmsSetLogErrorHandlerTHR`. This handler, when invoked, will call `_cmsContextGetClientChunk` with an out-of-bounds value (999).
+trigger_api: `cmsSignalError` is called to invoke the custom error handler, which in turn calls the blocker function `_cmsContextGetClientChunk` with the invalid argument.
+preserved_invariants: The original input consumption contract of the fuzzer is preserved. The core logic and API calls of the reference target are kept intact. The new logic is added on top.
+```
+
+# Compilation or Runtime/Build Error
+
+```text
+==15==ERROR: AddressSanitizer: stack-overflow on address 0x7ffcd423f9a8 (pc 0x55e82f11e741 bp 0x7ffcd4240220 sp 0x7ffcd423f9b0 T0)
+[1m[0mSCARINESS: 10 (stack-overflow)
+    #0 0x55e82f11e741 in printf_common(void*, char const*, __va_list_tag*) /src/llvm-project/compiler-rt/lib/asan/../sanitizer_common/sanitizer_common_interceptors_format.inc:504:3
+    #1 0x55e82f11f384 in vsnprintf /src/llvm-project/compiler-rt/lib/asan/../sanitizer_common/sanitizer_common_interceptors.inc:1652:1
+    #2 0x55e82f1da9cb in cmsSignalError /src/lcms/src/cmserr.c:518:5
+    #3 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #4 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #5 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #6 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #7 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #8 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #9 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #10 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #11 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #12 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #13 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #14 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #15 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #16 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #17 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #18 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #19 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #20 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #21 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #22 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #23 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #24 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #25 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #26 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #27 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #28 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #29 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #30 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #31 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #32 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #33 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #34 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #35 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #36 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #37 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #38 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #39 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #40 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #41 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #42 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #43 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #44 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #45 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #46 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #47 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #48 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #49 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #50 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #51 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #52 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #53 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #54 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #55 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #56 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #57 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #58 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #59 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #60 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #61 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #62 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #63 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #64 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #65 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #66 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #67 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #68 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #69 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #70 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #71 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #72 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #73 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #74 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #75 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #76 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #77 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #78 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #79 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #80 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #81 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #82 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #83 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #84 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #85 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #86 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #87 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #88 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #89 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #90 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #91 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #92 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #93 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #94 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #95 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #96 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #97 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #98 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #99 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #100 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #101 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #102 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #103 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #104 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #105 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #106 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #107 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #108 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #109 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #110 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #111 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #112 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #113 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #114 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #115 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #116 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #117 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #118 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #119 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #120 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #121 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #122 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #123 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #124 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #125 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #126 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #127 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #128 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #129 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #130 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #131 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #132 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #133 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #134 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #135 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #136 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #137 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #138 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #139 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #140 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #141 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #142 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #143 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #144 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #145 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #146 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #147 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #148 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #149 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #150 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #151 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #152 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #153 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #154 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #155 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #156 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #157 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #158 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #159 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #160 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #161 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #162 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #163 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #164 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #165 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #166 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #167 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #168 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #169 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #170 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #171 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #172 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #173 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #174 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #175 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #176 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #177 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #178 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #179 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #180 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #181 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #182 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #183 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #184 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #185 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #186 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #187 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #188 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #189 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #190 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #191 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #192 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #193 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #194 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #195 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #196 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #197 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #198 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #199 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #200 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #201 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #202 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #203 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #204 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #205 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #206 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #207 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #208 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #209 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #210 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #211 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #212 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #213 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #214 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #215 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #216 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #217 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #218 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #219 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #220 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #221 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #222 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #223 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #224 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #225 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #226 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #227 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #228 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #229 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #230 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #231 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #232 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #233 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #234 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #235 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #236 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #237 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #238 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #239 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #240 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #241 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #242 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #243 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #244 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+    #245 0x55e82f21497d in _cmsContextGetClientChunk /src/lcms/src/cmsplugin.c:754:12
+    #246 0x55e82f1daa0d in cmsSignalError /src/lcms/src/cmserr.c:524:9
+
+DEDUP_TOKEN: printf_common(void*, char const*, __va_list_tag*)--__interceptor_vsnprintf--cmsSignalError
+SUMMARY: AddressSanitizer: stack-overflow /src/lcms/src/cmserr.c:518:5 in cmsSignalError
+==15==ABORTING
+MS: 1 InsertRepeatedBytes-; base unit: f892df75f8f9a1c3badf5efdf261258fc086c719
+0x85,0x85,0x85,0x85,0x85,0x85,0x85,0x85,0x9,0x9,0xa,
+\205\205\205\205\205\205\205\205\011\011\012
+artifact_prefix='llm_fuzzgen_reference_guided_0703121040_139398_'; Test unit written to llm_fuzzgen_reference_guided_0703121040_139398_crash-286d84ce461ff8d4e0fdd6247e454b817d8cab13
+Base64: hYWFhYWFhYUJCQo=
+[full run_fuzzer output log: /home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/lcms/run_fuzzer/20260703_121105_664023_llm_fuzzgen_reference_guided_0703121040_139398_dffb7da7.log]
+```
+
+# Current Candidate To Repair
+
+```cpp
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: _cmsContextGetClientChunk must be called with a _cmsMemoryClient enum value `mc` such that `(int)mc < 0` or `mc >= MemoryClientMax`.
+state_constructor: A custom error handler is registered via `cmsSetLogErrorHandlerTHR`. This handler, when invoked, will call `_cmsContextGetClientChunk` with an out-of-bounds value (999).
+trigger_api: `cmsSignalError` is called to invoke the custom error handler, which in turn calls the blocker function `_cmsContextGetClientChunk` with the invalid argument.
+preserved_invariants: The original input consumption contract of the fuzzer is preserved. The core logic and API calls of the reference target are kept intact. The new logic is added on top.
+END_BLOCKER_STRATEGY_CONTRACT */
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+// Dummy transform plugin
+static cmsBool MyTransformFactory(
+    cmsContext ContextID,
+    cmsUInt32Number InputFormat,
+    cmsUInt32Number OutputFormat,
+    cmsUInt32Number dwFlags) {
+  return TRUE;
+}
+
+static cmsPluginTransform MyTransformPlugin = {
+    .base = {
+        .Magic = cmsPluginMagicNumber,
+        .ExpectedVersion = 2080,
+        .Type = cmsPluginTransformSig,
+        .Next = NULL,
+    },
+    .factories = {
+        .xform = MyTransformFactory,
+    },
+};
+
+static void MyFree(cmsContext ContextID, void* Ptr)
+{
+    free(Ptr);
+}
+
+// Custom error handler to trigger the blocker
+static void MyErrorHandler(cmsContext ContextID, cmsUInt32Number ErrorCode, const char *Text)
+{
+    // Call _cmsContextGetClientChunk with an invalid memory client to trigger the vulnerability
+    _cmsContextGetClientChunk(ContextID, (_cmsMemoryClient)999);
+    // Avoid unused parameter warnings
+    (void)ErrorCode;
+    (void)Text;
+}
+
+// Main fuzzer entry point
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  if (size < 10) {
+    return 0;
+  }
+
+  cmsContext context = cmsCreateContext(NULL, NULL);
+  if (context == NULL) {
+    return 0;
+  }
+
+  /*
+   * ANALYSIS: The function _cmsContextGetClientChunk has a branch that is
+   *           never hit. To hit this branch, we need to call it with an
+   *           invalid memory client enum.
+   * IMPLEMENTATION: The following code registers a custom error handler that,
+   *                 when triggered, calls _cmsContextGetClientChunk with an
+   *                 out-of-bounds value. cmsSignalError is then called to
+   *                 trigger the handler.
+   */
+  cmsSetLogErrorHandlerTHR(context, MyErrorHandler);
+  cmsSignalError(context, 0, "fuzz");
+
+  /*
+   * ANALYSIS: The function _cmsRegisterTransformPlugin had a branch that was
+   *           never hit because the 'Data' argument was always NULL.
+   * IMPLEMENTATION: The following code registers a dummy transform plugin
+   *                 to exercise the code path where 'Data' is not NULL.
+   */
+  cmsPluginTHR(context, &MyTransformPlugin);
+
+  cmsHPROFILE hInProfile = cmsCreate_sRGBProfileTHR(context);
+  cmsHPROFILE hOutProfile = cmsCreate_sRGBProfileTHR(context);
+  if (hInProfile == NULL || hOutProfile == NULL) {
+    if (hInProfile) cmsCloseProfile(hInProfile);
+    if (hOutProfile) cmsCloseProfile(hOutProfile);
+    cmsDeleteContext(context);
+    return 0;
+  }
+
+  /*
+   * ANALYSIS: The function cmsDetectDestinationBlackPoint has very low
+   *           coverage, with many untested branches.
+   * IMPLEMENTATION: The following code calls cmsDetectDestinationBlackPoint
+   *                 with different intents to cover more branches.
+   */
+  cmsCIEXYZ BlackPoint;
+  cmsDetectDestinationBlackPoint(&BlackPoint, hInProfile, INTENT_PERCEPTUAL, 0);
+  cmsDetectDestinationBlackPoint(&BlackPoint, hInProfile, INTENT_RELATIVE_COLORIMETRIC, 0);
+  cmsDetectDestinationBlackPoint(&BlackPoint, hInProfile, INTENT_SATURATION, 0);
+
+  cmsHTRANSFORM hTransform = cmsCreateTransformTHR(context, hInProfile, TYPE_RGB_8,
+                                                   hOutProfile, TYPE_RGB_8,
+                                                   INTENT_PERCEPTUAL, 0);
+  if (hTransform != NULL) {
+    /*
+     * ANALYSIS: The functions _cmsSetTransformUserData and
+     *           _cmsGetTransformUserData had 0% coverage.
+     * IMPLEMENTATION: The following code creates a transform, sets user data
+     *                 on it, and then retrieves it to cover these functions.
+     *                 A custom free function is provided to ensure no memory leaks.
+     */
+    void *userData = malloc(1);
+    if (userData != NULL) {
+      _cmsSetTransformUserData(hTransform, userData, MyFree);
+      void *retrievedUserData = _cmsGetTransformUserData(hTransform);
+      if (retrievedUserData != userData) {
+        // This should not happen
+        free(userData);
+      }
+    }
+    /*
+     * ANALYSIS: The functions cmsGetTransformInputFormat and cmsGetTransformOutputFormat
+     *           had 0% coverage.
+     * IMPLEMENTATION: The following code calls these getter functions on the created
+     *                 transform to ensure they are covered.
+     */
+    cmsGetTransformInputFormat(hTransform);
+    cmsGetTransformOutputFormat(hTransform);
+
+    cmsDeleteTransform(hTransform);
+  }
+
+  /*
+   * ANALYSIS: The functions in cmsalpha.c, which handle extra channels (like alpha),
+   *           had very low or 0% coverage. This was because the existing transforms
+   *           only used opaque formats like TYPE_RGB_8.
+   * IMPLEMENTATION: The following code creates a transform between RGBA formats
+   *                 (TYPE_RGBA_8), which contain an alpha channel. This specifically
+   *                 targets the uncovered code paths in _cmsHandleExtraChannels and
+   *                 related formatter functions.
+   */
+  cmsHTRANSFORM hAlphaTransform = cmsCreateTransformTHR(context, hInProfile, TYPE_RGBA_8,
+                                                        hOutProfile, TYPE_RGBA_8,
+                                                        INTENT_PERCEPTUAL, 0);
+  if (hAlphaTransform != NULL) {
+    cmsDeleteTransform(hAlphaTransform);
+  }
+
+  /*
+   * ANALYSIS: The function OptimizeByComputingLinearization has extremely low
+   *           coverage. The initial checks for non-float RGB to RGB formats
+   *           were preventing the main logic from being executed.
+   * IMPLEMENTATION: The following code creates a pipeline with a matrix and a
+   *                 CLUT stage, which is a suitable candidate for this
+   *                 optimization. It then calls _cmsOptimizePipeline with the
+   *                 cmsFLAGS_CLUT_PRE_LINEARIZATION flag to trigger the
+   *                 optimization.
+   */
+  cmsPipeline *p = cmsPipelineAlloc(context, 3, 3);
+  if (p != NULL) {
+    double matrix[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    cmsStage *m = cmsStageAllocMatrix(context, 3, 3, matrix, NULL);
+    cmsStage *c = cmsStageAllocCLut16bit(context, 2, 3, 3, NULL);
+
+    if (m != NULL && c != NULL) {
+      cmsPipelineInsertStage(p, cmsAT_BEGIN, m);
+      cmsPipelineInsertStage(p, cmsAT_END, c);
+
+      uint32_t In = TYPE_RGB_8;
+      uint32_t Out = TYPE_RGB_8;
+      uint32_t dwFlags = cmsFLAGS_CLUT_PRE_LINEARIZATION;
+      _cmsOptimizePipeline(context, &p, INTENT_PERCEPTUAL, &In, &Out, &dwFlags);
+    } else {
+      if (m) cmsStageFree(m);
+      if (c) cmsStageFree(c);
+    }
+    cmsPipelineFree(p);
+  }
+
+  /*
+   * ANALYSIS: Many tag handler functions in cmstypes.c, such as those for UcrBg
+   *           (Type_UcrBg_Read/Write) and NamedColor (Type_NamedColor_Read/Write),
+   *           had 0% coverage. These are triggered when reading/writing profiles
+   *           containing these specific tag types.
+   * IMPLEMENTATION: The following code creates a new profile, writes a UcrBg tag
+   *                 and a NamedColor tag to it, saves the profile to a memory
+   *                 buffer, and then re-opens it. This round-trip forces the
+   *                 execution of both the tag writing and tag reading handlers,
+   *                 significantly improving their coverage.
+   */
+  cmsHPROFILE hTagProfile = cmsCreateNULLProfileTHR(context);
+  if (hTagProfile != NULL) {
+    // Write UcrBg Tag
+    cmsUcrBg ucrbg;
+    ucrbg.Ucr = cmsBuildTabulatedToneCurve16(context, 1, NULL);
+    ucrbg.Bg = cmsBuildTabulatedToneCurve16(context, 1, NULL);
+    ucrbg.Desc = NULL;
+    if (ucrbg.Ucr != NULL && ucrbg.Bg != NULL) {
+        cmsWriteTag(hTagProfile, cmsSigUcrBgTag, &ucrbg);
+    }
+    if (ucrbg.Ucr) cmsFreeToneCurve(ucrbg.Ucr);
+    if (ucrbg.Bg) cmsFreeToneCurve(ucrbg.Bg);
+
+    // Write Named Color Tag
+    cmsNAMEDCOLORLIST* nc = cmsAllocNamedColorList(context, 1, 3, "prefix", "suffix");
+    if (nc != NULL) {
+        uint16_t PCS[3] = {1,2,3};
+        uint16_t Device[3] = {4,5,6};
+        cmsAppendNamedColor(nc, "name", PCS, Device);
+        cmsWriteTag(hTagProfile, cmsSigNamedColor2Tag, nc);
+        cmsFreeNamedColorList(nc);
+    }
+
+    // Save and load to trigger read handlers
+    unsigned char* buffer = NULL;
+    cmsUInt32Number bytes_needed = 0;
+    if (cmsSaveProfileToMem(hTagProfile, NULL, &bytes_needed)) {
+        buffer = (unsigned char*)malloc(bytes_needed);
+        if (buffer != NULL) {
+            if (cmsSaveProfileToMem(hTagProfile, buffer, &bytes_needed)) {
+                cmsHPROFILE hReadProfile = cmsOpenProfileFromMem(buffer, bytes_needed);
+                if (hReadProfile != NULL) {
+                    cmsCloseProfile(hReadProfile);
+                }
+            }
+            free(buffer);
+        }
+    }
+    cmsCloseProfile(hTagProfile);
+  }
+
+  /*
+   * ANALYSIS: The function cmsCreateDeviceLinkFromCubeFileTHR was covered, but its
+   *           underlying file parsing logic in cmscgats.c:ParseCube had low coverage.
+   * IMPLEMENTATION: The following code writes the fuzzer input to a temporary .cube file
+   *                 and passes it to cmsCreateDeviceLinkFromCubeFileTHR. This will
+   *                 exercise the file parsing and error handling paths of the function.
+   */
+  char filename[256];
+  snprintf(filename, sizeof(filename), "/tmp/%s.cube", "llm_fuzzgen0625034646");
+  FILE* f = fopen(filename, "wb");
+  if (f) {
+      fwrite(data, 1, size, f);
+      fclose(f);
+      cmsHPROFILE cube_profile = cmsCreateDeviceLinkFromCubeFileTHR(context, filename);
+      if (cube_profile) {
+          cmsCloseProfile(cube_profile);
+      }
+      unlink(filename);
+  }
+
+  /*
+   * ANALYSIS: Functions in cmscgats.c related to the IT8 API, such as
+   *           cmsIT8GetSheetType and cmsIT8SetComment, had 0% coverage.
+   * IMPLEMENTATION: The following code loads the fuzzer data into an IT8 handle
+   *                 and calls several uncovered API functions to improve coverage.
+   *                 The handle is freed to prevent memory leaks.
+   */
+  cmsHANDLE it8 = cmsIT8LoadFromMem(context, data, size);
+  if (it8 != NULL) {
+      cmsIT8GetSheetType(it8);
+      cmsIT8SetComment(it8, "fuzz comment");
+      cmsIT8SetPropertyDbl(it8, "fuzz_prop", 1.23);
+      cmsIT8Free(it8);
+  }
+
+  /*
+   * ANALYSIS: Functions related to profile sequence descriptions in cmsnamed.c,
+   *           like cmsAllocProfileSequenceDescription, had 0% coverage.
+   * IMPLEMENTATION: The following code calls the allocation, duplication, and
+   *                 freeing functions for profile sequence descriptions to cover
+   *                 these APIs. All allocated resources are freed.
+   */
+  cmsSEQ* seq = cmsAllocProfileSequenceDescription(context, 1);
+  if (seq != NULL) {
+      cmsSEQ* seq_dup = cmsDupProfileSequenceDescription(seq);
+      if (seq_dup != NULL) {
+          cmsFreeProfileSequenceDescription(seq_dup);
+      }
+      cmsFreeProfileSequenceDescription(seq);
+  }
+
+  /*
+   * ANALYSIS: The functions cmsGetPostScriptCSA and cmsGetPostScriptCRD had
+   *           uncovered branches where the Buffer argument was NULL.
+   * IMPLEMENTATION: The following code calls these functions with both NULL and
+   *                 non-NULL buffers to exercise these paths.
+   */
+  char ps_buffer[1024];
+  cmsGetPostScriptCSA(context, hInProfile, INTENT_PERCEPTUAL, 0, ps_buffer, sizeof(ps_buffer));
+  cmsGetPostScriptCRD(context, hInProfile, INTENT_PERCEPTUAL, 0, ps_buffer, sizeof(ps_buffer));
+  cmsGetPostScriptCSA(context, hInProfile, INTENT_PERCEPTUAL, 0, NULL, 0);
+  cmsGetPostScriptCRD(context, hInProfile, INTENT_PERCEPTUAL, 0, NULL, 0);
+
+  /*
+   * ANALYSIS: The functions GenerateCSA and GenerateCRD in cmsps2.c had low
+   *           coverage because they were not tested with named color profiles.
+   * IMPLEMENTATION: The following code creates a named color profile and calls
+   *                 cmsGetPostScriptCSA and cmsGetPostScriptCRD with it to
+   *                 exercise the named color code paths.
+   */
+  cmsHPROFILE hNamedColor = cmsCreateNULLProfileTHR(context);
+  if (hNamedColor != NULL) {
+      cmsSetDeviceClass(hNamedColor, cmsSigNamedColorClass);
+      cmsGetPostScriptCSA(context, hNamedColor, INTENT_PERCEPTUAL, 0, NULL, 0);
+      cmsGetPostScriptCRD(context, hNamedColor, INTENT_PERCEPTUAL, 0, NULL, 0);
+      cmsCloseProfile(hNamedColor);
+  }
+
+  cmsCloseProfile(hInProfile);
+  cmsCloseProfile(hOutProfile);
+  cmsDeleteContext(context);
+
+  return 0;
+}
+```
+
+# Repair Guidance
+
+1. Treat the error log as the primary signal.
+2. Make the smallest possible correction that preserves blocker-oriented logic.
+3. If headers, namespaces, types, or signatures are wrong, fix those first.
+4. Preserve blocker crossing as the top priority.
+5. If the current candidate was intentionally using a realistic public API route with downstream exploration potential, preserve that design instead of replacing it with a shallower helper-only call.
+6. Do not drop important API calls or replace the harness with a trivial parser-only target unless the current code is fundamentally invalid.
+7. Keep the target deterministic, stateless, and memory-safe.
+8. Do not replace the state constructor, setter sequence, or trigger API with an easier-to-compile alternative unless the replacement preserves every required state property in the Strategy Contract.
+9. Compile success alone is insufficient. In particular, do not repair a specialized object or parser state back into the original baseline state that was already shown unable to cross the blocker.
+10. Preserve the `BLOCKER_STRATEGY_CONTRACT` comment in the returned target and update only implementation details; do not weaken its required state.
+
+# Output Requirements
+
+- Return only the full corrected fuzz target inside one `<fuzz_target>` block.
+- The code must compile as a complete fuzz target.
+- Do not include prose outside `<fuzz_target>`.

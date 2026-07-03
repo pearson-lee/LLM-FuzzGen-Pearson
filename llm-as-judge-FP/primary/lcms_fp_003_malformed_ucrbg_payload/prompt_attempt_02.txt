@@ -1,0 +1,451 @@
+# Role and Objective
+
+You are an expert software security engineer specializing in LibFuzzer-based coverage-guided fuzzing.
+Your task is to repair the provided blocker-oriented fuzz target so it compiles successfully without discarding its blocker-reaching strategy.
+
+# Primary Goal
+
+- Fix the reported compilation or runtime/build issue.
+- Preserve the candidate's blocker-oriented intent.
+- Return a full standalone fuzz target that is ready to build.
+
+# Project Context
+
+- Project: `lcms`
+- Language: `c`
+
+# Seed Compatibility Constraint
+
+Do not change the existing top-level Data/Size consume order, FuzzedDataProvider consume order, or the semantic layout expected by existing seeds.
+
+
+# Previous Blocker Feedback Summary
+
+```text
+baseline target: /home/kyliechien/LLM-FuzzGen/external/oss-fuzz/projects/lcms/llm_fuzzgen0625034646.c (blocked=0)
+```
+
+# Strategy Contract
+
+The following contract records the blocker-solving semantics of the candidate.
+It is guidance for repair; actual success is decided later by runtime coverage.
+
+```text
+required_state: The DupPtr function for a given tag type must return NULL, indicating a failure to duplicate the tag data. This is typically caused by malformed data.
+state_constructor: A call to cmsWriteTag with a tag signature that expects a pointer to a structure (e.g., cmsSigUcrBgTag), but instead passing a pointer to the raw, unstructured fuzzer input.
+trigger_api: cmsWriteTag(hProfile, cmsSigUcrBgTag, (const void*)data)
+preserved_invariants: The original fuzz target's input consumption and API call sequence are preserved. The new logic is added without modifying the existing code.
+```
+
+# Compilation or Runtime/Build Error
+
+```text
+==15==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x502000007f38 at pc 0x55a56651cb41 bp 0x7ffd447e7470 sp 0x7ffd447e7468
+[1m[0m[1m[34mREAD of size 8 at 0x502000007f38 thread T0[1m[0m
+SCARINESS: 23 (8-byte-read-heap-buffer-overflow)
+    #0 0x55a56651cb40 in Type_UcrBg_Dup /src/lcms/src/cmstypes.c:3891:45
+    #1 0x55a5664c464f in cmsWriteTag /src/lcms/src/cmsio0.c:1883:35
+    #2 0x55a566497273 in LLVMFuzzerTestOneInput /src/llm_fuzzgen_reference_guided_0703080652_120402.c:307:5
+    #3 0x55a56634b3d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #4 0x55a56634abf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #5 0x55a56634c3d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #6 0x55a56634d165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #7 0x55a56633bfab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #8 0x55a566367382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #9 0x7f75056ac082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #10 0x55a56632e82d in _start (/out/llm_fuzzgen_reference_guided_0703080652_120402+0x8782d)
+
+DEDUP_TOKEN: Type_UcrBg_Dup--cmsWriteTag--LLVMFuzzerTestOneInput
+[1m[32m0x502000007f3b is located 0 bytes after 11-byte region [0x502000007f30,0x502000007f3b)
+[1m[0m[1m[35mallocated by thread T0 here:[1m[0m
+    #0 0x55a56645719f in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x55a56655b0b3 in operator new(unsigned long) cxa_noexception.cpp
+    #2 0x55a56634abf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #3 0x55a56634c3d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #4 0x55a56634d165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #5 0x55a56633bfab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #6 0x55a566367382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #7 0x7f75056ac082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--operator new(unsigned long)--fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*)
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/lcms/src/cmstypes.c:3891:45 in Type_UcrBg_Dup
+Shadow bytes around the buggy address:
+  0x502000007c80: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m
+  0x502000007d00: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m
+  0x502000007d80: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m
+  0x502000007e00: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m
+  0x502000007e80: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m
+=>0x502000007f00: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m[[1m[0m03[1m[0m][1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m
+  0x502000007f80: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x502000008000: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m
+  0x502000008080: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[0m04[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[0m04[1m[0m
+  0x502000008100: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x502000008180: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           [1m[0m00[1m[0m
+  Partially addressable: [1m[0m01[1m[0m [1m[0m02[1m[0m [1m[0m03[1m[0m [1m[0m04[1m[0m [1m[0m05[1m[0m [1m[0m06[1m[0m [1m[0m07[1m[0m 
+  Heap left redzone:       [1m[31mfa[1m[0m
+  Freed heap region:       [1m[35mfd[1m[0m
+  Stack left redzone:      [1m[31mf1[1m[0m
+  Stack mid redzone:       [1m[31mf2[1m[0m
+  Stack right redzone:     [1m[31mf3[1m[0m
+  Stack after return:      [1m[35mf5[1m[0m
+  Stack use after scope:   [1m[35mf8[1m[0m
+  Global redzone:          [1m[31mf9[1m[0m
+  Global init order:       [1m[36mf6[1m[0m
+  Poisoned by user:        [1m[34mf7[1m[0m
+  Container overflow:      [1m[34mfc[1m[0m
+  Array cookie:            [1m[31mac[1m[0m
+  Intra object redzone:    [1m[33mbb[1m[0m
+  ASan internal:           [1m[33mfe[1m[0m
+  Left alloca redzone:     [1m[34mca[1m[0m
+  Right alloca redzone:    [1m[34mcb[1m[0m
+==15==ABORTING
+MS: 2 ChangeBinInt-CopyPart-; base unit: ecd1c16b6dae4902ba3e5fe33a1522f131eefb39
+0x54,0xa7,0xa7,0xa7,0xa7,0xa7,0xa7,0xa7,0xa7,0xa,0xa,
+T\247\247\247\247\247\247\247\247\012\012
+artifact_prefix='llm_fuzzgen_reference_guided_0703080652_120402_'; Test unit written to llm_fuzzgen_reference_guided_0703080652_120402_crash-72ef6081d18534836dc570571aa0c0ec7dcb4675
+Base64: VKenp6enp6enCgo=
+[full run_fuzzer output log: /home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/lcms/run_fuzzer/20260703_080714_175572_llm_fuzzgen_reference_guided_0703080652_120402_80bde643.log]
+```
+
+# Current Candidate To Repair
+
+```cpp
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: The DupPtr function for a given tag type must return NULL, indicating a failure to duplicate the tag data. This is typically caused by malformed data.
+state_constructor: A call to cmsWriteTag with a tag signature that expects a pointer to a structure (e.g., cmsSigUcrBgTag), but instead passing a pointer to the raw, unstructured fuzzer input.
+trigger_api: cmsWriteTag(hProfile, cmsSigUcrBgTag, (const void*)data)
+preserved_invariants: The original fuzz target's input consumption and API call sequence are preserved. The new logic is added without modifying the existing code.
+END_BLOCKER_STRATEGY_CONTRACT */
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include "/src/lcms/include/lcms2.h"
+#include "/src/lcms/include/lcms2_plugin.h"
+#include "/src/lcms/src/lcms2_internal.h"
+
+// Dummy transform plugin
+static cmsBool MyTransformFactory(
+    cmsContext ContextID,
+    cmsUInt32Number InputFormat,
+    cmsUInt32Number OutputFormat,
+    cmsUInt32Number dwFlags) {
+  return TRUE;
+}
+
+static cmsPluginTransform MyTransformPlugin = {
+    .base = {
+        .Magic = cmsPluginMagicNumber,
+        .ExpectedVersion = 2080,
+        .Type = cmsPluginTransformSig,
+        .Next = NULL,
+    },
+    .factories = {
+        .xform = MyTransformFactory,
+    },
+};
+
+static void MyFree(cmsContext ContextID, void* Ptr)
+{
+    free(Ptr);
+}
+
+// Main fuzzer entry point
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  if (size < 10) {
+    return 0;
+  }
+
+  cmsContext context = cmsCreateContext(NULL, NULL);
+  if (context == NULL) {
+    return 0;
+  }
+
+  /*
+   * ANALYSIS: The function _cmsRegisterTransformPlugin had a branch that was
+   *           never hit because the 'Data' argument was always NULL.
+   * IMPLEMENTATION: The following code registers a dummy transform plugin
+   *                 to exercise the code path where 'Data' is not NULL.
+   */
+  cmsPluginTHR(context, &MyTransformPlugin);
+
+  cmsHPROFILE hInProfile = cmsCreate_sRGBProfileTHR(context);
+  cmsHPROFILE hOutProfile = cmsCreate_sRGBProfileTHR(context);
+  if (hInProfile == NULL || hOutProfile == NULL) {
+    if (hInProfile) cmsCloseProfile(hInProfile);
+    if (hOutProfile) cmsCloseProfile(hOutProfile);
+    cmsDeleteContext(context);
+    return 0;
+  }
+
+  /*
+   * ANALYSIS: The function cmsDetectDestinationBlackPoint has very low
+   *           coverage, with many untested branches.
+   * IMPLEMENTATION: The following code calls cmsDetectDestinationBlackPoint
+   *                 with different intents to cover more branches.
+   */
+  cmsCIEXYZ BlackPoint;
+  cmsDetectDestinationBlackPoint(&BlackPoint, hInProfile, INTENT_PERCEPTUAL, 0);
+  cmsDetectDestinationBlackPoint(&BlackPoint, hInProfile, INTENT_RELATIVE_COLORIMETRIC, 0);
+  cmsDetectDestinationBlackPoint(&BlackPoint, hInProfile, INTENT_SATURATION, 0);
+
+  cmsHTRANSFORM hTransform = cmsCreateTransformTHR(context, hInProfile, TYPE_RGB_8,
+                                                   hOutProfile, TYPE_RGB_8,
+                                                   INTENT_PERCEPTUAL, 0);
+  if (hTransform != NULL) {
+    /*
+     * ANALYSIS: The functions _cmsSetTransformUserData and
+     *           _cmsGetTransformUserData had 0% coverage.
+     * IMPLEMENTATION: The following code creates a transform, sets user data
+     *                 on it, and then retrieves it to cover these functions.
+     *                 A custom free function is provided to ensure no memory leaks.
+     */
+    void *userData = malloc(1);
+    if (userData != NULL) {
+      _cmsSetTransformUserData(hTransform, userData, MyFree);
+      void *retrievedUserData = _cmsGetTransformUserData(hTransform);
+      if (retrievedUserData != userData) {
+        // This should not happen
+        free(userData);
+      }
+    }
+    /*
+     * ANALYSIS: The functions cmsGetTransformInputFormat and cmsGetTransformOutputFormat
+     *           had 0% coverage.
+     * IMPLEMENTATION: The following code calls these getter functions on the created
+     *                 transform to ensure they are covered.
+     */
+    cmsGetTransformInputFormat(hTransform);
+    cmsGetTransformOutputFormat(hTransform);
+
+    cmsDeleteTransform(hTransform);
+  }
+
+  /*
+   * ANALYSIS: The functions in cmsalpha.c, which handle extra channels (like alpha),
+   *           had very low or 0% coverage. This was because the existing transforms
+   *           only used opaque formats like TYPE_RGB_8.
+   * IMPLEMENTATION: The following code creates a transform between RGBA formats
+   *                 (TYPE_RGBA_8), which contain an alpha channel. This specifically
+   *                 targets the uncovered code paths in _cmsHandleExtraChannels and
+   *                 related formatter functions.
+   */
+  cmsHTRANSFORM hAlphaTransform = cmsCreateTransformTHR(context, hInProfile, TYPE_RGBA_8,
+                                                        hOutProfile, TYPE_RGBA_8,
+                                                        INTENT_PERCEPTUAL, 0);
+  if (hAlphaTransform != NULL) {
+    cmsDeleteTransform(hAlphaTransform);
+  }
+
+  /*
+   * ANALYSIS: The function OptimizeByComputingLinearization has extremely low
+   *           coverage. The initial checks for non-float RGB to RGB formats
+   *           were preventing the main logic from being executed.
+   * IMPLEMENTATION: The following code creates a pipeline with a matrix and a
+   *                 CLUT stage, which is a suitable candidate for this
+   *                 optimization. It then calls _cmsOptimizePipeline with the
+   *                 cmsFLAGS_CLUT_PRE_LINEARIZATION flag to trigger the
+   *                 optimization.
+   */
+  cmsPipeline *p = cmsPipelineAlloc(context, 3, 3);
+  if (p != NULL) {
+    double matrix[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    cmsStage *m = cmsStageAllocMatrix(context, 3, 3, matrix, NULL);
+    cmsStage *c = cmsStageAllocCLut16bit(context, 2, 3, 3, NULL);
+
+    if (m != NULL && c != NULL) {
+      cmsPipelineInsertStage(p, cmsAT_BEGIN, m);
+      cmsPipelineInsertStage(p, cmsAT_END, c);
+
+      uint32_t In = TYPE_RGB_8;
+      uint32_t Out = TYPE_RGB_8;
+      uint32_t dwFlags = cmsFLAGS_CLUT_PRE_LINEARIZATION;
+      _cmsOptimizePipeline(context, &p, INTENT_PERCEPTUAL, &In, &Out, &dwFlags);
+    } else {
+      if (m) cmsStageFree(m);
+      if (c) cmsStageFree(c);
+    }
+    cmsPipelineFree(p);
+  }
+
+  /*
+   * ANALYSIS: Many tag handler functions in cmstypes.c, such as those for UcrBg
+   *           (Type_UcrBg_Read/Write) and NamedColor (Type_NamedColor_Read/Write),
+   *           had 0% coverage. These are triggered when reading/writing profiles
+   *           containing these specific tag types.
+   * IMPLEMENTATION: The following code creates a new profile, writes a UcrBg tag
+   *                 and a NamedColor tag to it, saves the profile to a memory
+   *                 buffer, and then re-opens it. This round-trip forces the
+   *                 execution of both the tag writing and tag reading handlers,
+   *                 significantly improving their coverage.
+   */
+  cmsHPROFILE hTagProfile = cmsCreateNULLProfileTHR(context);
+  if (hTagProfile != NULL) {
+    // Write UcrBg Tag
+    cmsUcrBg ucrbg;
+    ucrbg.Ucr = cmsBuildTabulatedToneCurve16(context, 1, NULL);
+    ucrbg.Bg = cmsBuildTabulatedToneCurve16(context, 1, NULL);
+    ucrbg.Desc = NULL; 
+    if (ucrbg.Ucr != NULL && ucrbg.Bg != NULL) {
+        cmsWriteTag(hTagProfile, cmsSigUcrBgTag, &ucrbg);
+    }
+    if (ucrbg.Ucr) cmsFreeToneCurve(ucrbg.Ucr);
+    if (ucrbg.Bg) cmsFreeToneCurve(ucrbg.Bg);
+
+    // Write Named Color Tag
+    cmsNAMEDCOLORLIST* nc = cmsAllocNamedColorList(context, 1, 3, "prefix", "suffix");
+    if (nc != NULL) {
+        uint16_t PCS[3] = {1,2,3};
+        uint16_t Device[3] = {4,5,6};
+        cmsAppendNamedColor(nc, "name", PCS, Device);
+        cmsWriteTag(hTagProfile, cmsSigNamedColor2Tag, nc);
+        cmsFreeNamedColorList(nc);
+    }
+
+    // Save and load to trigger read handlers
+    unsigned char* buffer = NULL;
+    cmsUInt32Number bytes_needed = 0;
+    if (cmsSaveProfileToMem(hTagProfile, NULL, &bytes_needed)) {
+        buffer = (unsigned char*)malloc(bytes_needed);
+        if (buffer != NULL) {
+            if (cmsSaveProfileToMem(hTagProfile, buffer, &bytes_needed)) {
+                cmsHPROFILE hReadProfile = cmsOpenProfileFromMem(buffer, bytes_needed);
+                if (hReadProfile != NULL) {
+                    cmsCloseProfile(hReadProfile);
+                }
+            }
+            free(buffer);
+        }
+    }
+    cmsCloseProfile(hTagProfile);
+  }
+
+  /*
+   * ANALYSIS: The function cmsCreateDeviceLinkFromCubeFileTHR was covered, but its
+   *           underlying file parsing logic in cmscgats.c:ParseCube had low coverage.
+   * IMPLEMENTATION: The following code writes the fuzzer input to a temporary .cube file
+   *                 and passes it to cmsCreateDeviceLinkFromCubeFileTHR. This will
+   *                 exercise the file parsing and error handling paths of the function.
+   */
+  char filename[256];
+  snprintf(filename, sizeof(filename), "/tmp/%s.cube", "llm_fuzzgen0625034646");
+  FILE* f = fopen(filename, "wb");
+  if (f) {
+      fwrite(data, 1, size, f);
+      fclose(f);
+      cmsHPROFILE cube_profile = cmsCreateDeviceLinkFromCubeFileTHR(context, filename);
+      if (cube_profile) {
+          cmsCloseProfile(cube_profile);
+      }
+      unlink(filename);
+  }
+
+  /*
+   * ANALYSIS: Functions in cmscgats.c related to the IT8 API, such as
+   *           cmsIT8GetSheetType and cmsIT8SetComment, had 0% coverage.
+   * IMPLEMENTATION: The following code loads the fuzzer data into an IT8 handle
+   *                 and calls several uncovered API functions to improve coverage.
+   *                 The handle is freed to prevent memory leaks.
+   */
+  cmsHANDLE it8 = cmsIT8LoadFromMem(context, data, size);
+  if (it8 != NULL) {
+      cmsIT8GetSheetType(it8);
+      cmsIT8SetComment(it8, "fuzz comment");
+      cmsIT8SetPropertyDbl(it8, "fuzz_prop", 1.23);
+      cmsIT8Free(it8);
+  }
+
+  /*
+   * ANALYSIS: Functions related to profile sequence descriptions in cmsnamed.c,
+   *           like cmsAllocProfileSequenceDescription, had 0% coverage.
+   * IMPLEMENTATION: The following code calls the allocation, duplication, and
+   *                 freeing functions for profile sequence descriptions to cover
+   *                 these APIs. All allocated resources are freed.
+   */
+  cmsSEQ* seq = cmsAllocProfileSequenceDescription(context, 1);
+  if (seq != NULL) {
+      cmsSEQ* seq_dup = cmsDupProfileSequenceDescription(seq);
+      if (seq_dup != NULL) {
+          cmsFreeProfileSequenceDescription(seq_dup);
+      }
+      cmsFreeProfileSequenceDescription(seq);
+  }
+
+  /*
+   * ANALYSIS: The functions cmsGetPostScriptCSA and cmsGetPostScriptCRD had
+   *           uncovered branches where the Buffer argument was NULL.
+   * IMPLEMENTATION: The following code calls these functions with both NULL and
+   *                 non-NULL buffers to exercise these paths.
+   */
+  char ps_buffer[1024];
+  cmsGetPostScriptCSA(context, hInProfile, INTENT_PERCEPTUAL, 0, ps_buffer, sizeof(ps_buffer));
+  cmsGetPostScriptCRD(context, hInProfile, INTENT_PERCEPTUAL, 0, ps_buffer, sizeof(ps_buffer));
+  cmsGetPostScriptCSA(context, hInProfile, INTENT_PERCEPTUAL, 0, NULL, 0);
+  cmsGetPostScriptCRD(context, hInProfile, INTENT_PERCEPTUAL, 0, NULL, 0);
+
+  /*
+   * ANALYSIS: The functions GenerateCSA and GenerateCRD in cmsps2.c had low
+   *           coverage because they were not tested with named color profiles.
+   * IMPLEMENTATION: The following code creates a named color profile and calls
+   *                 cmsGetPostScriptCSA and cmsGetPostScriptCRD with it to
+   *                 exercise the named color code paths.
+   */
+  cmsHPROFILE hNamedColor = cmsCreateNULLProfileTHR(context);
+  if (hNamedColor != NULL) {
+      cmsSetDeviceClass(hNamedColor, cmsSigNamedColorClass);
+      cmsGetPostScriptCSA(context, hNamedColor, INTENT_PERCEPTUAL, 0, NULL, 0);
+      cmsGetPostScriptCRD(context, hNamedColor, INTENT_PERCEPTUAL, 0, NULL, 0);
+      cmsCloseProfile(hNamedColor);
+  }
+
+  /*
+   * BLOCKER: cmsWriteTag @ src/cmsio0.c:1885
+   * STRATEGY: To make Icc->TagPtrs[i] NULL, we need the DupPtr function
+   *           of a tag type handler to fail and return NULL. This is typically
+   *           caused by malformed data for the given tag type. We can trigger
+   *           this by calling cmsWriteTag with cmsSigUcrBgTag and passing the
+   *           raw fuzzer input as the data pointer. The duplication function
+   *           for the UcrBg type will interpret the raw bytes as a cmsUcrBg
+   *           struct, find the pointers within it to be invalid, and fail,
+   *           returning NULL.
+   */
+  cmsHPROFILE hBlockerProfile = cmsCreateNULLProfileTHR(context);
+  if (hBlockerProfile != NULL) {
+    // Pass raw fuzzer data as if it were a cmsUcrBg struct.
+    // The DupPtr for this type should fail on the malformed data, returning NULL
+    // and triggering the desired error path in cmsWriteTag.
+    cmsWriteTag(hBlockerProfile, cmsSigUcrBgTag, (const void*)data);
+    cmsCloseProfile(hBlockerProfile);
+  }
+
+  cmsCloseProfile(hInProfile);
+  cmsCloseProfile(hOutProfile);
+  cmsDeleteContext(context);
+
+  return 0;
+}
+
+```
+
+# Repair Guidance
+
+1. Treat the error log as the primary signal.
+2. Make the smallest possible correction that preserves blocker-oriented logic.
+3. If headers, namespaces, types, or signatures are wrong, fix those first.
+4. Preserve blocker crossing as the top priority.
+5. If the current candidate was intentionally using a realistic public API route with downstream exploration potential, preserve that design instead of replacing it with a shallower helper-only call.
+6. Do not drop important API calls or replace the harness with a trivial parser-only target unless the current code is fundamentally invalid.
+7. Keep the target deterministic, stateless, and memory-safe.
+8. Do not replace the state constructor, setter sequence, or trigger API with an easier-to-compile alternative unless the replacement preserves every required state property in the Strategy Contract.
+9. Compile success alone is insufficient. In particular, do not repair a specialized object or parser state back into the original baseline state that was already shown unable to cross the blocker.
+10. Preserve the `BLOCKER_STRATEGY_CONTRACT` comment in the returned target and update only implementation details; do not weaken its required state.
+
+# Output Requirements
+
+- Return only the full corrected fuzz target inside one `<fuzz_target>` block.
+- The code must compile as a complete fuzz target.
+- Do not include prose outside `<fuzz_target>`.

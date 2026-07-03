@@ -1,0 +1,40 @@
+{
+  "runtime_confirmed": true,
+  "sanitizer_stable": true,
+  "validated_target": true,
+  "primary_success_quality": "direct_struct_field_write",
+  "success_quality_labels": [
+    "direct_struct_field_write"
+  ],
+  "contract_code_alignment": "aligned",
+  "quality_flags": [
+    "includes_internal_header"
+  ],
+  "needs_manual_review": true,
+  "quality_notes": [
+    "Generated target includes internal/private headers; this is a weak signal and is not treated as direct internal API use by itself.",
+    "Generated target writes through struct fields or members: seq.ContextID, seq.n. This may be valid for public structs, so it is flagged for review instead of rejected."
+  ],
+  "evidence": {
+    "code_call_count": 7,
+    "public_api_calls": [
+      "cmsWriteTag"
+    ],
+    "internal_api_calls": [],
+    "direct_struct_writes": [
+      "seq.ContextID",
+      "seq.n"
+    ],
+    "internal_headers": [
+      "/src/lcms/src/lcms2_internal.h"
+    ],
+    "contract_expected_symbols": [
+      "cmsWriteTag"
+    ],
+    "public_symbol_count": 20
+  },
+  "limitations": [
+    "Heuristic quality labels do not replace runtime coverage success.",
+    "C/C++ macro expansion, templates, overloaded calls, function pointers, and public struct policies may require manual review."
+  ]
+}

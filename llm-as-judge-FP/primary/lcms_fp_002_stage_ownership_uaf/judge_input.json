@@ -1,0 +1,34 @@
+{
+  "judge_case_id": "local_lcms_20260702_002",
+  "project": "lcms",
+  "source": "local-run",
+  "experiment": "experiments/20260702_224826_run_all_fuzzer",
+  "issue_url": "local:experiments/20260702_224826_run_all_fuzzer/run.log:46881",
+  "sanitizer": "AddressSanitizer",
+  "crash_type": "AddressSanitizer heap-use-after-free READ 8",
+  "crash_function": "cmsPipelineInsertStage",
+  "top_frame": "cmsPipelineInsertStage",
+  "top_library_frame": "/src/lcms/src/cmslut.c:1541:33",
+  "fuzzer_frame": "/src/llm_fuzzgen_dedicated_generation_0703042554_360652.c:57:3",
+  "dedup_token": "cmsPipelineInsertStage--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)",
+  "fuzz_target_name": "llm_fuzzgen_dedicated_generation_0703042554_360652",
+  "api_entrypoint": "cmsPipelineInsertStage / cmsStageFree",
+  "blocker": "Type_LUTB2A_Write_3182",
+  "evidence_files": {
+    "target_source": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/target.c",
+    "crash_log": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/crash.log",
+    "run_log_excerpt": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/run_log_excerpt.log",
+    "full_run_fuzzer_log": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/full_run_fuzzer.log",
+    "runtime_sanity": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/runtime_sanity.json",
+    "target_quality_report": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/target_quality_report.json",
+    "prompt_attempt": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/prompt_attempt_02.txt",
+    "crash_input": "llm-as-judge-FP/primary/lcms_fp_002_stage_ownership_uaf/corpus/llm_fuzzgen_dedicated_generation_0703042554_360652_crash-2a356e3e93395bbef9396e37dd6c0aeedd688e2c"
+  },
+  "corpus": {
+    "artifact_name": "llm_fuzzgen_dedicated_generation_0703042554_360652_crash-2a356e3e93395bbef9396e37dd6c0aeedd688e2c",
+    "sha1": "2a356e3e93395bbef9396e37dd6c0aeedd688e2c",
+    "base64": "Cv3///////9J/f//+fn5+fn5+fn5+f//////////////AAAAAAAAAP3/////////",
+    "size_bytes": 48,
+    "recovered_from_full_run_fuzzer_log_base64": true
+  }
+}

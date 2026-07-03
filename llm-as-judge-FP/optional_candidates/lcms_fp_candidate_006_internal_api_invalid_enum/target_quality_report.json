@@ -1,0 +1,63 @@
+{
+  "runtime_confirmed": true,
+  "sanitizer_stable": true,
+  "validated_target": true,
+  "primary_success_quality": "internal_api_direct",
+  "success_quality_labels": [
+    "internal_api_direct",
+    "direct_struct_field_write"
+  ],
+  "contract_code_alignment": "partial",
+  "quality_flags": [
+    "includes_internal_header",
+    "contract_symbols_missing_public_evidence"
+  ],
+  "needs_manual_review": true,
+  "quality_notes": [
+    "Only part of the Strategy Contract function identifiers appear in the generated code: present=['cmsSetLogErrorHandlerTHR', '_cmsContextGetClientChunk', 'cmsSignalError'], missing=['value'].",
+    "Generated target includes internal/private headers; this is a weak signal and is not treated as direct internal API use by itself.",
+    "Generated target directly calls internal-looking APIs: _cmsContextGetClientChunk, _cmsSetTransformUserData, _cmsGetTransformUserData, _cmsOptimizePipeline.",
+    "Generated target writes through struct fields or members: ucrbg.Ucr, ucrbg.Bg, ucrbg.Desc. This may be valid for public structs, so it is flagged for review instead of rejected.",
+    "Some Strategy Contract identifiers were not found as public symbols in collected evidence: value, _cmsContextGetClientChunk."
+  ],
+  "evidence": {
+    "code_call_count": 57,
+    "public_api_calls": [
+      "cmsCreateContext",
+      "cmsCreateDeviceLinkFromCubeFileTHR",
+      "cmsCreateNULLProfileTHR",
+      "cmsCreate_sRGBProfileTHR",
+      "cmsDeleteContext",
+      "cmsPipelineAlloc",
+      "cmsSetLogErrorHandlerTHR",
+      "cmsSignalError",
+      "cmsStageAllocCLut16bit",
+      "cmsStageAllocMatrix"
+    ],
+    "internal_api_calls": [
+      "_cmsContextGetClientChunk",
+      "_cmsSetTransformUserData",
+      "_cmsGetTransformUserData",
+      "_cmsOptimizePipeline"
+    ],
+    "direct_struct_writes": [
+      "ucrbg.Ucr",
+      "ucrbg.Bg",
+      "ucrbg.Desc"
+    ],
+    "internal_headers": [
+      "/src/lcms/src/lcms2_internal.h"
+    ],
+    "contract_expected_symbols": [
+      "value",
+      "cmsSetLogErrorHandlerTHR",
+      "_cmsContextGetClientChunk",
+      "cmsSignalError"
+    ],
+    "public_symbol_count": 22
+  },
+  "limitations": [
+    "Heuristic quality labels do not replace runtime coverage success.",
+    "C/C++ macro expansion, templates, overloaded calls, function pointers, and public struct policies may require manual review."
+  ]
+}

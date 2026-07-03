@@ -1,0 +1,259 @@
+# Role and Objective
+
+You are an expert software security engineer specializing in LibFuzzer-based coverage-guided fuzzing.
+Your task is to repair the provided blocker-oriented fuzz target so it compiles successfully without discarding its blocker-reaching strategy.
+
+# Primary Goal
+
+- Fix the reported compilation or runtime/build issue.
+- Preserve the candidate's blocker-oriented intent.
+- Return a full standalone fuzz target that is ready to build.
+
+# Project Context
+
+- Project: `lcms`
+- Language: `c`
+
+# Seed Compatibility Constraint
+
+You may redesign the input handling if needed, but keep the blocker-oriented strategy intact and avoid unnecessary rewrites.
+
+
+# Previous Blocker Feedback Summary
+
+```text
+Reference-guided stage failed to cross the blocked-side line.
+- Iterations tried: 2
+- Compile-failure iterations: 0
+- Coverage-failure iterations: 2
+- Best branch hit count: 166k
+- Best blocked-side hit count: 0
+- Best blocked-side reached: False
+- Last observed failure pattern: Iteration 2 compiled successfully but did not reach the blocked-side line. Branch hit count: 43.0k. Blocked-side hit count: 0. Runtime diagnosis: predicate_state_failure. The route reaches the blocker, but the required predicate state was not established. Replan the state constructor/setter sequence; do not merely increase fuzzing time. This candidate compiled but did not improve over the current best-so-far version.
+```
+
+# Strategy Contract
+
+The following contract records the blocker-solving semantics of the candidate.
+It is guidance for repair; actual success is decided later by runtime coverage.
+
+```text
+required_state: The `CLUT` variable in `Type_LUTB2A_Write` must not be `NULL`. This is achieved when the `cmsPipeline` object being written contains a stage of type `cmsSigCLutElemType` in a supported sequence.
+state_constructor: A `cmsPipeline` is explicitly constructed with a sequence of stages: `cmsSigCurveSetElemType` -> `cmsSigCLutElemType` -> `cmsSigCurveSetElemType`. This is done by allocating a pipeline with `cmsPipelineAlloc`, creating curve and CLUT stages with `cmsStageAllocToneCurves` and `cmsStageAllocCLut16bit` respectively, and inserting them in the correct order using `cmsPipelineInsertStage`.
+trigger_api: The crafted pipeline is written as a `cmsSigBToA0Tag` to a new profile using `cmsWriteTag`. The subsequent call to `cmsSaveProfileToMem` triggers the internal `Type_LUTB2A_Write` function to process this tag, which then finds the non-NULL `CLUT` stage.
+preserved_invariants: The pipeline must contain a CLUT stage, and it must be written to a tag that uses the `lutBToAType` handler (e.g., `cmsSigBToA0Tag`). The sequence of stages in the pipeline must match one of the configurations checked by `cmsPipelineCheckAndRetreiveStages` in the blocker function.
+```
+
+# Compilation or Runtime/Build Error
+
+```text
+==15==ERROR: AddressSanitizer: heap-use-after-free on address 0x506000001af8 at pc 0x55a9bc20d71b bp 0x7ffede695300 sp 0x7ffede6952f8
+[1m[0m[1m[34mREAD of size 8 at 0x506000001af8 thread T0[1m[0m
+SCARINESS: 51 (8-byte-read-heap-use-after-free)
+    #0 0x55a9bc20d71a in cmsPipelineInsertStage /src/lcms/src/cmslut.c:1541:33
+    #1 0x55a9bc1d1a30 in LLVMFuzzerTestOneInput /src/llm_fuzzgen_dedicated_generation_0703042554_360652.c:57:3
+    #2 0x55a9bc0863d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #3 0x55a9bc085bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #4 0x55a9bc0873d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #5 0x55a9bc088165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #6 0x55a9bc076fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #7 0x55a9bc0a2382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #8 0x7fb1a3148082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #9 0x55a9bc06982d in _start (/out/llm_fuzzgen_dedicated_generation_0703042554_360652+0x8782d)
+
+DEDUP_TOKEN: cmsPipelineInsertStage--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)
+[1m[32m0x506000001af8 is located 56 bytes inside of 64-byte region [0x506000001ac0,0x506000001b00)
+[1m[0m[1m[35mfreed by thread T0 here:[1m[0m
+    #0 0x55a9bc191f06 in free /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:52:3
+    #1 0x55a9bc1d19f5 in LLVMFuzzerTestOneInput /src/llm_fuzzgen_dedicated_generation_0703042554_360652.c:47:3
+    #2 0x55a9bc0863d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #3 0x55a9bc085bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #4 0x55a9bc0873d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #5 0x55a9bc088165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #6 0x55a9bc076fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #7 0x55a9bc0a2382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #8 0x7fb1a3148082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_free--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)
+[1m[35mpreviously allocated by thread T0 here:[1m[0m
+    #0 0x55a9bc19219f in malloc /src/llvm-project/compiler-rt/lib/asan/asan_malloc_linux.cpp:68:3
+    #1 0x55a9bc1d7795 in _cmsMalloc /src/lcms/src/cmserr.c:268:12
+    #2 0x55a9bc1d7795 in _cmsMallocZeroDefaultFn /src/lcms/src/cmserr.c:107:16
+    #3 0x55a9bc204a2e in _cmsStageAllocPlaceholder /src/lcms/src/cmslut.c:40:32
+    #4 0x55a9bc204a2e in cmsStageAllocToneCurves /src/lcms/src/cmslut.c:255:14
+    #5 0x55a9bc1d19c4 in LLVMFuzzerTestOneInput /src/llm_fuzzgen_dedicated_generation_0703042554_360652.c:39:23
+    #6 0x55a9bc0863d0 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+    #7 0x55a9bc085bf5 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:516:7
+    #8 0x55a9bc0873d5 in fuzzer::Fuzzer::MutateAndTestOne() /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:760:19
+    #9 0x55a9bc088165 in fuzzer::Fuzzer::Loop(std::__Fuzzer::vector<fuzzer::SizedFile, std::__Fuzzer::allocator<fuzzer::SizedFile>>&) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:905:5
+    #10 0x55a9bc076fab in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:914:6
+    #11 0x55a9bc0a2382 in main /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerMain.cpp:20:10
+    #12 0x7fb1a3148082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+
+DEDUP_TOKEN: __interceptor_malloc--_cmsMalloc--_cmsMallocZeroDefaultFn
+SUMMARY: AddressSanitizer: heap-use-after-free /src/lcms/src/cmslut.c:1541:33 in cmsPipelineInsertStage
+Shadow bytes around the buggy address:
+  0x506000001800: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x506000001880: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x506000001900: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x506000001980: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x506000001a00: [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+=>0x506000001a80: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m[[1m[35mfd[1m[0m]
+  0x506000001b00: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x506000001b80: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m
+  0x506000001c00: [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[35mfd[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m [1m[0m00[1m[0m
+  0x506000001c80: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+  0x506000001d00: [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m [1m[31mfa[1m[0m
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           [1m[0m00[1m[0m
+  Partially addressable: [1m[0m01[1m[0m [1m[0m02[1m[0m [1m[0m03[1m[0m [1m[0m04[1m[0m [1m[0m05[1m[0m [1m[0m06[1m[0m [1m[0m07[1m[0m 
+  Heap left redzone:       [1m[31mfa[1m[0m
+  Freed heap region:       [1m[35mfd[1m[0m
+  Stack left redzone:      [1m[31mf1[1m[0m
+  Stack mid redzone:       [1m[31mf2[1m[0m
+  Stack right redzone:     [1m[31mf3[1m[0m
+  Stack after return:      [1m[35mf5[1m[0m
+  Stack use after scope:   [1m[35mf8[1m[0m
+  Global redzone:          [1m[31mf9[1m[0m
+  Global init order:       [1m[36mf6[1m[0m
+  Poisoned by user:        [1m[34mf7[1m[0m
+  Container overflow:      [1m[34mfc[1m[0m
+  Array cookie:            [1m[31mac[1m[0m
+  Intra object redzone:    [1m[33mbb[1m[0m
+  ASan internal:           [1m[33mfe[1m[0m
+  Left alloca redzone:     [1m[34mca[1m[0m
+  Right alloca redzone:    [1m[34mcb[1m[0m
+==15==ABORTING
+MS: 2 ChangeByte-InsertRepeatedBytes-; base unit: 40371923bde303a7873d536feb51bf5409cff3fb
+0xa,0xfd,0xff,0xff,0xff,0xff,0xff,0xff,0x49,0xfd,0xff,0xff,0xf9,0xf9,0xf9,0xf9,0xf9,0xf9,0xf9,0xf9,0xf9,0xf9,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfd,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+\012\375\377\377\377\377\377\377I\375\377\377\371\371\371\371\371\371\371\371\371\371\377\377\377\377\377\377\377\377\377\377\377\000\000\000\000\000\000\000\375\377\377\377\377\377\377\377
+artifact_prefix='llm_fuzzgen_dedicated_generation_0703042554_360652_'; Test unit written to llm_fuzzgen_dedicated_generation_0703042554_360652_crash-2a356e3e93395bbef9396e37dd6c0aeedd688e2c
+Base64: Cv3///////9J/f//+fn5+fn5+fn5+f//////////////AAAAAAAAAP3/////////
+[full run_fuzzer output log: /home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/lcms/run_fuzzer/20260703_042617_944532_llm_fuzzgen_dedicated_generation_0703042554_360652_8d1b9411.log]
+```
+
+# Current Candidate To Repair
+
+```cpp
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: The `CLUT` variable in `Type_LUTB2A_Write` must not be `NULL`. This is achieved when the `cmsPipeline` object being written contains a stage of type `cmsSigCLutElemType` in a supported sequence.
+state_constructor: A `cmsPipeline` is explicitly constructed with a sequence of stages: `cmsSigCurveSetElemType` -> `cmsSigCLutElemType` -> `cmsSigCurveSetElemType`. This is done by allocating a pipeline with `cmsPipelineAlloc`, creating curve and CLUT stages with `cmsStageAllocToneCurves` and `cmsStageAllocCLut16bit` respectively, and inserting them in the correct order using `cmsPipelineInsertStage`.
+trigger_api: The crafted pipeline is written as a `cmsSigBToA0Tag` to a new profile using `cmsWriteTag`. The subsequent call to `cmsSaveProfileToMem` triggers the internal `Type_LUTB2A_Write` function to process this tag, which then finds the non-NULL `CLUT` stage.
+preserved_invariants: The pipeline must contain a CLUT stage, and it must be written to a tag that uses the `lutBToAType` handler (e.g., `cmsSigBToA0Tag`). The sequence of stages in the pipeline must match one of the configurations checked by `cmsPipelineCheckAndRetreiveStages` in the blocker function.
+END_BLOCKER_STRATEGY_CONTRACT */
+
+#include "/src/lcms/include/lcms2.h"
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  // We need at least 48 bytes for a 2-grid-point, 3-channel CLUT
+  if (size < 48) {
+    return 0;
+  }
+
+  cmsContext context = cmsCreateContext(NULL, NULL);
+  if (context == NULL) {
+    return 0;
+  }
+
+  // Allocate a pipeline that will hold the B->CLUT->A structure
+  cmsPipeline *lut = cmsPipelineAlloc(context, 3, 3);
+  if (lut == NULL) {
+    cmsDeleteContext(context);
+    return 0;
+  }
+
+  // Create and insert the 'B' curve set stage
+  cmsToneCurve *curve_b = cmsBuildGamma(context, 1.0);
+  if (curve_b == NULL) {
+    cmsPipelineFree(lut);
+    cmsDeleteContext(context);
+    return 0;
+  }
+  cmsToneCurve *curves_b[3] = {curve_b, curve_b, curve_b};
+  cmsStage *stage_b = cmsStageAllocToneCurves(context, 3, curves_b);
+  cmsFreeToneCurve(curve_b); // The stage duplicates the curve
+  if (stage_b == NULL) {
+    cmsPipelineFree(lut);
+    cmsDeleteContext(context);
+    return 0;
+  }
+  cmsPipelineInsertStage(lut, cmsAT_BEGIN, stage_b);
+  cmsStageFree(stage_b); // The pipeline duplicates the stage
+
+  // Create and insert the CLUT stage using fuzzer data
+  const cmsUInt16Number *clut_table = (const cmsUInt16Number *)data;
+  cmsStage *stage_clut = cmsStageAllocCLut16bit(context, 2, 3, 3, clut_table);
+  if (stage_clut == NULL) {
+    cmsPipelineFree(lut);
+    cmsDeleteContext(context);
+    return 0;
+  }
+  cmsPipelineInsertStage(lut, cmsAT_END, stage_clut);
+  cmsStageFree(stage_clut);
+
+  // Create and insert the 'A' curve set stage
+  cmsToneCurve *curve_a = cmsBuildGamma(context, 1.0);
+  if (curve_a == NULL) {
+    cmsPipelineFree(lut);
+    cmsDeleteContext(context);
+    return 0;
+  }
+  cmsToneCurve *curves_a[3] = {curve_a, curve_a, curve_a};
+  cmsStage *stage_a = cmsStageAllocToneCurves(context, 3, curves_a);
+  cmsFreeToneCurve(curve_a);
+  if (stage_a == NULL) {
+    cmsPipelineFree(lut);
+    cmsDeleteContext(context);
+    return 0;
+  }
+  cmsPipelineInsertStage(lut, cmsAT_END, stage_a);
+  cmsStageFree(stage_a);
+
+  // Create a profile to hold the tag
+  cmsHPROFILE profile = cmsCreateRGBProfile(NULL, NULL, NULL);
+  if (profile == NULL) {
+    cmsPipelineFree(lut);
+    cmsDeleteContext(context);
+    return 0;
+  }
+
+  // Write the pipeline to the BToA0 tag. This tag type is handled by
+  // Type_LUTB2A_Write.
+  cmsWriteTag(profile, cmsSigBToA0Tag, lut);
+
+  // Trigger the write operation by saving the profile.
+  // Saving to a NULL buffer just calculates the size, but it is enough to
+  // trigger the tag writing logic and hit our blocker.
+  cmsUInt32Number profile_size = 0;
+  cmsSaveProfileToMem(profile, NULL, &profile_size);
+
+  // Clean up all allocated resources
+  cmsCloseProfile(profile);
+  cmsPipelineFree(lut);
+  cmsDeleteContext(context);
+
+  return 0;
+}
+```
+
+# Repair Guidance
+
+1. Treat the error log as the primary signal.
+2. Make the smallest possible correction that preserves blocker-oriented logic.
+3. If headers, namespaces, types, or signatures are wrong, fix those first.
+4. Preserve blocker crossing as the top priority.
+5. If the current candidate was intentionally using a realistic public API route with downstream exploration potential, preserve that design instead of replacing it with a shallower helper-only call.
+6. Do not drop important API calls or replace the harness with a trivial parser-only target unless the current code is fundamentally invalid.
+7. Keep the target deterministic, stateless, and memory-safe.
+8. Do not replace the state constructor, setter sequence, or trigger API with an easier-to-compile alternative unless the replacement preserves every required state property in the Strategy Contract.
+9. Compile success alone is insufficient. In particular, do not repair a specialized object or parser state back into the original baseline state that was already shown unable to cross the blocker.
+10. Preserve the `BLOCKER_STRATEGY_CONTRACT` comment in the returned target and update only implementation details; do not weaken its required state.
+
+# Output Requirements
+
+- Return only the full corrected fuzz target inside one `<fuzz_target>` block.
+- The code must compile as a complete fuzz target.
+- Do not include prose outside `<fuzz_target>`.

@@ -1,0 +1,34 @@
+{
+  "judge_case_id": "local_lcms_20260702_006",
+  "project": "lcms",
+  "source": "local-run",
+  "experiment": "experiments/20260702_224826_run_all_fuzzer",
+  "issue_url": "local:experiments/20260702_224826_run_all_fuzzer/run.log:114970",
+  "sanitizer": "AddressSanitizer",
+  "crash_type": "AddressSanitizer stack-overflow",
+  "crash_function": "cmsSignalError",
+  "top_frame": "cmsSignalError",
+  "top_library_frame": "/src/lcms/src/cmserr.c:518:5",
+  "fuzzer_frame": "/src/llm_fuzzgen_reference_guided_0703121040_139398.c:49:5",
+  "dedup_token": "cmsSignalError--_cmsContextGetClientChunk--MyErrorHandler",
+  "fuzz_target_name": "llm_fuzzgen_reference_guided_0703121040_139398",
+  "api_entrypoint": "_cmsContextGetClientChunk",
+  "blocker": "_cmsContextGetClientChunk_752",
+  "evidence_files": {
+    "target_source": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/target.c",
+    "crash_log": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/crash.log",
+    "run_log_excerpt": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/run_log_excerpt.log",
+    "full_run_fuzzer_log": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/full_run_fuzzer.log",
+    "runtime_sanity": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/runtime_sanity.json",
+    "target_quality_report": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/target_quality_report.json",
+    "prompt_attempt": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/prompt_attempt_02.txt",
+    "crash_input": "llm-as-judge-FP/optional_candidates/lcms_fp_candidate_006_internal_api_invalid_enum/corpus/llm_fuzzgen_reference_guided_0703121040_139398_crash-286d84ce461ff8d4e0fdd6247e454b817d8cab13"
+  },
+  "corpus": {
+    "artifact_name": "llm_fuzzgen_reference_guided_0703121040_139398_crash-286d84ce461ff8d4e0fdd6247e454b817d8cab13",
+    "sha1": "286d84ce461ff8d4e0fdd6247e454b817d8cab13",
+    "base64": "hYWFhYWFhYUJCQo=",
+    "size_bytes": 11,
+    "recovered_from_full_run_fuzzer_log_base64": true
+  }
+}

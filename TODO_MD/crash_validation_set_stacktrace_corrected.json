@@ -1,0 +1,852 @@
+[
+  {
+    "case_id": "libvpx_tp_001",
+    "project": "libvpx",
+    "label": "TP",
+    "label_reason": "上游維護者明確確認 write_superframe_index 在緩衝區滿時未正確返回 0，導致後續編碼寫入流程發生越界寫入，已合並官方修復補丁並分配 CVE-2026-2447。",
+    "source": "OSS-Fuzz issue 476466137",
+    "issue_url": "https://issues.oss-fuzz.com/issues/476466137",
+    "issue_status": "Fixed",
+    "fix_commit": "https://chromium.googlesource.com/webm/libvpx/+/d5f35ac8d93cba7f7a3f7ddb8f9dc8bd28f785e1",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow WRITE 1",
+    "crash_function": "vpx_wb_write_literal",
+    "top_library_frame": "vp9/vp9_cx_iface.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "oss_fuzz_crash_state",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "vpx_wb_write_literal\nvp9_pack_bitstream\nencode_frame_to_data_rate",
+      "frames": [
+        {
+          "index": 0,
+          "function": "vpx_wb_write_literal",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 1,
+          "function": "vp9_pack_bitstream",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 2,
+          "function": "encode_frame_to_data_rate",
+          "file": null,
+          "line": null
+        }
+      ],
+      "source_url": "https://issues.oss-fuzz.com/issues/476466137",
+      "verification_note": "公開可檢索內容只有 OSS-Fuzz Crash State，不是完整 ASan stack trace。不得加入 write_superframe_index、vpx_codec_encode、位址或行號，因公開 Crash State 未顯示這些 frame。"
+    },
+    "fuzz_target_name": "vpx_enc_fuzzer_vp9",
+    "fuzz_target_source_url": "https://github.com/google/oss-fuzz/tree/master/projects/libvpx",
+    "api_entrypoint": "vpx_codec_encode",
+    "api_contract_assessment": "false - Fuzz target 正確調用編碼 API，崩潰源自庫內部對緩衝區可用長度的錯誤邏輯計算，無調用端 API 誤用。",
+    "normal_caller_feasibility": "true - 任何正常調用 libvpx 進行 VP9 格式流編碼的客戶端在緩衝區邊界狀態下均可觸發此路徑。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "該案例具備高完整度調用棧與官方修復記錄，屬極高信賴度之真陽性基準。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x562423 in vpx_wb_write_literal vp9/encoder/vp9_bitstream.c:89\n#1 0x56291a in write_superframe_index vp9/vp9_cx_iface.c:120\n#2 0x563110 in vp9_pack_bitstream vp9/encoder/vp9_bitstream.c:1120\n#3 0x564a12 in encode_frame_to_data_rate vp9/encoder/vp9_encoder.c:3401\n#4 0x565bb9 in vp9_cx_iface_encode vp9/vp9_cx_iface.c:1045\n#5 0x566012 in vpx_codec_encode vpx/src/vpx_encoder.c:210",
+    "record_status": "usable_with_partial_trace",
+    "confidence_corrected": "High for crash identity; Medium for stack depth",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "lcms_tp_001",
+    "project": "lcms",
+    "label": "TP",
+    "label_reason": "在提取寬字元串資訊時，內部輔助函數 encodeUTF8 因迴圈索引與邊界檢查存在邏輯漏洞，引發 ASan 檢測到 Heap-buffer-overflow 越界讀取，已由維護者合並修復 commit。",
+    "source": "GitHub issue 522",
+    "issue_url": "https://github.com/mm2/Little-CMS/issues/522",
+    "issue_status": "Fixed",
+    "fix_commit": "https://github.com/mm2/Little-CMS/commit/8888d84bc1eb711b7dfd44bf2fa79758fbf6958d",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow READ",
+    "crash_function": "encodeUTF8",
+    "top_library_frame": "src/cmsnamed.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "full_asan_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "==1==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x504000000180\nREAD of size 4 at 0x504000000180 thread T0\n#0 0x5559a1002450 in encodeUTF8 /fuzz/src/src/cmsnamed.c:277:12\n#1 0x5559a1001e9e in cmsMLUgetUTF8 /fuzz/src/src/cmsnamed.c:608:15\n#2 0x5559a0faca8c in main /fuzz/testcase.cpp:25:28\n#3 0x7f025d5b6d8f in __libc_start_call_main csu/../sysdeps/nptl/libc_start_call_main.h:58:16\n#4 0x7f025d5b6e3f in __libc_start_main csu/../csu/libc-start.c:392:3\n#5 0x5559a0ed1424 in _start (/fuzz/test+0x36424)\nSUMMARY: AddressSanitizer: heap-buffer-overflow /fuzz/src/src/cmsnamed.c:277:12 in encodeUTF8",
+      "frames": [
+        {
+          "index": 0,
+          "function": "encodeUTF8",
+          "file": "/fuzz/src/src/cmsnamed.c",
+          "line": 277,
+          "column": 12
+        },
+        {
+          "index": 1,
+          "function": "cmsMLUgetUTF8",
+          "file": "/fuzz/src/src/cmsnamed.c",
+          "line": 608,
+          "column": 15
+        },
+        {
+          "index": 2,
+          "function": "main",
+          "file": "/fuzz/testcase.cpp",
+          "line": 25,
+          "column": 28
+        },
+        {
+          "index": 3,
+          "function": "__libc_start_call_main",
+          "file": "libc_start_call_main.h",
+          "line": 58,
+          "column": 16
+        },
+        {
+          "index": 4,
+          "function": "__libc_start_main",
+          "file": "libc-start.c",
+          "line": 392,
+          "column": 3
+        },
+        {
+          "index": 5,
+          "function": "_start",
+          "file": null,
+          "line": null
+        }
+      ],
+      "source_url": "https://github.com/mm2/Little-CMS/issues/522",
+      "verification_note": "原公開 trace 使用 standalone PoC 的 main。cmsGetProfileInfoUTF8 是 PoC 呼叫的 API，但最佳化／內聯後沒有作為獨立 frame 出現在公開 trace。"
+    },
+    "fuzz_target_name": "cms_profile_fuzzer",
+    "fuzz_target_source_url": "https://github.com/google/oss-fuzz/tree/master/projects/lcms2",
+    "api_entrypoint": "cmsGetProfileInfoUTF8",
+    "api_contract_assessment": "false - 調用端依據規範傳遞未損壞的設定檔控制代碼與正常的長度查詢參數，崩潰完全由庫內部字元轉碼迴圈溢出引發。",
+    "normal_caller_feasibility": "true - 任何調用 cmsGetProfileInfoUTF8 獲取特定的內建 ICC profile 描述資訊的應用程式皆可能觸發此越界讀取。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "由上游作者 Marti Maria 確認並快速修復，提供完整的重現程式碼，信賴度極高。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x556d32 in encodeUTF8 src/cmsnamed.c:275\n#1 0x556e1a in cmsMLUgetUTF8 src/cmsnamed.c:310\n#2 0x557122 in cmsGetProfileInfoUTF8 src/cmsnamed.c:980\n#3 0x558bb9 in LLVMFuzzerTestOneInput fuzz/cms_profile_fuzzer.cpp:45",
+    "record_status": "usable",
+    "confidence_corrected": "High",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "lcms_tp_002",
+    "project": "lcms",
+    "label": "TP",
+    "label_reason": "cmsgamma.c 中的 smooth2 函數在進行數值平滑處理時，因除數過於接近零（除零不穩定性）導致產生極大異常值，後續查表操作發生越界，作者確認為底層演算法缺陷並予以修復。",
+    "source": "GitHub issue 475",
+    "issue_url": "https://github.com/mm2/Little-CMS/issues/475",
+    "issue_status": "Fixed",
+    "fix_commit": "https://github.com/mm2/Little-CMS/commit/ec399d6",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow READ",
+    "crash_function": "smooth2",
+    "top_library_frame": "src/cmsgamma.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "full_asan_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "==882101==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000038\nREAD of size 4 at 0x602000000038 thread T0\n#0 0x556d323d0b72 in smooth2 /home/CVE-lcms/project/lcms2.16/src/cmsgamma.c:1173:12\n#1 0x556d323cf72a in cmsSmoothToneCurve /home/CVE-lcms/project/lcms2.16/src/cmsgamma.c:1251:25\n#2 0x556d323c30a0 in main /home/CVE-lcms/harness/harness-1.cc:46:29\n#3 0x7fcfea7b0d8f (/lib/x86_64-linux-gnu/libc.so.6+0x29d8f)\n#4 0x7fcfea7b0e3f in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x29e3f)\n#5 0x556d322e86d4 in _start (/home/CVE-lcms/harness/harness-1+0x776d4)\nSUMMARY: AddressSanitizer: heap-buffer-overflow /home/CVE-lcms/project/lcms2.16/src/cmsgamma.c:1173:12 in smooth2",
+      "frames": [
+        {
+          "index": 0,
+          "function": "smooth2",
+          "file": "/home/CVE-lcms/project/lcms2.16/src/cmsgamma.c",
+          "line": 1173,
+          "column": 12
+        },
+        {
+          "index": 1,
+          "function": "cmsSmoothToneCurve",
+          "file": "/home/CVE-lcms/project/lcms2.16/src/cmsgamma.c",
+          "line": 1251,
+          "column": 25
+        },
+        {
+          "index": 2,
+          "function": "main",
+          "file": "/home/CVE-lcms/harness/harness-1.cc",
+          "line": 46,
+          "column": 29
+        },
+        {
+          "index": 3,
+          "function": null,
+          "file": "libc.so.6",
+          "line": null
+        },
+        {
+          "index": 4,
+          "function": "__libc_start_main",
+          "file": "libc.so.6",
+          "line": null
+        },
+        {
+          "index": 5,
+          "function": "_start",
+          "file": null,
+          "line": null
+        }
+      ],
+      "source_url": "https://github.com/mm2/Little-CMS/issues/475",
+      "verification_note": "原公開 trace 是 standalone harness 的 main，不是 LLVMFuzzerTestOneInput。"
+    },
+    "fuzz_target_name": "cms_gamma_fuzzer",
+    "fuzz_target_source_url": "https://github.com/google/oss-fuzz/tree/master/projects/lcms2",
+    "api_entrypoint": "cmsSmoothToneCurve",
+    "api_contract_assessment": "false - 調用者傳入正常的色調曲線對象，演算法內部未對特定極限數值條件進行安全分流，屬典型演算法健壯性缺陷。",
+    "normal_caller_feasibility": "true - 當使用者程式嘗試平滑某些經由特定演算法生成或高度退化的非線性色調曲線時，該路徑可被穩定觸發。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "作者指出此函數雖非典型顏色變換常用核心，但仍屬公開低階調試 API，已修復並合並，信賴度高。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x556d32 in smooth2 src/cmsgamma.c:1173\n#1 0x556f2a in cmsSmoothToneCurve src/cmsgamma.c:1210\n#2 0x558aa5 in LLVMFuzzerTestOneInput fuzz/cms_gamma_fuzzer.cpp:32",
+    "record_status": "usable",
+    "confidence_corrected": "High",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "cjson_tp_001",
+    "project": "cJSON",
+    "label": "TP",
+    "label_reason": "cJSON_ParseWithLength 在處理特定未包含空終止符的長度受限 JSON 數據時，內部解析機制仍越界讀取，違反了 Length-based 解析 API 的基礎設計合約。",
+    "source": "GitHub issue 800",
+    "issue_url": "https://github.com/DaveGamble/cJSON/issues/800",
+    "issue_status": "Fixed",
+    "fix_commit": "https://github.com/DaveGamble/cJSON/commit/269b482",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow READ",
+    "crash_function": "parse_string",
+    "top_library_frame": "cJSON.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "full_asan_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "==102538==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000037\nREAD of size 1 at 0x602000000037 thread T0\n#0 0x55a3fbc9fae5 in parse_string cJSON.c\n#1 0x55a3fbca4049 in parse_object cJSON.c\n#2 0x55a3fbca2d27 in parse_value cJSON.c\n#3 0x55a3fbca141a in cJSON_ParseWithLengthOpts (fuzzer2+0x12241a)\n#4 0x55a3fbca1782 in cJSON_ParseWithLength (fuzzer2+0x122782)\n#5 0x55a3fbc9d444 in LLVMFuzzerTestOneInput (fuzzer2+0x11e444)\n#6 0x55a3fbbc3413 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)\n#7 0x55a3fbbac49f in fuzzer::RunOneTest(fuzzer::Fuzzer*, char const*, unsigned long)\n#8 0x55a3fbbb2326 in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long))\n#9 0x55a3fbbdd2b2 in main (fuzzer2+0x5e2b2)\nSUMMARY: AddressSanitizer: heap-buffer-overflow cJSON.c in parse_string",
+      "frames": [
+        {
+          "index": 0,
+          "function": "parse_string",
+          "file": "cJSON.c",
+          "line": null
+        },
+        {
+          "index": 1,
+          "function": "parse_object",
+          "file": "cJSON.c",
+          "line": null
+        },
+        {
+          "index": 2,
+          "function": "parse_value",
+          "file": "cJSON.c",
+          "line": null
+        },
+        {
+          "index": 3,
+          "function": "cJSON_ParseWithLengthOpts",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 4,
+          "function": "cJSON_ParseWithLength",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 5,
+          "function": "LLVMFuzzerTestOneInput",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 6,
+          "function": "fuzzer::Fuzzer::ExecuteCallback",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 7,
+          "function": "fuzzer::RunOneTest",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 8,
+          "function": "fuzzer::FuzzerDriver",
+          "file": null,
+          "line": null
+        },
+        {
+          "index": 9,
+          "function": "main",
+          "file": null,
+          "line": null
+        }
+      ],
+      "source_url": "https://github.com/DaveGamble/cJSON/issues/800",
+      "verification_note": "公開 trace 沒有提供 cJSON.c 的行號；不可自行補行號。原 JSON 漏掉 parse_object。"
+    },
+    "fuzz_target_name": "cjson_read_fuzzer",
+    "fuzz_target_source_url": "https://github.com/DaveGamble/cJSON/blob/master/fuzzing/cjson_read_fuzzer.c",
+    "api_entrypoint": "cJSON_ParseWithLength",
+    "api_contract_assessment": "false - 解析器合約承諾可依據長度參數限制解析界限，調用端正確傳遞長度但庫代碼在解析字元串值時超越了該範圍，非 API 誤用。",
+    "normal_caller_feasibility": "true - 當外部調用者從底層網路套接字讀取非 null-terminated 的數據塊並直接傳入解析時極易觸發。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "揭示了現存舊版 Harness 透過在尾部強制填充空字元而遮蔽了此真實漏洞的現象，是測試判斷器深度的優質案例。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x55a3fb in parse_string cJSON.c:380\n#1 0x55a5aa in parse_value cJSON.c:442\n#2 0x55a7bc in cJSON_ParseWithLength cJSON.c:1120\n#3 0x55b112 in LLVMFuzzerTestOneInput fuzzing/cjson_read_fuzzer.c:25",
+    "record_status": "usable",
+    "confidence_corrected": "High",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "zlib_tp_001",
+    "project": "zlib",
+    "label": "TP",
+    "label_reason": "CVE-2022-37434 確證為 zlib 底層缺陷。在 inflateGetHeader 的特定解壓模式下，處理極大型 gzip 額外標頭欄位時缺乏嚴格的邊界校驗，導致堆疊緩衝區溢出。",
+    "source": "CVE-2022-37434",
+    "issue_url": "https://nvd.nist.gov/vuln/detail/CVE-2022-37434",
+    "issue_status": "Fixed",
+    "fix_commit": "https://github.com/madler/zlib/commit/eff308af425",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow WRITE",
+    "crash_function": "inflate",
+    "top_library_frame": "inflate.c",
+    "stack_trace": {
+      "available": false,
+      "trace_type": "not_published_in_cited_source",
+      "verbatim_from_public_source": false,
+      "raw_excerpt": null,
+      "frames": [],
+      "source_url": "https://nvd.nist.gov/vuln/detail/CVE-2022-37434",
+      "verification_note": "NVD／CVE 描述可證明漏洞與 inflate、inflateGetHeader 的關聯，但沒有公開 sanitizer stack trace。原 JSON 的 inflate -> inflateGetHeader -> LLVMFuzzerTestOneInput 不是引用來源中的 trace，應刪除。"
+    },
+    "fuzz_target_name": "zlib_inflate_fuzzer",
+    "fuzz_target_source_url": "https://github.com/google/oss-fuzz/tree/master/projects/zlib",
+    "api_entrypoint": "inflateGetHeader",
+    "api_contract_assessment": "false - 僅由畸形壓縮輸入引發，不涉及任何調用端代碼對底層 inflate 生態對象的調用協定違反。",
+    "normal_caller_feasibility": "true - 任何整合 zlib 並啟用 gzip 標頭解析的底層服務，在接收網路畸形壓縮包時均會受此漏洞威脅。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "該漏洞被廣泛記錄，漏洞成因明確，代碼修復完整，具有無可爭議的真陽性特徵。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x7f9a12 in inflate inflate.c:1502\n#1 0x7fa2b9 in inflateGetHeader inflate.c:1532\n#2 0x7fb110 in LLVMFuzzerTestOneInput fuzz/zlib_inflate_fuzzer.c:60",
+    "record_status": "candidate_only_missing_trace",
+    "confidence_corrected": "High for TP label; Low for stack-trace evidence",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "libtiff_tp_001",
+    "project": "libtiff",
+    "label": "TP",
+    "label_reason": "PixarLog 圖像解碼器在處理 8BITABGR 且 stride 為 3 的異常配置時，計算輸出緩衝區長度與實際複製長度發生偏差，引發 ASan 檢測到 Heap-buffer-overflow 越界讀取，已由官方發布 release 修復。",
+    "source": "GitLab issue 824",
+    "issue_url": "https://gitlab.com/libtiff/libtiff/-/issues/824",
+    "issue_status": "Fixed",
+    "fix_commit": "https://gitlab.com/libtiff/libtiff/-/commit/6a100fbc140a7a3f7ddb8f9dc8bd28f785e12334",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow WRITE 1",
+    "crash_function": "horizontalAccumulate8abgr",
+    "top_library_frame": "libtiff/tif_pixarlog.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "compact_asan_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "ERROR: AddressSanitizer: heap-buffer-overflow\nWRITE of size 1\n#0 horizontalAccumulate8abgr libtiff/tif_pixarlog.c:470\n#1 PixarLogDecode libtiff/tif_pixarlog.c:980\n#2 TIFFReadScanline libtiff/tif_read.c:465\n#3 main poc_pixarlog_8bitabgr.c:31\n0 bytes to the right of 192-byte region",
+      "frames": [
+        {
+          "index": 0,
+          "function": "horizontalAccumulate8abgr",
+          "file": "libtiff/tif_pixarlog.c",
+          "line": 470
+        },
+        {
+          "index": 1,
+          "function": "PixarLogDecode",
+          "file": "libtiff/tif_pixarlog.c",
+          "line": 980
+        },
+        {
+          "index": 2,
+          "function": "TIFFReadScanline",
+          "file": "libtiff/tif_read.c",
+          "line": 465
+        },
+        {
+          "index": 3,
+          "function": "main",
+          "file": "poc_pixarlog_8bitabgr.c",
+          "line": 31
+        }
+      ],
+      "source_url": "https://gitlab.com/libtiff/libtiff/-/issues/824",
+      "verification_note": "公開 issue 提供的是省略具體位址的 compact trace。真正 top frame 是 horizontalAccumulate8abgr；錯誤是 WRITE，不是原 JSON 所寫的 READ。"
+    },
+    "fuzz_target_name": "tiff_read_fuzzer",
+    "fuzz_target_source_url": "https://github.com/google/oss-fuzz/tree/master/projects/libtiff",
+    "api_entrypoint": "TIFFReadEncodedStrip",
+    "api_contract_assessment": "false - 調用端正常調用 Strip 讀取 API，崩潰由庫內部解碼邏輯對特定維度與 Stride 計算錯誤引發。",
+    "normal_caller_feasibility": "true - 任何影像檢視或處理軟體在解析具備 PixarLog 壓縮格式的畸形 TIFF 檔案時，皆會執行到此缺陷代碼。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "此漏洞已被多個下游 Linux 發行版確認並收錄至官方安全性通告，是極具代表性的解碼器庫漏洞。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x7f2321 in PixarLogDecode libtiff/tif_pixarlog.c:780\n#1 0x7f25bb in TIFFReadEncodedStrip libtiff/tif_read.c:380\n#2 0x7f3112 in LLVMFuzzerTestOneInput fuzzing/tiff_read_fuzzer.cc:55",
+    "record_status": "usable_with_compact_trace",
+    "confidence_corrected": "High",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "libpcap_tp_001",
+    "project": "libpcap",
+    "label": "TP",
+    "label_reason": "Include Security 安全審計中確認遠端封包擷取守護程序（RPCAPD）在處理特定的網路包計數與長度計算時發生整數溢出，隨後引發堆疊緩衝區越界寫入，已合並主線修復。",
+    "source": "GitHub issue 855 / CVE-2019-15161",
+    "issue_url": "https://github.com/the-tcpdump-group/libpcap/issues/855",
+    "issue_status": "Fixed",
+    "fix_commit": "https://github.com/the-tcpdump-group/libpcap/commit/0b6a6fd",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow WRITE",
+    "crash_function": "pcap_read_rpcap",
+    "top_library_frame": "pcap-rpcap.c",
+    "stack_trace": {
+      "available": false,
+      "trace_type": "source_mismatch",
+      "verbatim_from_public_source": false,
+      "raw_excerpt": null,
+      "frames": [],
+      "source_url": "https://github.com/the-tcpdump-group/libpcap/issues/855",
+      "verification_note": "引用的 GitHub issue #855 是 CVE-2018-16301 information，並非原 JSON 描述的 CVE-2019-15161 crash；來源沒有 rpcapd_recv_packet -> pcap_read_rpcap 等 trace。此筆不應進入正式 calibration set。"
+    },
+    "fuzz_target_name": "pcap_fuzzer",
+    "fuzz_target_source_url": "https://github.com/google/oss-fuzz/tree/master/projects/libpcap",
+    "api_entrypoint": "pcap_loop",
+    "api_contract_assessment": "false - 解析畸形網路流包，觸發核心解碼組件的安全邊界溢出，調用端 Harness 邏輯正確且無 API 誤用。",
+    "normal_caller_feasibility": "true - 當整合 libpcap 的守護程序在監聽網路介面並啟用 RPCAPD 特性時，攻擊者可發送惡意負載直接觸發此漏洞。",
+    "version_matched": "true",
+    "reproduced_locally": "unknown",
+    "notes": "雖然未在本地端完整建置 RPCAPD 環境進行驗證，但上游合併與設計確認極為明確，信心高。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x7f1120 in rpcapd_recv_packet rpcapd/rpcapd.c:110\n#1 0x7f12bc in rpcap_read_rpcap pcap-rpcap.c:450\n#2 0x7f2210 in pcap_next_packet pcap.c:820\n#3 0x7f2bbb in pcap_loop pcap.c:910\n#4 0x7f3912 in LLVMFuzzerTestOneInput fuzzing/pcap_fuzzer.c:75",
+    "record_status": "reject_source_mismatch",
+    "confidence_corrected": "Reject",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "lcms_amb_001",
+    "project": "lcms",
+    "label": "Ambiguous",
+    "label_reason": "模糊測試驅動（Harness）向庫聲明圖像色彩空間為 12 個通道外加 2 個 Alpha 通道（合計 14 位元組像素步長），然而其實際分配給 cmsDoTransform 的輸入緩衝區僅有 5 個位元組。庫代碼依據合約執行讀取時引發越界，此非庫缺陷。",
+    "source": "GitHub issue 476",
+    "issue_url": "https://github.com/mm2/Little-CMS/issues/476",
+    "issue_status": "WontFix",
+    "fix_commit": "none",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow READ",
+    "crash_function": "UnrollChunkyBytes",
+    "top_library_frame": "src/cmspack.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "full_asan_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "==882103==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000335\nREAD of size 1 at 0x602000000335 thread T0\n#0 0x555cfafdee22 in UnrollChunkyBytes /home/CVE-lcms/project/lcms2.16/src/cmspack.c:130:13\n#1 0x555cfaff9b65 in CachedXFORM /home/CVE-lcms/project/lcms2.16/src/cmsxform.c:535:21\n#2 0x555cfafef94a in cmsDoTransform /home/CVE-lcms/project/lcms2.16/src/cmsxform.c:206:5\n#3 0x555cfaf3d275 in main /home/CVE-lcms/harness/harness-2.cc:70:13\n#4 0x7fc770f7cd8f (/lib/x86_64-linux-gnu/libc.so.6+0x29d8f)\n#5 0x7fc770f7ce3f in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x29e3f)\n#6 0x555cfae626d4 in _start (/home/CVE-lcms/harness/harness-2+0x776d4)\nSUMMARY: AddressSanitizer: heap-buffer-overflow /home/CVE-lcms/project/lcms2.16/src/cmspack.c:130:13 in UnrollChunkyBytes",
+      "frames": [
+        {
+          "index": 0,
+          "function": "UnrollChunkyBytes",
+          "file": "/home/CVE-lcms/project/lcms2.16/src/cmspack.c",
+          "line": 130,
+          "column": 13
+        },
+        {
+          "index": 1,
+          "function": "CachedXFORM",
+          "file": "/home/CVE-lcms/project/lcms2.16/src/cmsxform.c",
+          "line": 535,
+          "column": 21
+        },
+        {
+          "index": 2,
+          "function": "cmsDoTransform",
+          "file": "/home/CVE-lcms/project/lcms2.16/src/cmsxform.c",
+          "line": 206,
+          "column": 5
+        },
+        {
+          "index": 3,
+          "function": "main",
+          "file": "/home/CVE-lcms/harness/harness-2.cc",
+          "line": 70,
+          "column": 13
+        },
+        {
+          "index": 4,
+          "function": null,
+          "file": "libc.so.6",
+          "line": null
+        },
+        {
+          "index": 5,
+          "function": "__libc_start_main",
+          "file": "libc.so.6",
+          "line": null
+        },
+        {
+          "index": 6,
+          "function": "_start",
+          "file": null,
+          "line": null
+        }
+      ],
+      "source_url": "https://github.com/mm2/Little-CMS/issues/476",
+      "verification_note": "原 JSON 漏掉 CachedXFORM，並把 standalone harness 的 main 改成 LLVMFuzzerTestOneInput。"
+    },
+    "fuzz_target_name": "cms_transform_fuzzer",
+    "fuzz_target_source_url": "unknown",
+    "api_entrypoint": "cmsDoTransform",
+    "api_contract_assessment": "true - 存在明顯的 API 誤用。調用端對輸入緩衝區的物理分配尺寸與其傳遞給 API 的色彩格式元數據（channels=12, alpha=2）產生嚴重的不一致，進而引發庫被動越界讀取。",
+    "normal_caller_feasibility": "false - 正常客戶端程式不會在宣告超大像素格式後僅提供 5 字節的記憶體，此屬模糊測試 Harness 編寫錯誤。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "經典的 Harness False Positive 邊界案例。作者 Marti 拒絕修補並指明此為調用端 Bug：'fread() is also vulnerable if you call it wrongly.'，是校準 LLM 避免過度樂觀的關鍵基石。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x555cfa in UnrollChunkyBytes src/cmspack.c:135\n#1 0x555ebb in cmsDoTransform src/cmsxform.c:640\n#2 0x556012 in LLVMFuzzerTestOneInput fuzz/cms_transform_fuzzer.cpp:52",
+    "record_status": "usable",
+    "confidence_corrected": "High for trace; label still requires API-contract review",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "libpcap_amb_001",
+    "project": "libpcap",
+    "label": "Ambiguous",
+    "label_reason": "調用端將 nullptr 傳遞給 pcap_create 的 errbuf 參數。該 API 設計約定假定此參數非空且具備 PCAP_ERRBUF_SIZE 的空間以回寫錯誤。當底層初始化失敗嘗試寫入錯誤時，因空指針而崩潰，此非庫漏洞。",
+    "source": "GitHub issue 1239",
+    "issue_url": "https://github.com/the-tcpdump-group/libpcap/issues/1239",
+    "issue_status": "WontFix",
+    "fix_commit": "none",
+    "sanitizer": "NullPointerDereference",
+    "crash_type": "Segmentation fault",
+    "crash_function": "pcap_create",
+    "top_library_frame": "pcap.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "asan_segv_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "==707630==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000\nThe signal is caused by a WRITE memory access.\n#0 0x7fc9bb8d0f81 (/lib/x86_64-linux-gnu/libc.so.6+0x8bf81)\n#1 0x55c4d98bcb1a in vsnprintf /work/llvm/llvm-project/compiler-rt/lib/asan/../sanitizer_common/sanitizer_common_interceptors.inc:1746:1\n#2 0x55c4d9a8037c in pcapint_vfmt_errmsg_for_errno /libpcap/src/libpcap/fmtutils.c:287:8\n#3 0x55c4d9a8020f in pcapint_fmt_errmsg_for_errno /libpcap/src/libpcap/fmtutils.c:275:2\n#4 0x55c4d9a23e6a in iface_get_ts_types /libpcap/src/libpcap/pcap-linux.c\n#5 0x55c4d9a23e6a in pcapint_create_interface /libpcap/src/libpcap/pcap-linux.c:354:6\n#6 0x55c4d99fcffc in pcap_create /libpcap/src/libpcap/pcap.c:2412:6\n#7 0x55c4d9969cf1 in LLVMFuzzerTestOneInput_4 /id_000004.cc:62:22",
+      "frames": [
+        {
+          "index": 0,
+          "function": null,
+          "file": "libc.so.6",
+          "line": null
+        },
+        {
+          "index": 1,
+          "function": "vsnprintf",
+          "file": "sanitizer_common_interceptors.inc",
+          "line": 1746,
+          "column": 1
+        },
+        {
+          "index": 2,
+          "function": "pcapint_vfmt_errmsg_for_errno",
+          "file": "/libpcap/src/libpcap/fmtutils.c",
+          "line": 287,
+          "column": 8
+        },
+        {
+          "index": 3,
+          "function": "pcapint_fmt_errmsg_for_errno",
+          "file": "/libpcap/src/libpcap/fmtutils.c",
+          "line": 275,
+          "column": 2
+        },
+        {
+          "index": 4,
+          "function": "iface_get_ts_types",
+          "file": "/libpcap/src/libpcap/pcap-linux.c",
+          "line": null
+        },
+        {
+          "index": 5,
+          "function": "pcapint_create_interface",
+          "file": "/libpcap/src/libpcap/pcap-linux.c",
+          "line": 354,
+          "column": 6
+        },
+        {
+          "index": 6,
+          "function": "pcap_create",
+          "file": "/libpcap/src/libpcap/pcap.c",
+          "line": 2412,
+          "column": 6
+        },
+        {
+          "index": 7,
+          "function": "LLVMFuzzerTestOneInput_4",
+          "file": "/id_000004.cc",
+          "line": 62,
+          "column": 22
+        }
+      ],
+      "source_url": "https://github.com/the-tcpdump-group/libpcap/issues/1239",
+      "verification_note": "真正 top frame 是 libc/vsnprintf 對 NULL errbuf 寫入；pcap_create 不是 frame #0。"
+    },
+    "fuzz_target_name": "pcap_create_fuzzer",
+    "fuzz_target_source_url": "unknown",
+    "api_entrypoint": "pcap_create",
+    "api_contract_assessment": "true - 調用端明確將 nullptr 傳遞給被底層假定非空的 errbuf 引導指針，直接破壞了 C 語言庫的調用前提合約。",
+    "normal_caller_feasibility": "false - 合規的調用端皆會配置一個字元陣列以儲存可能發生的錯誤資訊，幾乎不可能傳遞 NULL 指針。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "上游關閉了此 issue（標註為 not planned），因為這屬於底層合約假設。為避免類似編譯期誤用，作者僅追加了 GCC/Clang 的 __attribute__((nonnull)) 編譯期約束宣告。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x7f4510 in pcap_create pcap.c:120\n#1 0x7f4bb9 in LLVMFuzzerTestOneInput fuzzing/pcap_create_fuzzer.c:30",
+    "record_status": "usable",
+    "confidence_corrected": "High",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "tinyxml2_amb_001",
+    "project": "tinyxml2",
+    "label": "Ambiguous",
+    "label_reason": "XMLDocument::Parse 預期接收合法的 null-terminated 字元串。模糊測試 Harness 未對生成的隨機變量長度做限制，亦未將尾部置零，直接當成 C-string 傳入，引發內置 strlen 發生越界存取。",
+    "source": "GitHub issue 675",
+    "issue_url": "https://github.com/leethomason/tinyxml2/issues/675",
+    "issue_status": "WontFix",
+    "fix_commit": "none",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Heap-buffer-overflow READ",
+    "crash_function": "strlen",
+    "top_library_frame": "tinyxml2.cpp",
+    "stack_trace": {
+      "available": false,
+      "trace_type": "not_published_in_issue",
+      "verbatim_from_public_source": false,
+      "raw_excerpt": null,
+      "frames": [],
+      "source_url": "https://github.com/leethomason/tinyxml2/issues/675",
+      "verification_note": "Issue 只聲稱 XMLDocument::Parse 測試時在 tinyxml2.cpp:2286 的 strlen 發生 heap-buffer-overflow，沒有貼 ASan stack trace、PoC 或 fuzz target source。原 JSON 的三個 frame 是推測，不可使用。"
+    },
+    "fuzz_target_name": "tinyxml2_parse_fuzzer",
+    "fuzz_target_source_url": "unknown",
+    "api_entrypoint": "XMLDocument::Parse",
+    "api_contract_assessment": "true - 經典 API 誤用。C/C++ 常規 API 設計約定：接收 char* 參數而無 explicit size 的函數預期傳入字元串必包含空終止符。Harness 未能履行此保證。",
+    "normal_caller_feasibility": "false - 客戶端程式在處理一般 XML 載荷時，其字元串讀取操作（如來自 std::string）會自動確保空終止符的存在。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "作者明確回覆指出：'this is C++, if you pass bad inputs, it will crash, like any library in C++'，並拒絕限制 strlen。這可用於微調 LLM 判定器對 C++ API 約定的解讀阈值。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x7f82b0 in strlen\n#1 0x7f83a1 in tinyxml2::XMLDocument::Parse tinyxml2.cpp:2286\n#2 0x7f9a12 in LLVMFuzzerTestOneInput fuzzing/xml_parse_fuzzer.cpp:20",
+    "record_status": "candidate_only_missing_trace",
+    "confidence_corrected": "Low",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "libtiff_amb_001",
+    "project": "libtiff",
+    "label": "Ambiguous",
+    "label_reason": "在執行 tiffcp 處理畸形 TIFF 文件時觸發了庫內置的防禦性 assert 斷言失敗。此機制屬於主動程式異常終止（SIGABRT），在生產環境編譯（通常不開啟 ASSERT）中並不必然轉化為記憶體漏洞，應判定為模稜兩可案件。",
+    "source": "CVE-2022-0865 / GitLab issue 385",
+    "issue_url": "https://gitlab.com/libtiff/libtiff/-/issues/385",
+    "issue_status": "Fixed",
+    "fix_commit": "https://gitlab.com/libtiff/libtiff/-/commit/5e180045",
+    "sanitizer": "UndefinedBehaviorSanitizer",
+    "crash_type": "Assertion failure",
+    "crash_function": "TIFFReadAndRealloc",
+    "top_library_frame": "libtiff/tif_read.c",
+    "stack_trace": {
+      "available": false,
+      "trace_type": "assertion_output_only",
+      "verbatim_from_public_source": false,
+      "raw_excerpt": null,
+      "frames": [],
+      "source_url": "https://gitlab.com/libtiff/libtiff/-/issues/385",
+      "verification_note": "公開 issue 沒有 symbolized call stack。原 JSON 的 __GI_raise -> __GI_abort -> __assert_fail -> _TIFFFetchStrileValue 是另一條未被來源支持的 trace。"
+    },
+    "fuzz_target_name": "tiffcp_fuzzer",
+    "fuzz_target_source_url": "unknown",
+    "api_entrypoint": "TIFFReadDirectory",
+    "api_contract_assessment": "false - 輸入為惡意 TIFF 文件，但崩潰是由於調試編譯模式下主動啟用的 assert() 被觸發引起的，而非直接記憶體安全崩潰。",
+    "normal_caller_feasibility": "true - 任何啟用 assert 編譯的 libtiff 在解析異常檔案時皆可能走到此斷言退出路徑。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "斷言失敗和超時通常處於安全判定的灰色地帶。上游雖然對其進行了安全加固修復（替換為常規錯誤返回），但其在分類上仍應與真實內存溢出做嚴格區分。",
+    "confidence": "Medium",
+    "stack_trace_original_unverified": "#0 0x7f2010 in __GI_raise\n#1 0x7f21b0 in __GI_abort\n#2 0x7f3210 in __assert_fail\n#3 0x7f4cba in _TIFFFetchStrileValue libtiff/tif_dirread.c:5600\n#4 0x7f5aa1 in TIFFReadDirectory libtiff/tif_dirread.c:4200",
+    "record_status": "usable_as_assertion_case_not_stacktrace_case",
+    "crash_output": {
+      "available": true,
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "tiffcp: tif_read.c:99: TIFFReadAndRealloc: Assertion `(tif->tif_flags & TIFF_MYBUFFER) != 0' failed.\nAborted",
+      "source_url": "https://gitlab.com/libtiff/libtiff/-/issues/385"
+    },
+    "confidence_corrected": "High as an assertion-boundary case",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "lcms_amb_002",
+    "project": "lcms",
+    "label": "Ambiguous",
+    "label_reason": "cmsDupNamedColorList 在複製一個初始條目為 0 的 Named Color List 時，調用了 memmove(NewNC->List, v->List, 0)。由於源指針此時為 NULL，UBSan 觸發了非空參數傳遞空指針警告。然而所有常規編譯器在此情況下皆不會執行實質寫入，屬無害警告。",
+    "source": "GitHub issue 544",
+    "issue_url": "https://github.com/mm2/Little-CMS/issues/544",
+    "issue_status": "Fixed",
+    "fix_commit": "https://github.com/mm2/Little-CMS/commit/a2ee132",
+    "sanitizer": "UndefinedBehaviorSanitizer",
+    "crash_type": "Null pointer passed to memmove",
+    "crash_function": "cmsDupNamedColorList",
+    "top_library_frame": "src/cmsnamed.c",
+    "stack_trace": {
+      "available": true,
+      "trace_type": "full_ubsan_trace",
+      "verbatim_from_public_source": true,
+      "raw_excerpt": "/root/src/Little-CMS/src/cmsnamed.c:808:13: runtime error: null pointer passed as argument 1, which is declared to never be null\n/usr/include/string.h:48:14: note: nonnull attribute specified here\n#0 0x599b06263a99 in cmsDupNamedColorList /root/src/Little-CMS/src/cmsnamed.c:808:5\n#1 0x599b06253b24 in main /mnt/raid/FuzzAgentExp/lcms/lcms_exp_24h_2/crash_reports/new/poc.cc:19:31\n#2 0x7914ee82a1c9 in __libc_start_call_main csu/../sysdeps/nptl/libc_start_call_main.h:58:16\n#3 0x7914ee82a28a in __libc_start_main csu/../csu/libc-start.c:360:3\n#4 0x599b0611e3e4 in _start (/mnt/raid/FuzzAgentExp/lcms/lcms_exp_24h_2/crash_reports/new/poc+0x18b3e4)\nSUMMARY: UndefinedBehaviorSanitizer: undefined-behavior /root/src/Little-CMS/src/cmsnamed.c:808:13",
+      "frames": [
+        {
+          "index": 0,
+          "function": "cmsDupNamedColorList",
+          "file": "/root/src/Little-CMS/src/cmsnamed.c",
+          "line": 808,
+          "column": 5
+        },
+        {
+          "index": 1,
+          "function": "main",
+          "file": "/mnt/raid/FuzzAgentExp/lcms/lcms_exp_24h_2/crash_reports/new/poc.cc",
+          "line": 19,
+          "column": 31
+        },
+        {
+          "index": 2,
+          "function": "__libc_start_call_main",
+          "file": "libc_start_call_main.h",
+          "line": 58,
+          "column": 16
+        },
+        {
+          "index": 3,
+          "function": "__libc_start_main",
+          "file": "libc-start.c",
+          "line": 360,
+          "column": 3
+        },
+        {
+          "index": 4,
+          "function": "_start",
+          "file": null,
+          "line": null
+        }
+      ],
+      "source_url": "https://github.com/mm2/Little-CMS/issues/544",
+      "verification_note": "原公開 trace 使用 standalone PoC 的 main，不是 named_color_fuzzer。"
+    },
+    "fuzz_target_name": "named_color_fuzzer",
+    "fuzz_target_source_url": "unknown",
+    "api_entrypoint": "cmsDupNamedColorList",
+    "api_contract_assessment": "false - 調用端依照 API 規範複製一個合法的色彩串列。庫內部在分配為零個項目時，未對底層 C 標準庫 memmove 的 C99 非空限制（即使尺寸為0）進行防禦過濾。",
+    "normal_caller_feasibility": "true - 當客戶端程式處理空命名色彩集並執行複製克隆時，UBSan 檢測工具必定會檢出此異常警告。",
+    "version_matched": "true",
+    "reproduced_locally": "true",
+    "notes": "作者Marti指出此僅為配合標準規約進行的極輕量規避修改：'every compiler tested performs no action when memmove is called with a size of 0... adding check purely for C99 compliance.'，證明其無實質安全影響，應校準為 Ambiguous。",
+    "confidence": "High",
+    "stack_trace_original_unverified": "#0 0x599b06 in cmsDupNamedColorList src/cmsnamed.c:808\n#1 0x59aa12 in LLVMFuzzerTestOneInput fuzz/named_color_fuzzer.cpp:45",
+    "record_status": "usable",
+    "confidence_corrected": "High for trace; Medium for security impact",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  },
+  {
+    "case_id": "toml_amb_001",
+    "project": "tomlplusplus",
+    "label": "Ambiguous",
+    "label_reason": "解析特定非預期或高畸形結構、深度過大的 toml 時，因遞歸過深或記憶體動態分配失衡引發了異常終止，但無具體內存越界證據，需進一步 triage 是否為 Harness 遞歸或資源約束引發。",
+    "source": "Fuzz run output regression test",
+    "issue_url": "unknown",
+    "issue_status": "Unknown",
+    "fix_commit": "none",
+    "sanitizer": "AddressSanitizer",
+    "crash_type": "Timeout / Stack-overflow",
+    "crash_function": "toml::parser::parse_value",
+    "top_library_frame": "toml.hpp",
+    "stack_trace": {
+      "available": false,
+      "trace_type": "no_public_source",
+      "verbatim_from_public_source": false,
+      "raw_excerpt": null,
+      "frames": [],
+      "source_url": null,
+      "verification_note": "沒有 issue URL、公開 log、reproducer 或 commit；且原紀錄標示 reproduced_locally=false。原 JSON 的四個 frame 無法核驗，應從正式 validation set 移除。"
+    },
+    "fuzz_target_name": "toml_fuzzer",
+    "fuzz_target_source_url": "unknown",
+    "api_entrypoint": "toml::parse",
+    "api_contract_assessment": "unknown - 難以判定是否存在 API 誤用。有可能是 Harness 未妥善過濾輸入大小，或是未防範無限嵌套深度，導致正常堆疊耗盡。",
+    "normal_caller_feasibility": "unknown - 常規解析器對大文件或深層結構存在默認棧深度上限設定，若無設定，則可能崩潰。",
+    "version_matched": "unknown",
+    "reproduced_locally": "false",
+    "notes": "缺少明確的上遊確認證據與修復補丁，且棧深耗盡通常難以直接歸類為高危記憶體安全漏洞，屬典型 Ambiguous 分類標的。",
+    "confidence": "Low",
+    "stack_trace_original_unverified": "#0 0x7f1110 in toml::parse_error_handler\n#1 0x7f15b0 in toml::parser::parse_value\n#2 0x7f23a1 in toml::parse\n#3 0x7f39a2 in LLVMFuzzerTestOneInput fuzz/toml_fuzzer.cpp:15",
+    "record_status": "reject_unverifiable",
+    "confidence_corrected": "Reject",
+    "evidence_provenance": {
+      "reviewed": true,
+      "review_scope": "public stack trace / crash output only",
+      "warning": "Only stack-trace and directly related crash metadata were audited here. Other fields inherited from the original Gemini output may still require independent verification."
+    }
+  }
+]
