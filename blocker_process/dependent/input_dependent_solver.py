@@ -744,10 +744,10 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["attempt_result"] = "success"
         return result
     if isinstance(parsed_llm_seed, dict) and parsed_llm_seed.get("failure_kind") == "llm_timeout":
-        result["failure_stage"] = "llm_seed_generator"
-        result["attempt_result"] = "llm_error"
-        result["message"] = str(parsed_llm_seed.get("message") or "Seed-generation LLM stage timed out.")
-        return result
+        result["llm_seed_timeout_fallback_to_symcc"] = True
+        result["llm_seed_timeout_message"] = str(
+            parsed_llm_seed.get("message") or "Seed-generation LLM stage timed out."
+        )
     if seed_generation_exceeded_budget(parsed_llm_seed):
         result["success"] = False
         result["failure_stage"] = "llm_seed_generator"

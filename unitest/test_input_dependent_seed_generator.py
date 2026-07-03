@@ -54,7 +54,7 @@ def test_llm_stage_timeout_returns_retryable_llm_error() -> None:
     assert result["parsed_output"]["retryable"] is True
 
 
-def test_seed_stage_timeout_stops_before_symcc(monkeypatch, tmp_path: Path) -> None:
+def test_seed_stage_timeout_falls_back_to_symcc(monkeypatch, tmp_path: Path) -> None:
     seed = tmp_path / "trigger.seed"
     target = tmp_path / "target.c"
     seed.write_bytes(b"trigger")
@@ -75,17 +75,33 @@ def test_seed_stage_timeout_stops_before_symcc(monkeypatch, tmp_path: Path) -> N
         reset_corpus_per_iteration=False,
         log_dir=None,
         llm_seed_stage_timeout_sec=900,
+        symcc_max_total_seeds=10,
+        symcc_max_candidate_evaluations=20,
+        symcc_max_retained_seeds=10,
+        symcc_initial_frontier_cap=5,
     )
     monkeypatch.setattr(
         "blocker_process.dependent.input_dependent_solver.build_context_args",
         lambda _args: [],
     )
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.build_symcc_cmd",
+        lambda **_kwargs: ["symcc_probe"],
+    )
 
-    calls = 0
+    calls: list[str] = []
 
-    def timed_out(_cmd, **kwargs):
-        nonlocal calls
-        calls += 1
+    def timed_out_then_symcc(cmd, **kwargs):
+        if cmd == ["symcc_probe"]:
+            calls.append("symcc_probe")
+            return {
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+                "timed_out": False,
+                "parsed_output": {"success": True},
+            }
+        calls.append("seed_generator")
         assert kwargs["timeout_sec"] == 900
         return {
             "returncode": 124,
@@ -103,14 +119,16 @@ def test_seed_stage_timeout_stops_before_symcc(monkeypatch, tmp_path: Path) -> N
 
     monkeypatch.setattr(
         "blocker_process.dependent.input_dependent_solver.run_program",
-        timed_out,
+        timed_out_then_symcc,
     )
 
     result = run_input_dependent_solver(args)
 
-    assert calls == 1
-    assert result["failure_stage"] == "llm_seed_generator"
-    assert result["attempt_result"] == "llm_error"
+    assert calls == ["seed_generator", "symcc_probe"]
+    assert result["success"] is True
+    assert result["success_stage"] == "symcc_probe_original_target"
+    assert result["attempt_result"] == "success"
+    assert result["llm_seed_timeout_fallback_to_symcc"] is True
     assert result["stages"]["llm_seed_generator"]["retryable"] is True
 
 

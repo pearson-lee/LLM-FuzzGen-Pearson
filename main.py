@@ -1023,6 +1023,7 @@ def run_blocker_pipeline(
     blocker_top_k: int = 12,
     blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
+    llm_seed_stage_timeout_sec: float = 900,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
     blocker_pipeline_mode: str | None = None,
@@ -1249,6 +1250,7 @@ def run_blocker_pipeline(
         triggering_input="",
         max_iterations=blocker_max_iterations,
         fuzz_seconds=blocker_fuzz_seconds,
+        llm_seed_stage_timeout_sec=llm_seed_stage_timeout_sec,
         reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
         keep_auto_context=blocker_keep_auto_context,
         blocker_pipeline_mode=blocker_pipeline_mode,
@@ -1510,6 +1512,7 @@ def run_blocker_session(
     blocker_top_k: int = 12,
     blocker_max_iterations: int = config.BLOCKER_MAX_ITERATIONS,
     blocker_fuzz_seconds: int = 15,
+    llm_seed_stage_timeout_sec: float = 900,
     blocker_reset_corpus_per_iteration: bool = False,
     blocker_keep_auto_context: bool = False,
     blocker_pipeline_mode: str | None = None,
@@ -1852,6 +1855,7 @@ def run_blocker_session(
             blocker_top_k=blocker_top_k,
             blocker_max_iterations=blocker_max_iterations,
             blocker_fuzz_seconds=blocker_fuzz_seconds,
+            llm_seed_stage_timeout_sec=llm_seed_stage_timeout_sec,
             blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
             blocker_keep_auto_context=blocker_keep_auto_context,
             blocker_pipeline_mode=blocker_pipeline_mode,
@@ -2126,6 +2130,7 @@ def run_blocker_once(
     skip_input_independent_pipeline: bool = False,
     enable_blocker_triage: bool = False,
     blocker_artifact_report_seconds: int = 30,
+    llm_seed_stage_timeout_sec: float = 900,
     prepare_artifacts: bool = False,
     force_refresh_artifacts: bool = False,
     artifact_refresh_mode: str = "reuse",
@@ -2191,6 +2196,7 @@ def run_blocker_once(
         enable_blocker_triage=enable_blocker_triage,
         deadline=deadline,
         session_artifacts=session_artifacts,
+        llm_seed_stage_timeout_sec=llm_seed_stage_timeout_sec,
     )
     if not result.get("success"):
         logger.warning("Direct blocker run failed for %s: %s", project_name, result.get("reason"))
@@ -2375,6 +2381,7 @@ def run_fuzzers_and_get_coverage(
     blocker_refresh_branch_growth_floor: int = 50,
     llm_backend: str = "vertexai",
     model_name: str | None = None,
+    llm_seed_stage_timeout_sec: float = 900,
     budget_mode: str = "wall-clock",
     target_exposure_min_seconds: int = 0,
     generated_target_priority_seconds: int = 300,
@@ -2486,6 +2493,7 @@ def run_fuzzers_and_get_coverage(
             blocker_top_k=blocker_top_k,
             blocker_max_iterations=blocker_max_iterations,
             blocker_fuzz_seconds=blocker_fuzz_seconds,
+            llm_seed_stage_timeout_sec=llm_seed_stage_timeout_sec,
             blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
             blocker_keep_auto_context=blocker_keep_auto_context,
             blocker_pipeline_mode=blocker_pipeline_mode,
@@ -2618,6 +2626,7 @@ def run_fuzzers_and_get_coverage(
                     blocker_top_k=blocker_top_k,
                     blocker_max_iterations=blocker_max_iterations,
                     blocker_fuzz_seconds=blocker_fuzz_seconds,
+                    llm_seed_stage_timeout_sec=llm_seed_stage_timeout_sec,
                     blocker_reset_corpus_per_iteration=blocker_reset_corpus_per_iteration,
                     blocker_keep_auto_context=blocker_keep_auto_context,
                     blocker_pipeline_mode=blocker_pipeline_mode,
@@ -2678,6 +2687,7 @@ def run_all_fuzzer(
     blocker_refresh_branch_growth_floor: int = 50,
     llm_backend: str = "vertexai",
     model_name: str | None = None,
+    llm_seed_stage_timeout_sec: float = 900,
     budget_mode: str = "wall-clock",
     target_exposure_min_seconds: int = 0,
     generated_target_priority_seconds: int = 300,
@@ -2739,6 +2749,7 @@ def run_all_fuzzer(
                     blocker_refresh_branch_growth_floor,
                     llm_backend,
                     model_name,
+                    llm_seed_stage_timeout_sec,
                     budget_mode,
                     target_exposure_min_seconds,
                     generated_target_priority_seconds,
@@ -3046,6 +3057,15 @@ def _parse_args() -> argparse.Namespace:
         help="Fuzzing seconds per blocker iteration. Default 15.",
     )
     parser_run.add_argument(
+        "--llm-seed-stage-timeout-sec",
+        type=float,
+        default=900,
+        help=(
+            "Hard wall-clock timeout for the input-dependent LLM seed-generation stage. "
+            "On timeout, the dependent solver falls back to SymCC when a triggering seed is available. Default 900."
+        ),
+    )
+    parser_run.add_argument(
         "--blocker-reset-corpus-per-iteration",
         action="store_true",
         default=False,
@@ -3174,6 +3194,15 @@ def _parse_args() -> argparse.Namespace:
         help=f"Maximum blocker iterations. Default {config.BLOCKER_MAX_ITERATIONS}.",
     )
     parser_blocker.add_argument("--blocker-fuzz-seconds", type=int, default=15, help="Fuzzing seconds per iteration.")
+    parser_blocker.add_argument(
+        "--llm-seed-stage-timeout-sec",
+        type=float,
+        default=900,
+        help=(
+            "Hard wall-clock timeout for the input-dependent LLM seed-generation stage. "
+            "On timeout, the dependent solver falls back to SymCC when a triggering seed is available."
+        ),
+    )
     parser_blocker.add_argument(
         "--blocker-reset-corpus-per-iteration",
         action="store_true",
@@ -3774,6 +3803,7 @@ def main() -> None:
                 args.blocker_refresh_branch_growth_floor,
                 args.llm,
                 args.model,
+                args.llm_seed_stage_timeout_sec,
                 args.budget_mode,
                 args.target_exposure_min_seconds,
                 args.generated_target_priority_seconds,
@@ -3799,6 +3829,7 @@ def main() -> None:
                 skip_input_independent_pipeline=args.skip_input_independent_pipeline,
                 enable_blocker_triage=args.enable_blocker_triage,
                 blocker_artifact_report_seconds=args.blocker_artifact_report_seconds,
+                llm_seed_stage_timeout_sec=args.llm_seed_stage_timeout_sec,
                 prepare_artifacts=args.prepare_artifacts,
                 force_refresh_artifacts=args.force_refresh_artifacts,
                 artifact_refresh_mode=args.artifact_refresh_mode,
