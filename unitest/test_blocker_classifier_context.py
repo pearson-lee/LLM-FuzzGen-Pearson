@@ -2,7 +2,42 @@ from argparse import Namespace
 
 from blocker_process import blocker_callpath_extractor
 from blocker_process import blocker_classifier
-from blocker_process.blocker_classifier import auto_collect_callpath_context, enrich_classification_args
+from blocker_process.blocker_classifier import (
+    auto_collect_callpath_context,
+    build_input_independent_solver_args,
+    build_seed_generation_args,
+    enrich_classification_args,
+)
+
+
+def test_dependent_timeouts_are_not_forwarded_to_independent_solver() -> None:
+    args = Namespace(
+        backend="vertexai",
+        model="gemini-2.5-pro",
+        project_name="demo",
+        function_name="blocker_api",
+        branch_line_number=10,
+        blocked_side_line_number=11,
+        source_file="/tmp/source.c",
+        source_api_file="/src/demo/source.c",
+        fuzz_file="/tmp/fuzzer.c",
+        target_name="demo_fuzzer",
+        seed=[],
+        max_iterations=2,
+        fuzz_seconds=15,
+        llm_seed_stage_timeout_sec=900,
+        llm_harness_stage_timeout_sec=300,
+        reset_corpus_per_iteration=False,
+        log_dir=None,
+    )
+
+    dependent_args = build_seed_generation_args(args)
+    independent_args = build_input_independent_solver_args(args)
+
+    assert "--llm-seed-stage-timeout-sec" in dependent_args
+    assert "--llm-harness-stage-timeout-sec" in dependent_args
+    assert "--llm-seed-stage-timeout-sec" not in independent_args
+    assert "--llm-harness-stage-timeout-sec" not in independent_args
 
 
 def test_missing_yaml_still_collects_textual_callsites(monkeypatch, tmp_path):

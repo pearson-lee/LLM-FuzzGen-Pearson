@@ -676,7 +676,11 @@ def infer_attempt_result(
     return "failed"
 
 
-def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
+def build_seed_generation_args(
+    args: argparse.Namespace,
+    *,
+    include_dependent_timeouts: bool = True,
+) -> list[str]:
     forwarded = [
         "--backend",
         args.backend,
@@ -734,9 +738,9 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
         forwarded.extend(["--max-iterations", str(args.max_iterations)])
     if getattr(args, "fuzz_seconds", None) is not None:
         forwarded.extend(["--fuzz-seconds", str(args.fuzz_seconds)])
-    if getattr(args, "llm_seed_stage_timeout_sec", None) is not None:
+    if include_dependent_timeouts and getattr(args, "llm_seed_stage_timeout_sec", None) is not None:
         forwarded.extend(["--llm-seed-stage-timeout-sec", str(args.llm_seed_stage_timeout_sec)])
-    if getattr(args, "llm_harness_stage_timeout_sec", None) is not None:
+    if include_dependent_timeouts and getattr(args, "llm_harness_stage_timeout_sec", None) is not None:
         forwarded.extend(["--llm-harness-stage-timeout-sec", str(args.llm_harness_stage_timeout_sec)])
     if getattr(args, "reset_corpus_per_iteration", False):
         forwarded.append("--reset-corpus-per-iteration")
@@ -747,7 +751,7 @@ def build_seed_generation_args(args: argparse.Namespace) -> list[str]:
 
 
 def build_input_independent_solver_args(args: argparse.Namespace) -> list[str]:
-    forwarded = build_seed_generation_args(args)
+    forwarded = build_seed_generation_args(args, include_dependent_timeouts=False)
     if getattr(args, "blocker_line_code", None):
         forwarded.extend(["--blocker-line-code", args.blocker_line_code])
     if getattr(args, "blocked_side_line_code", None):
