@@ -1206,8 +1206,11 @@ class OSSFuzz:
         synced = 0
         for covreport in textcov_dir.glob("*.covreport"):
             destination = introspector_dir / covreport.name
+            temporary_destination = introspector_dir / f".{covreport.name}.tmp"
             try:
-                shutil.copy2(covreport, destination)
+                shutil.copyfile(covreport, temporary_destination)
+                temporary_destination.chmod(0o666)
+                temporary_destination.replace(destination)
             except PermissionError:
                 logger.error(
                     "Permission denied while syncing %s into %s for %s.",
@@ -1215,6 +1218,16 @@ class OSSFuzz:
                     destination,
                     proj_name,
                 )
+                temporary_destination.unlink(missing_ok=True)
+                return False
+            except OSError:
+                logger.exception(
+                    "Failed to sync %s into %s for %s.",
+                    covreport,
+                    destination,
+                    proj_name,
+                )
+                temporary_destination.unlink(missing_ok=True)
                 return False
             synced += 1
 
