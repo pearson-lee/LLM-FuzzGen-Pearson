@@ -4,6 +4,7 @@ import sys
 import time
 import argparse
 import json
+import math
 import os
 import shutil
 from pathlib import Path
@@ -59,6 +60,9 @@ class BlockerRuntimeState:
     artifact_target_fingerprint: str | None = None
     pending_target_fingerprint: str | None = None
     new_targets_since_full_rebuild: int = 0
+    last_full_refresh_target_source_set: set[str] = field(default_factory=set)
+    last_full_refresh_target_count: int = 0
+    retained_new_targets_since_full_refresh: int = 0
     light_refreshes_since_full_rebuild: int = 0
     last_session_artifacts: "BlockerSessionArtifacts | None" = None
     attempted_blocker_keys: set[tuple[str, str, str, str]] = field(default_factory=set)
@@ -227,6 +231,34 @@ def _get_project_target_fingerprint(project_name: str) -> str | None:
     except BaseException as exc:
         logger.warning("Failed to compute target fingerprint for %s: %s", project_name, exc)
         return None
+
+
+def _get_generated_target_source_set(project_name: str) -> set[str]:
+    project_dir = oss_fuzz.oss_fuzz_dir / "projects" / project_name
+    if not project_dir.is_dir():
+        return set()
+    target_sources: set[str] = set()
+    for pattern in ("llm_fuzzgen*.c", "llm_fuzzgen*.cc", "llm_fuzzgen*.cpp"):
+        target_sources.update(path.name for path in project_dir.glob(pattern) if path.is_file())
+    return target_sources
+
+
+def _full_refresh_target_threshold(state: BlockerRuntimeState) -> int:
+    if state.last_full_refresh_target_count <= 0:
+        return BLOCKER_FULL_REFRESH_TARGET_THRESHOLD
+    return max(5, math.ceil(state.last_full_refresh_target_count * 0.10))
+
+
+def _sync_retained_target_state(project_name: str, state: BlockerRuntimeState) -> set[str]:
+    current_target_sources = _get_generated_target_source_set(project_name)
+    if state.last_full_refresh_target_source_set:
+        retained_new_sources = current_target_sources - state.last_full_refresh_target_source_set
+        state.retained_new_targets_since_full_refresh = len(retained_new_sources)
+        state.new_targets_since_full_rebuild = state.retained_new_targets_since_full_refresh
+    else:
+        state.retained_new_targets_since_full_refresh = 0
+        state.new_targets_since_full_rebuild = 0
+    return current_target_sources
 
 
 def _log_blocker_session_skipped(
@@ -625,24 +657,23 @@ def ensure_blocker_artifacts(
         )
         if not success:
             logger.warning(
-                "Light blocker artifact refresh failed for %s; reusing existing blocker artifacts instead of "
-                "falling back to a full Introspector refresh.",
+                "Light blocker artifact refresh failed for %s; blocker artifacts were not refreshed.",
                 project_name,
             )
             elapsed = time.perf_counter() - started_at
-            state.last_artifact_refresh_skip_reason = "light_refresh_failed_reused_existing_artifacts"
-            state.last_artifact_refresh_reused_existing = True
+            state.last_artifact_refresh_skip_reason = "light_refresh_failed"
+            state.last_artifact_refresh_reused_existing = False
             _log_experiment_event(
                 "blocker_artifacts_refresh_finished",
-                success=True,
+                success=False,
                 project_name=project_name,
-                refresh_mode="light_refresh_reused_existing",
+                refresh_mode="light_refresh",
                 force_refresh=force_refresh,
                 report_seconds=report_seconds,
                 elapsed_seconds=elapsed,
                 reason=state.last_artifact_refresh_skip_reason,
             )
-            return True
+            return False
     else:
         success = oss_fuzz.generate_report(
             project_name,
@@ -675,6 +706,10 @@ def ensure_blocker_artifacts(
     if refresh_mode.startswith("full_refresh"):
         state.artifact_target_fingerprint = current_fingerprint
         state.pending_target_fingerprint = current_fingerprint
+        current_target_sources = _get_generated_target_source_set(project_name)
+        state.last_full_refresh_target_source_set = set(current_target_sources)
+        state.last_full_refresh_target_count = len(current_target_sources)
+        state.retained_new_targets_since_full_refresh = 0
         state.new_targets_since_full_rebuild = 0
         state.light_refreshes_since_full_rebuild = 0
     else:
@@ -754,14 +789,12 @@ def _read_branch_blocker_targets(blocker_json_path: Path) -> list[str]:
     return sorted(str(target_name) for target_name in data.keys())
 
 
-def _expected_blocker_coverage_files(project_name: str, blocker_targets: list[str]) -> list[Path]:
+def _expected_blocker_coverage_files(project_name: str, _blocker_targets: list[str]) -> list[Path]:
     reports_dir = oss_fuzz.build_out_dir / project_name / "textcov_reports"
-    expected = [
+    return [
         reports_dir / "project.linecovreport",
         reports_dir / "summary_exclude_target.json",
     ]
-    expected.extend(reports_dir / f"{target_name}.linecovreport" for target_name in blocker_targets)
-    return expected
 
 
 def _load_blocker_coverage_context(
@@ -798,14 +831,19 @@ def _load_blocker_coverage_context(
         return None
 
     available_targets = {target_name for target_name in blocker_targets if target_name in target_reports}
+    if blocker_targets and not available_targets:
+        logger.warning(
+            "No target line coverage reports could be loaded for active blocker targets in %s.",
+            project_name,
+        )
+        return None
     if len(available_targets) != len(blocker_targets):
         missing_targets = sorted(set(blocker_targets) - available_targets)
         logger.warning(
-            "Blocker target line coverage reports could not be loaded for %s: %s",
+            "Ignoring blocker targets with missing line coverage reports for %s: %s",
             project_name,
             ", ".join(missing_targets[:8]),
         )
-        return None
 
     return BlockerCoverageContext(
         project_report=project_report,
@@ -819,6 +857,9 @@ def _filter_and_refine_project_blockers(
 ) -> list[dict]:
     filtered: list[dict] = []
     for blocker in blockers:
+        best_target = str(blocker.get("best_target") or "").strip()
+        if best_target and best_target not in coverage_context.target_reports:
+            continue
         branch_line = int(str(blocker.get("branch_line_number", "0")) or 0)
         blocked_side_line = int(
             str(blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", "0"))) or 0
@@ -975,6 +1016,7 @@ def _select_project_blockers(
     coverage_context: BlockerCoverageContext,
     *,
     include_resolved: bool = False,
+    attempted_blocker_keys: set[tuple[str, str, str, str]] | None = None,
     return_aggregated_count: bool = False,
 ) -> list[dict] | tuple[list[dict], int]:
     selection_started_at = time.perf_counter()
@@ -987,6 +1029,15 @@ def _select_project_blockers(
     )
     aggregated_count = len(blockers)
     filtered = _filter_and_refine_project_blockers(blockers, coverage_context)
+    attempted_filtered_count = 0
+    if attempted_blocker_keys:
+        before_attempted_filter = len(filtered)
+        filtered = [
+            blocker
+            for blocker in filtered
+            if _blocker_identity(blocker) not in attempted_blocker_keys
+        ]
+        attempted_filtered_count = before_attempted_filter - len(filtered)
     if blocker_top_k > 0:
         filtered = filtered[:blocker_top_k]
     selection_elapsed = time.perf_counter() - selection_started_at
@@ -1005,6 +1056,7 @@ def _select_project_blockers(
         include_resolved=include_resolved,
         blocker_top_k=blocker_top_k,
         aggregated_count=aggregated_count,
+        attempted_filtered_count=attempted_filtered_count,
         filtered_count=len(filtered),
         selection_elapsed_seconds=selection_elapsed,
     )
@@ -1554,6 +1606,8 @@ def run_blocker_session(
             "succeeded": 0,
             "reason": "insufficient_time_for_blocker_attempt",
         }
+    current_target_sources = _sync_retained_target_state(project_name, state)
+    full_refresh_target_threshold = _full_refresh_target_threshold(state)
     current_target_fingerprint = _get_project_target_fingerprint(project_name)
     target_fingerprint_changed = (
         state.artifact_target_fingerprint is not None
@@ -1562,18 +1616,20 @@ def run_blocker_session(
     )
     if target_fingerprint_changed and current_target_fingerprint != state.pending_target_fingerprint:
         state.pending_target_fingerprint = current_target_fingerprint
-        state.new_targets_since_full_rebuild += 1
         state.artifacts_dirty = True
         logger.info(
-            "Detected target fingerprint change for %s; pending full rebuild count is now %d.",
+            "Detected target fingerprint change for %s; retained new targets since full refresh=%d "
+            "(threshold=%d, current_generated_targets=%d).",
             project_name,
-            state.new_targets_since_full_rebuild,
+            state.retained_new_targets_since_full_refresh,
+            full_refresh_target_threshold,
+            len(current_target_sources),
         )
     prefer_full_refresh = (
         not state.artifacts_ready
         or state.artifact_target_fingerprint is None
         or current_target_fingerprint is None
-        or state.new_targets_since_full_rebuild >= BLOCKER_FULL_REFRESH_TARGET_THRESHOLD
+        or state.retained_new_targets_since_full_refresh >= full_refresh_target_threshold
         or (
             state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
             and state.artifacts_dirty
@@ -1629,9 +1685,12 @@ def run_blocker_session(
         force_refresh = True
     if prefer_full_refresh and state.artifacts_ready and force_refresh:
         logger.info(
-            "Escalating blocker artifact refresh for %s to full rebuild (new_targets_since_full_rebuild=%d, light_refreshes_since_full_rebuild=%d).",
+            "Escalating blocker artifact refresh for %s to full rebuild "
+            "(retained_new_targets_since_full_refresh=%d, threshold=%d, "
+            "light_refreshes_since_full_rebuild=%d).",
             project_name,
-            state.new_targets_since_full_rebuild,
+            state.retained_new_targets_since_full_refresh,
+            full_refresh_target_threshold,
             state.light_refreshes_since_full_rebuild,
         )
     requested_artifact_refresh = (not state.artifacts_ready) or force_refresh
@@ -1735,6 +1794,7 @@ def run_blocker_session(
         resolved_json_path,
         blocker_top_k,
         coverage_context,
+        attempted_blocker_keys=state.attempted_blocker_keys,
     )
     if not blockers:
         logger.warning("Blocker session skipped for %s because no blockers were found.", project_name)
@@ -2006,7 +2066,7 @@ def run_blocker_session(
                     state=state,
                     force_refresh=True,
                     prefer_full_refresh=(
-                        state.new_targets_since_full_rebuild >= BLOCKER_FULL_REFRESH_TARGET_THRESHOLD
+                        state.retained_new_targets_since_full_refresh >= _full_refresh_target_threshold(state)
                         or state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
                     ),
                     deadline=deadline,
@@ -2050,6 +2110,7 @@ def run_blocker_session(
                     resolved_json_path,
                     blocker_top_k,
                     coverage_context,
+                    attempted_blocker_keys=state.attempted_blocker_keys | session_seen_blocker_keys,
                 )
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 logger.warning(

@@ -29,6 +29,7 @@ OUTPUT_ROOT = MODULE_ROOT / "generated_symbolic_runs"
 DEFAULT_LLVM18_ROOT = Path.home() / "tools" / "llvm-18.1.8" / "bin"
 DEFAULT_LLVM_PROFDATA = str(DEFAULT_LLVM18_ROOT / "llvm-profdata")
 DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
+DEFAULT_MAX_PERSISTED_BLOCKER_SEEDS = 5
 
 
 def sanitize_name(value: str) -> str:
@@ -82,6 +83,13 @@ def build_solver_summary(args: argparse.Namespace, result: dict) -> dict:
         "llm_seed_best_symcc_top_families": result.get("llm_seed_best_symcc_top_families"),
         "llm_seed_best_symcc_seed_paths": result.get("llm_seed_best_symcc_seed_paths"),
         "llm_seed_recommended_symcc_generator_seed_paths": result.get("llm_seed_recommended_symcc_generator_seed_paths"),
+        "llm_seed_successful_seed_paths": result.get("llm_seed_successful_seed_paths"),
+        "llm_seed_successful_seed_records": result.get("llm_seed_successful_seed_records"),
+        "persisted_blocker_seed_paths": result.get("persisted_blocker_seed_paths"),
+        "persisted_blocker_seed_records": result.get("persisted_blocker_seed_records"),
+        "persisted_blocker_seed_count": result.get("persisted_blocker_seed_count"),
+        "persisted_blocker_seed_limit": result.get("persisted_blocker_seed_limit"),
+        "persisted_blocker_seed_corpus_dir": result.get("persisted_blocker_seed_corpus_dir"),
         "llm_seed_handoff_selection_reason": result.get("llm_seed_handoff_selection_reason"),
         "llm_seed_progress_iteration_count": result.get("llm_seed_progress_iteration_count"),
         "message": result.get("message"),
@@ -255,6 +263,139 @@ def choose_symcc_seed_inputs(
         "generator_terminal_reason": generator_terminal_reason,
         "recommended_generator_seed_paths": recommended_paths,
         "selection_reason": str(parsed_llm_seed.get("recommended_symcc_selection_reason") or ""),
+    }
+
+
+def _int_or_zero(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def _iter_llm_seed_representative_results(parsed_llm_seed: dict) -> list[dict]:
+    containers: list[dict] = []
+    best_iteration = parsed_llm_seed.get("best_iteration")
+    if isinstance(best_iteration, dict):
+        containers.append(best_iteration)
+    for iteration in parsed_llm_seed.get("iterations") or []:
+        if isinstance(iteration, dict) and iteration is not best_iteration:
+            containers.append(iteration)
+
+    representative_results: list[dict] = []
+    for container in containers:
+        for record in container.get("representative_results") or []:
+            if isinstance(record, dict):
+                representative_results.append(record)
+    return representative_results
+
+
+def collect_successful_llm_seed_records(parsed_llm_seed: dict | None, max_records: int = 5) -> list[dict]:
+    """Return representative LLM-generated seeds that independently reached the blocked side."""
+    if not isinstance(parsed_llm_seed, dict):
+        return []
+
+    candidates: list[dict] = []
+    seen_hashes: set[str] = set()
+    for record in _iter_llm_seed_representative_results(parsed_llm_seed):
+        blocked_hit_count = _int_or_zero(record.get("blocked_side_hit_count"))
+        if not (record.get("blocked_side_reached") or blocked_hit_count > 0):
+            continue
+
+        source_path_text = record.get("seed_path") or record.get("source_path")
+        if not source_path_text:
+            continue
+        source_path = Path(str(source_path_text))
+        if not source_path.is_file():
+            continue
+
+        try:
+            digest = _seed_digest(source_path)
+            size_bytes = source_path.stat().st_size
+        except OSError:
+            continue
+        if digest in seen_hashes:
+            continue
+        seen_hashes.add(digest)
+
+        candidates.append(
+            {
+                "seed_path": str(source_path.resolve()),
+                "source_path": str(source_path.resolve()),
+                "family": str(record.get("family") or ""),
+                "sha256": digest,
+                "size_bytes": size_bytes,
+                "branch_hit_count": _int_or_zero(record.get("branch_hit_count")),
+                "blocked_side_hit_count": blocked_hit_count,
+                "blocked_side_reached": True,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            -int(item.get("blocked_side_hit_count") or 0),
+            -int(item.get("branch_hit_count") or 0),
+            int(item.get("size_bytes") or 0),
+            str(item.get("seed_path") or ""),
+        )
+    )
+    return candidates[: max(0, int(max_records))]
+
+
+def persist_successful_llm_seeds_to_corpus(
+    args: argparse.Namespace,
+    parsed_llm_seed: dict | None,
+    *,
+    max_seeds: int = DEFAULT_MAX_PERSISTED_BLOCKER_SEEDS,
+) -> dict:
+    successful_records = collect_successful_llm_seed_records(parsed_llm_seed, max_records=max_seeds)
+    target_name = args.target_name or Path(args.fuzz_file).stem
+    corpus_dir = OSSFuzz().build_corpus_dir / args.project_name / target_name
+    persisted_records: list[dict] = []
+    skipped_records: list[dict] = []
+    max_seed_size = getattr(args, "max_seed_size_bytes", None)
+
+    for record in successful_records:
+        source_path = Path(str(record["source_path"]))
+        size_bytes = int(record.get("size_bytes") or 0)
+        if max_seed_size and size_bytes > int(max_seed_size):
+            skipped = dict(record)
+            skipped["skip_reason"] = "oversized_seed"
+            skipped_records.append(skipped)
+            continue
+
+        corpus_dir.mkdir(parents=True, exist_ok=True)
+        dest_name = (
+            f"llm_blocker_{sanitize_name(args.function_name)}_"
+            f"{int(args.branch_line_number)}_{str(record['sha256'])[:12]}"
+        )
+        dest_path = corpus_dir / dest_name
+        already_present = dest_path.exists()
+        if not already_present:
+            shutil.copy2(str(source_path), str(dest_path))
+
+        persisted = dict(record)
+        persisted.update(
+            {
+                "corpus_path": str(dest_path.resolve()),
+                "target_name": target_name,
+                "copied": not already_present,
+                "already_present": already_present,
+            }
+        )
+        persisted_records.append(persisted)
+
+    return {
+        "limit": max(0, int(max_seeds)),
+        "target_name": target_name,
+        "corpus_dir": str(corpus_dir.resolve()),
+        "candidate_records": successful_records,
+        "persisted_records": persisted_records,
+        "skipped_records": skipped_records,
+        "persisted_seed_paths": [str(record["corpus_path"]) for record in persisted_records],
+        "source_seed_paths": [str(record["source_path"]) for record in successful_records],
+        "persisted_count": len(persisted_records),
+        "skipped_count": len(skipped_records),
     }
 
 
@@ -739,6 +880,23 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             "recommended_symcc_generator_seed_paths", []
         )
     if successful(llm_seed_result.get("parsed_output")):
+        seed_persistence = persist_successful_llm_seeds_to_corpus(
+            args,
+            parsed_llm_seed,
+            max_seeds=DEFAULT_MAX_PERSISTED_BLOCKER_SEEDS,
+        )
+        result["llm_seed_successful_seed_paths"] = seed_persistence["source_seed_paths"]
+        result["llm_seed_successful_seed_records"] = seed_persistence["candidate_records"]
+        result["persisted_blocker_seed_paths"] = seed_persistence["persisted_seed_paths"]
+        result["persisted_blocker_seed_records"] = seed_persistence["persisted_records"]
+        result["persisted_blocker_seed_count"] = seed_persistence["persisted_count"]
+        result["persisted_blocker_seed_limit"] = seed_persistence["limit"]
+        result["persisted_blocker_seed_corpus_dir"] = seed_persistence["corpus_dir"]
+        result["persisted_blocker_seed_skipped_records"] = seed_persistence["skipped_records"]
+        if not seed_persistence["persisted_records"]:
+            logging.warning(
+                "LLM seed generator reported success but no blocked-side representative seed was persisted."
+            )
         result["success"] = True
         result["success_stage"] = "llm_seed_generator"
         result["attempt_result"] = "success"

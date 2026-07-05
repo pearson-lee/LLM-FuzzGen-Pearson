@@ -13,7 +13,9 @@ from blocker_process.dependent.input_dependent_seed_generator import (
 from blocker_process.dependent.input_dependent_solver import (
     build_symcc_cmd,
     build_runtime_sanity_seed_args,
+    collect_successful_llm_seed_records,
     get_symcc_failure_kind,
+    persist_successful_llm_seeds_to_corpus,
     resolve_harness_fidelity_seed,
     resolve_seed_generator_triggering_input,
     run_program,
@@ -130,6 +132,82 @@ def test_seed_stage_timeout_falls_back_to_symcc(monkeypatch, tmp_path: Path) -> 
     assert result["attempt_result"] == "success"
     assert result["llm_seed_timeout_fallback_to_symcc"] is True
     assert result["stages"]["llm_seed_generator"]["retryable"] is True
+
+
+def test_collect_successful_llm_seed_records_only_keeps_blocked_side_hits(tmp_path: Path) -> None:
+    winner = tmp_path / "winner.seed"
+    loser = tmp_path / "loser.seed"
+    winner.write_bytes(b"blocked")
+    loser.write_bytes(b"branch-only")
+    parsed = {
+        "best_iteration": {
+            "representative_results": [
+                {
+                    "seed_path": str(loser),
+                    "family": "branch",
+                    "branch_hit_count": 5,
+                    "blocked_side_hit_count": 0,
+                    "blocked_side_reached": False,
+                },
+                {
+                    "seed_path": str(winner),
+                    "family": "blocked",
+                    "branch_hit_count": 5,
+                    "blocked_side_hit_count": 3,
+                    "blocked_side_reached": True,
+                },
+            ]
+        }
+    }
+
+    records = collect_successful_llm_seed_records(parsed, max_records=5)
+
+    assert len(records) == 1
+    assert records[0]["source_path"] == str(winner.resolve())
+    assert records[0]["blocked_side_hit_count"] == 3
+
+
+def test_persist_successful_llm_seeds_to_target_corpus(monkeypatch, tmp_path: Path) -> None:
+    seed = tmp_path / "winner.seed"
+    seed.write_bytes(b"blocked")
+    corpus_root = tmp_path / "corpus"
+
+    class FakeOSSFuzz:
+        def __init__(self) -> None:
+            self.build_corpus_dir = corpus_root
+
+    monkeypatch.setattr(
+        "blocker_process.dependent.input_dependent_solver.OSSFuzz",
+        FakeOSSFuzz,
+    )
+    args = SimpleNamespace(
+        project_name="demo",
+        target_name="demo_fuzzer",
+        fuzz_file=str(tmp_path / "demo_fuzzer.c"),
+        function_name="BlockedFunction",
+        branch_line_number=42,
+        max_seed_size_bytes=None,
+    )
+    parsed = {
+        "best_iteration": {
+            "representative_results": [
+                {
+                    "seed_path": str(seed),
+                    "family": "blocked",
+                    "branch_hit_count": 7,
+                    "blocked_side_hit_count": 2,
+                    "blocked_side_reached": True,
+                }
+            ]
+        }
+    }
+
+    persistence = persist_successful_llm_seeds_to_corpus(args, parsed, max_seeds=5)
+
+    assert persistence["persisted_count"] == 1
+    persisted_path = Path(persistence["persisted_seed_paths"][0])
+    assert persisted_path.parent == corpus_root / "demo" / "demo_fuzzer"
+    assert persisted_path.read_bytes() == b"blocked"
 
 
 def test_symcc_command_supports_fidelity_only_preflight(tmp_path: Path) -> None:

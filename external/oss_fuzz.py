@@ -1403,6 +1403,14 @@ class OSSFuzz:
                     artifact_path.unlink(True)
                     removed_any_artifact = True
                     logger.info(f"Removed build artifact at {artifact_path}")
+            for artifact_dir in sorted(
+                (path for path in project_out_dir.rglob("*") if path.is_dir() and is_target_artifact(path.name)),
+                key=lambda path: len(path.parts),
+                reverse=True,
+            ):
+                shutil.rmtree(artifact_dir, ignore_errors=True)
+                removed_any_artifact = True
+                logger.info("Removed target-specific build artifact directory at %s", artifact_dir)
 
         project_cache_root = self.build_cache_dir / proj_name
         if project_cache_root.exists():
@@ -1437,20 +1445,6 @@ class OSSFuzz:
                         except OSError:
                             break
                         parent = parent.parent
-
-        if removed_any_artifact and project_out_dir.exists():
-            for stale_path in (
-                project_out_dir / "inspector",
-                project_out_dir / "textcov_reports",
-                project_out_dir / "report",
-                project_out_dir / "report_target",
-            ):
-                if stale_path.is_dir():
-                    shutil.rmtree(stale_path)
-                    logger.info("Removed stale project report directory after target deletion: %s", stale_path)
-                elif stale_path.is_file():
-                    stale_path.unlink(True)
-                    logger.info("Removed stale project report file after target deletion: %s", stale_path)
 
         self.remove_corpus(proj_name, target_name)
 

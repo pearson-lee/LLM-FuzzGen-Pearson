@@ -155,6 +155,67 @@ def test_only_terminal_pipeline_or_triage_results_are_persisted():
     assert not main._should_persist_blocker_attempt({})
 
 
+def test_selector_filters_attempted_blockers_before_top_k(monkeypatch, tmp_path):
+    first = _blocker("first", 10, "target_a")
+    second = _blocker("second", 20, "target_b")
+    blockers = [first, second]
+
+    monkeypatch.setattr(main, "aggregate_score_and_revalidate_blockers", lambda **kwargs: list(blockers))
+    monkeypatch.setattr(main, "_filter_and_refine_project_blockers", lambda candidates, _context: list(candidates))
+
+    selected = main._select_project_blockers(
+        "demo",
+        tmp_path / "branch-blockers.json",
+        blocker_top_k=1,
+        coverage_context=main.BlockerCoverageContext(project_report="", target_reports={}),
+        attempted_blocker_keys={main._blocker_identity(first)},
+    )
+
+    assert selected == [second]
+
+
+def test_coverage_context_ignores_stale_blocker_targets(monkeypatch, tmp_path):
+    build_out = tmp_path / "out"
+    reports_dir = build_out / "demo" / "textcov_reports"
+    reports_dir.mkdir(parents=True)
+    blocker_json = tmp_path / "branch-blockers.json"
+    blocker_json.write_text(
+        json.dumps(
+            {
+                "active_target": [_blocker("active", 10, "active_target")],
+                "deleted_target": [_blocker("deleted", 20, "deleted_target")],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "project.linecovreport").write_text("project", encoding="utf-8")
+    (reports_dir / "summary_exclude_target.json").write_text("{}", encoding="utf-8")
+    (reports_dir / "active_target.linecovreport").write_text("active", encoding="utf-8")
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+
+    context = main._load_blocker_coverage_context("demo", blocker_json, repair_missing=False)
+
+    assert context is not None
+    assert set(context.target_reports) == {"active_target"}
+
+
+def test_selector_skips_candidates_without_target_report(monkeypatch):
+    active = _blocker("active", 10, "active_target")
+    deleted = _blocker("deleted", 20, "deleted_target")
+
+    def fake_line_count(_report, line, **_kwargs):
+        return "1" if int(line) == 10 else "0"
+
+    monkeypatch.setattr(main, "get_line_execution_count", fake_line_count)
+
+    selected = main._filter_and_refine_project_blockers(
+        [deleted, active],
+        main.BlockerCoverageContext(project_report="project", target_reports={"active_target": "active"}),
+    )
+
+    assert [blocker["best_target"] for blocker in selected] == ["active_target"]
+
+
 def test_blocker_pipeline_invalidates_parent_build_state_on_solver_exception(monkeypatch, tmp_path):
     blocker = _blocker("first", 10, "target_a")
     blocker_json = tmp_path / "branch-blockers.json"
@@ -251,7 +312,7 @@ def test_refresh_budget_guard_does_not_start_expensive_refresh(monkeypatch):
     assert state.last_artifact_refresh_skip_reason == "insufficient_time_budget"
 
 
-def test_light_refresh_failure_reuses_existing_artifacts_without_full_fallback(monkeypatch):
+def test_light_refresh_failure_is_not_reported_as_success(monkeypatch):
     state = main.BlockerRuntimeState(artifacts_ready=True, artifacts_dirty=True)
     monkeypatch.setattr(
         main.oss_fuzz,
@@ -272,11 +333,11 @@ def test_light_refresh_failure_reuses_existing_artifacts_without_full_fallback(m
         prefer_full_refresh=False,
     )
 
-    assert success
+    assert not success
     assert state.artifacts_ready
     assert state.artifacts_dirty
-    assert state.last_artifact_refresh_reused_existing
-    assert state.last_artifact_refresh_skip_reason == "light_refresh_failed_reused_existing_artifacts"
+    assert not state.last_artifact_refresh_reused_existing
+    assert state.last_artifact_refresh_skip_reason == "light_refresh_failed"
 
 
 def test_session_reuses_cached_artifacts_when_live_blocker_json_is_missing(monkeypatch, tmp_path):
