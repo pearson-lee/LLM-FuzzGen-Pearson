@@ -50,11 +50,12 @@ class BlockerRuntimeState:
     total_blockers_succeeded: int = 0
     last_artifact_refresh_elapsed: float | None = None
     max_full_refresh_elapsed: float | None = None
-    max_light_refresh_elapsed: float | None = None
     max_coverage_elapsed: float | None = None
     max_blocker_attempt_elapsed: float | None = None
     last_artifact_refresh_skip_reason: str | None = None
     last_artifact_refresh_reused_existing: bool = False
+    last_artifact_refresh_mode: str | None = None
+    blocker_pool_exhausted: bool = False
     last_stall_elapsed: int | None = None
     artifact_branch_covered_baseline: int | None = None
     artifact_target_fingerprint: str | None = None
@@ -63,7 +64,7 @@ class BlockerRuntimeState:
     last_full_refresh_target_source_set: set[str] = field(default_factory=set)
     last_full_refresh_target_count: int = 0
     retained_new_targets_since_full_refresh: int = 0
-    light_refreshes_since_full_rebuild: int = 0
+    cached_sessions_since_full_rebuild: int = 0
     last_session_artifacts: "BlockerSessionArtifacts | None" = None
     attempted_blocker_keys: set[tuple[str, str, str, str]] = field(default_factory=set)
 
@@ -88,7 +89,6 @@ class BlockerSessionArtifacts:
 BLOCKER_FULL_REFRESH_TARGET_THRESHOLD = 10
 BLOCKER_FULL_REFRESH_SESSION_INTERVAL = 3
 BLOCKER_FULL_REFRESH_BOOTSTRAP_SECONDS = 1200.0
-BLOCKER_LIGHT_REFRESH_BOOTSTRAP_SECONDS = 600.0
 BLOCKER_ATTEMPT_BOOTSTRAP_SECONDS = 600.0
 BLOCKER_COVERAGE_BOOTSTRAP_SECONDS = 180.0
 BLOCKER_SCHEDULING_OVERHEAD_SECONDS = 120.0
@@ -353,15 +353,24 @@ def _minimum_post_refresh_reserve(
     return _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds) + coverage_estimate
 
 
-def _refresh_elapsed_estimate(state: BlockerRuntimeState, refresh_mode: str) -> float:
-    if refresh_mode == "light_refresh":
-        observed = state.max_light_refresh_elapsed
-        bootstrap = BLOCKER_LIGHT_REFRESH_BOOTSTRAP_SECONDS
-    else:
-        observed = state.max_full_refresh_elapsed
-        bootstrap = BLOCKER_FULL_REFRESH_BOOTSTRAP_SECONDS
+def _refresh_elapsed_estimate(state: BlockerRuntimeState) -> float:
+    observed = state.max_full_refresh_elapsed
+    bootstrap = BLOCKER_FULL_REFRESH_BOOTSTRAP_SECONDS
     base = max(float(observed or 0.0), bootstrap)
     return base * BLOCKER_REFRESH_SAFETY_MULTIPLIER + BLOCKER_REFRESH_SAFETY_BUFFER_SECONDS
+
+
+def _blocker_json_has_candidates(blocker_json_path: Path | None) -> bool:
+    if blocker_json_path is None or not blocker_json_path.is_file():
+        return False
+    try:
+        data = json.loads(blocker_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to validate blocker json %s: %s", blocker_json_path, exc)
+        return False
+    if not isinstance(data, dict):
+        return False
+    return any(isinstance(blockers, list) and blockers for blockers in data.values())
 
 
 def _session_artifact_root(project_name: str, session_number: int) -> Path:
@@ -425,6 +434,7 @@ def _create_blocker_session_artifacts(
 
         summary_source = _first_existing_file(
             [
+                build_out / "textcov_reports" / "summary_exclude_target.json",
                 blocker_json_path.parent / "summary_exclude_target.json",
                 blocker_json_path.parent / "summary.json",
                 inspector_dir / "summary_exclude_target.json",
@@ -612,23 +622,50 @@ def ensure_blocker_artifacts(
 ) -> bool:
     state.last_artifact_refresh_skip_reason = None
     state.last_artifact_refresh_reused_existing = False
+    state.last_artifact_refresh_mode = None
     if deadline is not None and deadline - time.monotonic() <= 0:
         logger.info("Skipping blocker artifact refresh for %s because the fuzzing deadline was reached.", project_name)
         state.last_artifact_refresh_skip_reason = "deadline_reached"
         return False
 
     blocker_json_path = _resolve_blocker_json_path(project_name, None)
+    blocker_json_usable = _blocker_json_has_candidates(blocker_json_path)
+    reusable_session_artifacts = _reusable_session_artifacts(state, None)
+    can_reuse_session_artifacts = blocker_json_path is None and reusable_session_artifacts is not None
     first_artifact_refresh = not state.artifacts_ready
-    if blocker_json_path is not None and state.artifacts_ready and not force_refresh:
+    can_reuse_existing_static = (
+        state.artifacts_ready
+        and not prefer_full_refresh
+        and (blocker_json_usable or can_reuse_session_artifacts)
+    )
+    if can_reuse_existing_static:
+        started_at = time.perf_counter()
+        elapsed = time.perf_counter() - started_at
+        state.artifacts_ready = True
+        state.last_artifact_refresh_elapsed = elapsed
+        state.last_artifact_refresh_reused_existing = True
+        state.last_artifact_refresh_mode = "cached_revalidation"
+        state.pending_target_fingerprint = _get_project_target_fingerprint(project_name)
+        state.cached_sessions_since_full_rebuild += 1
+        _log_experiment_event(
+            "blocker_artifacts_refresh_finished",
+            success=True,
+            project_name=project_name,
+            refresh_mode="cached_revalidation",
+            force_refresh=force_refresh,
+            report_seconds=report_seconds,
+            elapsed_seconds=elapsed,
+            reused_live_blocker_json=blocker_json_usable,
+            reused_session_artifacts=can_reuse_session_artifacts,
+        )
         return True
 
-    use_light_refresh = state.artifacts_ready and force_refresh and not prefer_full_refresh
-    refresh_mode = "light_refresh" if use_light_refresh else "full_refresh"
+    refresh_mode = "full_refresh"
     refresh_deadline = deadline
     if deadline is not None and post_refresh_reserve_seconds > 0:
         refresh_deadline = deadline - max(0.0, post_refresh_reserve_seconds)
         available = refresh_deadline - time.monotonic()
-        estimate = _refresh_elapsed_estimate(state, refresh_mode)
+        estimate = _refresh_elapsed_estimate(state)
         if available <= 0 or estimate > available:
             state.last_artifact_refresh_skip_reason = "insufficient_time_budget"
             logger.info(
@@ -650,37 +687,12 @@ def ensure_blocker_artifacts(
         report_seconds,
     )
     started_at = time.perf_counter()
-    if use_light_refresh:
-        success = oss_fuzz.refresh_blocker_report_from_existing_introspector(
-            project_name,
-            deadline=refresh_deadline,
-        )
-        if not success:
-            logger.warning(
-                "Light blocker artifact refresh failed for %s; blocker artifacts were not refreshed.",
-                project_name,
-            )
-            elapsed = time.perf_counter() - started_at
-            state.last_artifact_refresh_skip_reason = "light_refresh_failed"
-            state.last_artifact_refresh_reused_existing = False
-            _log_experiment_event(
-                "blocker_artifacts_refresh_finished",
-                success=False,
-                project_name=project_name,
-                refresh_mode="light_refresh",
-                force_refresh=force_refresh,
-                report_seconds=report_seconds,
-                elapsed_seconds=elapsed,
-                reason=state.last_artifact_refresh_skip_reason,
-            )
-            return False
-    else:
-        success = oss_fuzz.generate_report(
-            project_name,
-            seconds=report_seconds,
-            clean=force_refresh,
-            deadline=refresh_deadline,
-        )
+    success = oss_fuzz.generate_report(
+        project_name,
+        seconds=report_seconds,
+        clean=force_refresh,
+        deadline=refresh_deadline,
+    )
     elapsed = time.perf_counter() - started_at
     _log_experiment_event(
         "blocker_artifacts_refresh_finished",
@@ -698,23 +710,18 @@ def ensure_blocker_artifacts(
     state.artifacts_ready = True
     state.artifacts_dirty = False
     state.last_artifact_refresh_elapsed = elapsed
-    if refresh_mode.startswith("full_refresh"):
-        state.max_full_refresh_elapsed = _update_max_elapsed(state.max_full_refresh_elapsed, elapsed)
-    else:
-        state.max_light_refresh_elapsed = _update_max_elapsed(state.max_light_refresh_elapsed, elapsed)
+    state.last_artifact_refresh_mode = "full_refresh"
+    state.max_full_refresh_elapsed = _update_max_elapsed(state.max_full_refresh_elapsed, elapsed)
     current_fingerprint = _get_project_target_fingerprint(project_name)
-    if refresh_mode.startswith("full_refresh"):
-        state.artifact_target_fingerprint = current_fingerprint
-        state.pending_target_fingerprint = current_fingerprint
-        current_target_sources = _get_generated_target_source_set(project_name)
-        state.last_full_refresh_target_source_set = set(current_target_sources)
-        state.last_full_refresh_target_count = len(current_target_sources)
-        state.retained_new_targets_since_full_refresh = 0
-        state.new_targets_since_full_rebuild = 0
-        state.light_refreshes_since_full_rebuild = 0
-    else:
-        state.pending_target_fingerprint = current_fingerprint
-        state.light_refreshes_since_full_rebuild += 1
+    state.artifact_target_fingerprint = current_fingerprint
+    state.pending_target_fingerprint = current_fingerprint
+    current_target_sources = _get_generated_target_source_set(project_name)
+    state.last_full_refresh_target_source_set = set(current_target_sources)
+    state.last_full_refresh_target_count = len(current_target_sources)
+    state.retained_new_targets_since_full_refresh = 0
+    state.new_targets_since_full_rebuild = 0
+    state.cached_sessions_since_full_rebuild = 0
+    state.blocker_pool_exhausted = False
 
     if first_artifact_refresh:
         resolved_json_path = _resolve_blocker_json_path(project_name, None)
@@ -1571,7 +1578,6 @@ def run_blocker_session(
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
     enable_blocker_triage: bool = False,
-    blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
     blocker_refresh_branch_growth_floor: int = 50,
@@ -1625,26 +1631,7 @@ def run_blocker_session(
             full_refresh_target_threshold,
             len(current_target_sources),
         )
-    prefer_full_refresh = (
-        not state.artifacts_ready
-        or state.artifact_target_fingerprint is None
-        or current_target_fingerprint is None
-        or state.retained_new_targets_since_full_refresh >= full_refresh_target_threshold
-        or (
-            state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
-            and state.artifacts_dirty
-        )
-    )
-
-    force_refresh = (
-        not state.artifacts_ready
-        or (state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker")
-    )
-    if (
-        blocker_session_refresh_mode == "reuse_session_artifacts"
-        and state.artifacts_ready
-        and state.artifact_branch_covered_baseline is not None
-    ):
+    if state.artifacts_ready and state.artifact_branch_covered_baseline is not None:
         probe_estimate = max(
             float(state.max_coverage_elapsed or 0.0) * BLOCKER_REFRESH_SAFETY_MULTIPLIER,
             BLOCKER_COVERAGE_BOOTSTRAP_SECONDS,
@@ -1668,10 +1655,9 @@ def run_blocker_session(
                 blocker_refresh_branch_growth_threshold,
             )
             if branch_growth_ratio >= blocker_refresh_branch_growth_threshold:
-                force_refresh = True
                 state.artifacts_dirty = True
                 logger.info(
-                    "Refreshing blocker artifacts for %s because covered branch growth ratio %.4f reached the threshold.",
+                    "Marked blocker artifacts dirty for %s because covered branch growth ratio %.4f reached the threshold.",
                     project_name,
                     branch_growth_ratio,
                 )
@@ -1681,19 +1667,29 @@ def run_blocker_session(
                 project_name,
                 post_refresh_reserve,
             )
-    if target_fingerprint_changed:
-        force_refresh = True
+    prefer_full_refresh = (
+        not state.artifacts_ready
+        or state.artifact_target_fingerprint is None
+        or current_target_fingerprint is None
+        or state.blocker_pool_exhausted
+        or state.retained_new_targets_since_full_refresh >= full_refresh_target_threshold
+        or (
+            state.cached_sessions_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
+            and state.artifacts_dirty
+        )
+    )
+    force_refresh = prefer_full_refresh
     if prefer_full_refresh and state.artifacts_ready and force_refresh:
         logger.info(
             "Escalating blocker artifact refresh for %s to full rebuild "
             "(retained_new_targets_since_full_refresh=%d, threshold=%d, "
-            "light_refreshes_since_full_rebuild=%d).",
+            "cached_sessions_since_full_rebuild=%d, blocker_pool_exhausted=%s).",
             project_name,
             state.retained_new_targets_since_full_refresh,
             full_refresh_target_threshold,
-            state.light_refreshes_since_full_rebuild,
+            state.cached_sessions_since_full_rebuild,
+            state.blocker_pool_exhausted,
         )
-    requested_artifact_refresh = (not state.artifacts_ready) or force_refresh
     if not ensure_blocker_artifacts(
         project_name=project_name,
         report_seconds=blocker_artifact_report_seconds,
@@ -1717,7 +1713,7 @@ def run_blocker_session(
             "succeeded": 0,
             "reason": state.last_artifact_refresh_skip_reason or "artifact_refresh_failed",
         }
-    refreshed_artifacts = requested_artifact_refresh and not state.last_artifact_refresh_reused_existing
+    refreshed_artifacts = state.last_artifact_refresh_mode == "full_refresh"
     baseline_summary: TotalCoverageSummary | None = None
     if refreshed_artifacts:
         attempt_reserve = _minimum_blocker_attempt_reserve(state, blocker_fuzz_seconds)
@@ -1797,6 +1793,7 @@ def run_blocker_session(
         attempted_blocker_keys=state.attempted_blocker_keys,
     )
     if not blockers:
+        state.blocker_pool_exhausted = True
         logger.warning("Blocker session skipped for %s because no blockers were found.", project_name)
         _log_blocker_session_skipped(
             project_name,
@@ -1807,6 +1804,7 @@ def run_blocker_session(
             candidate_count=0,
         )
         return {"success": False, "attempted": 0, "succeeded": 0, "reason": "no_blockers"}
+    state.blocker_pool_exhausted = False
 
     if session_artifacts is None:
         session_artifacts = _create_blocker_session_artifacts(
@@ -1862,7 +1860,6 @@ def run_blocker_session(
             }
             for blocker in selected_blockers
         ],
-        blocker_session_refresh_mode=blocker_session_refresh_mode,
         blocker_artifact_report_seconds=blocker_artifact_report_seconds,
         artifacts_ready=state.artifacts_ready,
         artifacts_dirty=state.artifacts_dirty,
@@ -1870,6 +1867,7 @@ def run_blocker_session(
     )
 
     if not selected_blockers:
+        state.blocker_pool_exhausted = True
         logger.info("No new project-relevant blockers remain for %s in this session.", project_name)
         _log_blocker_session_skipped(
             project_name,
@@ -2057,31 +2055,6 @@ def run_blocker_session(
 
         if attempted < blocker_session_size:
             prior_queue = list(selected_blockers)
-            refreshed_within_session = False
-            if state.artifacts_dirty and blocker_session_refresh_mode == "refresh_before_next_blocker":
-                post_refresh_reserve = _minimum_post_refresh_reserve(state, blocker_fuzz_seconds)
-                if not ensure_blocker_artifacts(
-                    project_name=project_name,
-                    report_seconds=blocker_artifact_report_seconds,
-                    state=state,
-                    force_refresh=True,
-                    prefer_full_refresh=(
-                        state.retained_new_targets_since_full_refresh >= _full_refresh_target_threshold(state)
-                        or state.light_refreshes_since_full_rebuild >= BLOCKER_FULL_REFRESH_SESSION_INTERVAL
-                    ),
-                    deadline=deadline,
-                    post_refresh_reserve_seconds=post_refresh_reserve,
-                ):
-                    break
-                refreshed_json_path = _resolve_blocker_json_path(project_name, blocker_json_path)
-                if refreshed_json_path is None:
-                    logger.warning(
-                        "Blocker session stopped for %s because branch-blockers.json disappeared after refresh.",
-                        project_name,
-                    )
-                    break
-                resolved_json_path = refreshed_json_path
-                refreshed_within_session = True
             coverage_context = _load_blocker_coverage_context(
                 project_name,
                 resolved_json_path,
@@ -2134,23 +2107,6 @@ def run_blocker_session(
                 if _blocker_identity(candidate) not in state.attempted_blocker_keys
                 and _blocker_identity(candidate) not in session_seen_blocker_keys
             ]
-            if refreshed_within_session:
-                refreshed_session_artifacts = _create_blocker_session_artifacts(
-                    project_name=project_name,
-                    session_number=state.sessions_run,
-                    blocker_json_path=resolved_json_path,
-                    candidate_blockers=reranked,
-                )
-                if refreshed_session_artifacts is not None:
-                    session_artifacts = refreshed_session_artifacts
-                    resolved_json_path = session_artifacts.blocker_json
-                    state.last_session_artifacts = session_artifacts
-                elif session_artifacts is not None:
-                    logger.warning(
-                        "Failed to replace the session artifact cache after refresh for %s; retaining the previous cache.",
-                        project_name,
-                    )
-                    resolved_json_path = session_artifacts.blocker_json
 
     _log_experiment_event(
         "blocker_session_finished",
@@ -2436,7 +2392,6 @@ def run_fuzzers_and_get_coverage(
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
     enable_blocker_triage: bool = False,
-    blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
     blocker_refresh_branch_growth_floor: int = 50,
@@ -2561,7 +2516,6 @@ def run_fuzzers_and_get_coverage(
             skip_input_dependent_pipeline=skip_input_dependent_pipeline,
             skip_input_independent_pipeline=skip_input_independent_pipeline,
             enable_blocker_triage=enable_blocker_triage,
-            blocker_session_refresh_mode=blocker_session_refresh_mode,
             blocker_artifact_report_seconds=blocker_artifact_report_seconds,
             blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
             blocker_refresh_branch_growth_floor=blocker_refresh_branch_growth_floor,
@@ -2694,7 +2648,6 @@ def run_fuzzers_and_get_coverage(
                     skip_input_dependent_pipeline=skip_input_dependent_pipeline,
                     skip_input_independent_pipeline=skip_input_independent_pipeline,
                     enable_blocker_triage=enable_blocker_triage,
-                    blocker_session_refresh_mode=blocker_session_refresh_mode,
                     blocker_artifact_report_seconds=blocker_artifact_report_seconds,
                     blocker_refresh_branch_growth_threshold=blocker_refresh_branch_growth_threshold,
                     blocker_refresh_branch_growth_floor=blocker_refresh_branch_growth_floor,
@@ -2742,7 +2695,6 @@ def run_all_fuzzer(
     skip_input_dependent_pipeline: bool = False,
     skip_input_independent_pipeline: bool = False,
     enable_blocker_triage: bool = False,
-    blocker_session_refresh_mode: str = "reuse_session_artifacts",
     blocker_artifact_report_seconds: int = 30,
     blocker_refresh_branch_growth_threshold: float = 0.05,
     blocker_refresh_branch_growth_floor: int = 50,
@@ -2804,7 +2756,6 @@ def run_all_fuzzer(
                     skip_input_dependent_pipeline,
                     skip_input_independent_pipeline,
                     enable_blocker_triage,
-                    blocker_session_refresh_mode,
                     blocker_artifact_report_seconds,
                     blocker_refresh_branch_growth_threshold,
                     blocker_refresh_branch_growth_floor,
@@ -3163,15 +3114,6 @@ def _parse_args() -> argparse.Namespace:
         help="Run C/C++ blocker solvability triage as a hard gate before solver dispatch.",
     )
     parser_run.add_argument(
-        "--blocker-session-refresh-mode",
-        choices=["reuse_session_artifacts", "refresh_before_next_blocker"],
-        default="reuse_session_artifacts",
-        help=(
-            "Controls whether the blocker session keeps using the current artifacts for the rest of the same session "
-            "or refreshes them before selecting the next blocker after an input-independent result."
-        ),
-    )
-    parser_run.add_argument(
         "--blocker-artifact-report-seconds",
         type=int,
         default=30,
@@ -3182,8 +3124,8 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=0.05,
         help=(
-            "Refresh blocker artifacts before the next blocker session when covered branch growth "
-            "since the last refresh reaches this ratio. Default 0.05."
+            "Mark cached blocker artifacts dirty when covered branch growth since the last full refresh "
+            "reaches this ratio. Default 0.05."
         ),
     )
     parser_run.add_argument(
@@ -3858,7 +3800,6 @@ def main() -> None:
                 args.skip_input_dependent_pipeline,
                 args.skip_input_independent_pipeline,
                 args.enable_blocker_triage,
-                args.blocker_session_refresh_mode,
                 args.blocker_artifact_report_seconds,
                 args.blocker_refresh_branch_growth_threshold,
                 args.blocker_refresh_branch_growth_floor,

@@ -74,7 +74,11 @@ def test_direct_blocker_run_snapshots_introspector_before_restoring_coverage(mon
     build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
     monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
     monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
-    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+    def fake_full_refresh(**kwargs):
+        kwargs["state"].last_artifact_refresh_mode = "full_refresh"
+        return True
+
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", fake_full_refresh)
     monkeypatch.setattr(main, "_resolve_blocker_json_path", lambda *args, **kwargs: blocker_json)
 
     lifecycle = []
@@ -172,6 +176,39 @@ def test_selector_filters_attempted_blockers_before_top_k(monkeypatch, tmp_path)
     )
 
     assert selected == [second]
+
+
+def test_empty_validated_blocker_pool_marks_full_refresh_needed(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a")]
+    build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "_get_project_target_fingerprint", lambda project_name: "fingerprint")
+
+    def fake_ensure(**kwargs):
+        kwargs["state"].last_artifact_refresh_reused_existing = True
+        return True
+
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", fake_ensure)
+    monkeypatch.setattr(main, "ensure_blocker_webapp_ready", lambda project_name: True)
+    coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
+    monkeypatch.setattr(main, "_load_blocker_coverage_context", lambda *args, **kwargs: coverage_context)
+    monkeypatch.setattr(main, "_select_project_blockers", lambda *args, **kwargs: [])
+    state = main.BlockerRuntimeState(
+        artifacts_ready=True,
+        artifact_target_fingerprint="fingerprint",
+    )
+
+    result = main.run_blocker_session(
+        project_name="demo",
+        elapsed_seconds=0,
+        llm_backend="vertexai",
+        model_name="model",
+        state=state,
+        blocker_json_path=blocker_json,
+    )
+
+    assert result["reason"] == "no_blockers"
+    assert state.blocker_pool_exhausted
 
 
 def test_coverage_context_ignores_stale_blocker_targets(monkeypatch, tmp_path):
@@ -312,18 +349,19 @@ def test_refresh_budget_guard_does_not_start_expensive_refresh(monkeypatch):
     assert state.last_artifact_refresh_skip_reason == "insufficient_time_budget"
 
 
-def test_light_refresh_failure_is_not_reported_as_success(monkeypatch):
-    state = main.BlockerRuntimeState(artifacts_ready=True, artifacts_dirty=True)
-    monkeypatch.setattr(
-        main.oss_fuzz,
-        "refresh_blocker_report_from_existing_introspector",
-        lambda *args, **kwargs: False,
-    )
+def test_cached_revalidation_reuses_existing_static_artifacts(monkeypatch, tmp_path):
+    blockers = [_blocker("first", 10, "target_a")]
+    build_out, _blocker_json = _write_static_artifacts(tmp_path, blockers)
+    monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
+    monkeypatch.setattr(main, "_get_project_target_fingerprint", lambda project_name: "fingerprint")
 
     def fail_if_called(*args, **kwargs):
-        raise AssertionError("full refresh fallback should not start")
+        raise AssertionError("cached revalidation must not run full refresh")
 
     monkeypatch.setattr(main.oss_fuzz, "generate_report", fail_if_called)
+    events = []
+    monkeypatch.setattr(main, "_log_experiment_event", lambda event, **payload: events.append((event, payload)))
+    state = main.BlockerRuntimeState(artifacts_ready=True, artifacts_dirty=True)
 
     success = main.ensure_blocker_artifacts(
         project_name="demo",
@@ -333,11 +371,17 @@ def test_light_refresh_failure_is_not_reported_as_success(monkeypatch):
         prefer_full_refresh=False,
     )
 
-    assert not success
+    assert success
     assert state.artifacts_ready
     assert state.artifacts_dirty
-    assert not state.last_artifact_refresh_reused_existing
-    assert state.last_artifact_refresh_skip_reason == "light_refresh_failed"
+    assert state.last_artifact_refresh_reused_existing
+    assert state.last_artifact_refresh_mode == "cached_revalidation"
+    assert state.cached_sessions_since_full_rebuild == 1
+    assert state.last_artifact_refresh_skip_reason is None
+    event, payload = events[-1]
+    assert event == "blocker_artifacts_refresh_finished"
+    assert payload["success"] is True
+    assert payload["refresh_mode"] == "cached_revalidation"
 
 
 def test_session_reuses_cached_artifacts_when_live_blocker_json_is_missing(monkeypatch, tmp_path):
@@ -392,7 +436,6 @@ def test_session_reuses_cached_artifacts_when_live_blocker_json_is_missing(monke
         state=state,
         blocker_session_size=1,
         blocker_top_k=1,
-        blocker_session_refresh_mode="reuse_session_artifacts",
     )
 
     assert result["attempted"] == 1
@@ -446,7 +489,6 @@ def test_session_keeps_running_after_live_blocker_json_disappears(monkeypatch, t
         blocker_json_path=blocker_json,
         blocker_session_size=3,
         blocker_top_k=3,
-        blocker_session_refresh_mode="reuse_session_artifacts",
     )
 
     assert attempted == ["first", "second", "third"]
@@ -488,7 +530,6 @@ def test_session_stops_when_post_attempt_coverage_fails(monkeypatch, tmp_path):
         blocker_json_path=blocker_json,
         blocker_session_size=2,
         blocker_top_k=2,
-        blocker_session_refresh_mode="reuse_session_artifacts",
     )
 
     assert result["attempted"] == 1
@@ -505,7 +546,12 @@ def test_refreshed_session_baseline_is_used_for_first_growth_event(monkeypatch, 
     build_out, blocker_json = _write_static_artifacts(tmp_path, blockers)
     monkeypatch.setattr(main.oss_fuzz, "build_out_dir", build_out)
     monkeypatch.setattr(main, "experiment_dir", tmp_path / "experiment")
-    monkeypatch.setattr(main, "ensure_blocker_artifacts", lambda **kwargs: True)
+
+    def fake_full_refresh(**kwargs):
+        kwargs["state"].last_artifact_refresh_mode = "full_refresh"
+        return True
+
+    monkeypatch.setattr(main, "ensure_blocker_artifacts", fake_full_refresh)
     monkeypatch.setattr(main, "ensure_blocker_webapp_ready", lambda project_name: True)
     coverage_context = main.BlockerCoverageContext(project_report="report", target_reports={})
     monkeypatch.setattr(main, "_load_blocker_coverage_context", lambda *args, **kwargs: coverage_context)
