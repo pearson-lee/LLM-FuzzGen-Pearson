@@ -1,11 +1,20 @@
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
-from external.oss_fuzz import OSSFuzz
+from external.oss_fuzz import HelperCommandResult, OSSFuzz
 
 
 class OSSFuzzTargetCleanupTest(unittest.TestCase):
+    def test_helper_command_reraises_baseexception(self) -> None:
+        oss_fuzz = OSSFuzz()
+
+        with mock.patch("external.oss_fuzz.subprocess.run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                oss_fuzz._run_helper_command(["build_fuzzers", "demo"])
+
     def test_invalidate_project_build_state_only_forgets_in_memory_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -20,6 +29,64 @@ class OSSFuzzTargetCleanupTest(unittest.TestCase):
             self.assertNotIn("demo", oss_fuzz._project_build_state)
             self.assertTrue(cached_binary.is_file())
             self.assertFalse(oss_fuzz.invalidate_project_build_state("demo", reason="already_unknown"))
+
+    def test_failed_rebuild_restores_previous_build_state(self) -> None:
+        class FailedRebuildOSSFuzz(OSSFuzz):
+            def _clear_build_out_dir(self, proj_name: str) -> bool:
+                build_dir = self.build_out_dir / proj_name
+                if build_dir.exists():
+                    for child in build_dir.iterdir():
+                        if child.name == "inspector":
+                            continue
+                        if child.is_dir():
+                            shutil.rmtree(child)
+                        else:
+                            child.unlink()
+                build_dir.mkdir(parents=True, exist_ok=True)
+                return True
+
+            def _normalize_artifact_permissions(self, proj_name: str, path: Path) -> None:
+                return None
+
+            def _run_helper_command(self, *args, **kwargs):
+                self._clear_build_out_dir("demo")
+                return HelperCommandResult(False, "compile failed", "", output_log_path="build.log")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            oss_fuzz = FailedRebuildOSSFuzz()
+            oss_fuzz.oss_fuzz_dir = root / "oss-fuzz"
+            oss_fuzz.build_out_dir = oss_fuzz.oss_fuzz_dir / "build" / "out"
+            oss_fuzz.build_cache_dir = oss_fuzz.oss_fuzz_dir / "build" / "artifact_cache"
+
+            project_dir = oss_fuzz.oss_fuzz_dir / "projects" / "demo"
+            project_dir.mkdir(parents=True)
+            (project_dir / "build.sh").write_text("new target set", encoding="utf-8")
+
+            old_fingerprint = "oldfingerprint"
+            cached_binary = (
+                oss_fuzz.build_cache_dir
+                / "demo"
+                / "coverage"
+                / "default"
+                / old_fingerprint
+                / "llm_fuzzgen_old"
+            )
+            cached_binary.parent.mkdir(parents=True)
+            cached_binary.write_text("cached binary", encoding="utf-8")
+            cached_binary.chmod(cached_binary.stat().st_mode | 0o111)
+            oss_fuzz._record_build_state("demo", "coverage", fingerprint=old_fingerprint)
+
+            result = oss_fuzz.build_fuzzers("demo", sanitizer="address")
+
+            self.assertFalse(result.success)
+            restored_binary = oss_fuzz.build_out_dir / "demo" / "llm_fuzzgen_old"
+            self.assertTrue(restored_binary.is_file())
+            self.assertTrue(oss_fuzz._has_built_llm_targets("demo"))
+            restored_state = oss_fuzz._project_build_state["demo"]
+            self.assertEqual(restored_state.sanitizer, "coverage")
+            self.assertEqual(restored_state.variant, "default")
+            self.assertEqual(restored_state.target_fingerprint, old_fingerprint)
 
     def test_project_fuzzer_listing_excludes_libfuzzer_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

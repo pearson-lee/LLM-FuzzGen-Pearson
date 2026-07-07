@@ -175,8 +175,13 @@ class OSSFuzz:
             stdout = e.stdout.decode(errors="ignore") if isinstance(e.stdout, bytes) else e.stdout
             stderr = e.stderr.decode(errors="ignore") if isinstance(e.stderr, bytes) else e.stderr
             return HelperCommandResult(False, stdout or "", stderr or "timed out", timed_out=True)
-        except BaseException as e:
-            logger.warning(f"Helper command '{args}' failed with exception: {e}")
+        except Exception as e:
+            logger.warning(
+                "Helper command '%s' failed with %s: %s",
+                args,
+                type(e).__name__,
+                e,
+            )
             if output_log_path is not None:
                 return HelperCommandResult(
                     False,
@@ -185,6 +190,14 @@ class OSSFuzz:
                     output_log_path=str(output_log_path),
                 )
             return HelperCommandResult(False, "", str(e))
+        except BaseException as e:
+            logger.warning(
+                "Helper command '%s' aborted with %s: %s",
+                args,
+                type(e).__name__,
+                e,
+            )
+            raise
 
     def _read_file_tail(self, path: Path, max_bytes: int) -> str:
         if max_bytes <= 0:
@@ -560,6 +573,55 @@ class OSSFuzz:
         )
         return True
 
+    def _restore_previous_build_state(
+        self,
+        proj_name: str,
+        previous_state: BuildState | None,
+        reason: str,
+    ) -> bool:
+        self.invalidate_project_build_state(proj_name, reason=reason)
+        if previous_state is None:
+            logger.info("No previous build state available for %s after %s.", proj_name, reason)
+            return False
+
+        try:
+            restored = self._restore_build_artifacts_from_cache(
+                proj_name,
+                previous_state.sanitizer,
+                previous_state.target_fingerprint,
+                previous_state.variant,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to restore previous %s/%s build state for %s after %s due to %s: %s",
+                previous_state.sanitizer,
+                previous_state.variant,
+                proj_name,
+                reason,
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        if restored:
+            logger.info(
+                "Restored previous %s/%s build state for %s after %s (fingerprint=%s).",
+                previous_state.sanitizer,
+                previous_state.variant,
+                proj_name,
+                reason,
+                previous_state.target_fingerprint[:12],
+            )
+        else:
+            logger.warning(
+                "Could not restore previous %s/%s build state for %s after %s (fingerprint=%s).",
+                previous_state.sanitizer,
+                previous_state.variant,
+                proj_name,
+                reason,
+                previous_state.target_fingerprint[:12],
+            )
+        return restored
+
     def _convert_str_to_seed_bytes(self, seed_str: str) -> bytes:
         # 第一層：處理來自 LLM 的、包含 "\\x" 字面文字的字串
         if r"\x" in seed_str:
@@ -591,6 +653,7 @@ class OSSFuzz:
         extra_volumes: list[str] | None = None,
     ) -> CompilationResult:
         """Builds fuzzers for the given project."""
+        previous_state = self._project_build_state.get(proj_name)
         if not self._should_rebuild(proj_name, sanitizer, variant):
             return CompilationResult(success=True)
 
@@ -601,13 +664,21 @@ class OSSFuzz:
         combined_env: dict[str, str] = dict(extra_env) if extra_env else {}
         if extra_volumes:
             combined_env["LLM_FUZZGEN_EXTRA_VOLUMES"] = "|".join(extra_volumes)
-        helper_result = self._run_helper_command(
-            ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
-            timeout=timeout,
-            extra_env=combined_env if combined_env else None,
-            output_log_path=self._helper_log_path(proj_name, "build_fuzzers", f"{sanitizer}_{variant}"),
-            tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
-        )
+        try:
+            helper_result = self._run_helper_command(
+                ["build_fuzzers", proj_name, "--clean", f"--sanitizer={sanitizer}"],
+                timeout=timeout,
+                extra_env=combined_env if combined_env else None,
+                output_log_path=self._helper_log_path(proj_name, "build_fuzzers", f"{sanitizer}_{variant}"),
+                tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
+            )
+        except BaseException:
+            self._restore_previous_build_state(
+                proj_name,
+                previous_state,
+                reason=f"interrupted_{sanitizer}_{variant}_rebuild",
+            )
+            raise
 
         if helper_result.success:
             fingerprint = self._get_project_target_fingerprint(proj_name)
@@ -631,6 +702,11 @@ class OSSFuzz:
                 f"[full build_fuzzers output log: {helper_result.output_log_path}]"
             )
         logger.error(f"Compilation failed: {error_message}")
+        self._restore_previous_build_state(
+            proj_name,
+            previous_state,
+            reason=f"failed_{sanitizer}_{variant}_rebuild",
+        )
         return CompilationResult(success=False, error=error_message)
 
     def run_fuzzer(

@@ -2774,12 +2774,43 @@ def run_all_fuzzer(
                 try:
                     future.result()  # We don't need the result, but this will raise exceptions if any occurred
                     logger.info(f"Successfully completed fuzzing for {project_name}")
-                except BaseException:
+                except Exception as exc:
                     overall_success = False
-                    logger.exception(f"Failed to complete fuzzing for {project_name}")
-    except KeyboardInterrupt:
+                    _log_experiment_event(
+                        "project_failed",
+                        project_name=project_name,
+                        exception_type=type(exc).__name__,
+                        exception_message=str(exc),
+                    )
+                    logger.exception(
+                        "Failed to complete fuzzing for %s due to %s: %s",
+                        project_name,
+                        type(exc).__name__,
+                        exc,
+                    )
+                except BaseException as exc:
+                    overall_success = False
+                    _log_experiment_event(
+                        "project_aborted",
+                        project_name=project_name,
+                        exception_type=type(exc).__name__,
+                        exception_message=str(exc),
+                    )
+                    logger.exception(
+                        "Aborted fuzzing for %s due to %s: %s",
+                        project_name,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    raise
+    except KeyboardInterrupt as exc:
         overall_success = False
-        logger.info("Fuzzing interrupted by user. Shutting down...")
+        _log_experiment_event(
+            "run_aborted",
+            exception_type=type(exc).__name__,
+            exception_message=str(exc),
+        )
+        logger.info("Fuzzing interrupted by %s. Shutting down...", type(exc).__name__)
 
     if analyze_crashes:
         logger.info("Starting crash analysis phase.")
@@ -2854,7 +2885,6 @@ def run_all_fuzzer(
 
     logger.info("Coverage Summary")
     logger.info("=" * len(header_line))
-    return overall_success
     logger.info(header_line)
     logger.info(separator_line)
 
@@ -2869,6 +2899,7 @@ def run_all_fuzzer(
         logger.info(row_line)
 
     logger.info("=" * len(header_line))
+    return overall_success
 
 
 # Statistics for tracking coverage growth
