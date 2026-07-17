@@ -5,5 +5,9 @@
   "native_archive_filename": "libz.a",
   "native_archive_include_dirs": [
     "source_code"
-  ]
+  ],
+  "symcc_library": true,
+  "symcc_library_build_flavor": "symcc_library",
+  "symcc_library_subdir": "symcc_library",
+  "symcc_library_filename": "libz.a"
 }

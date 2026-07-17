@@ -1,0 +1,144 @@
+#include <cstdint>
+#include <cstddef>
+#include <string>
+#include <vector>
+#include <fuzzer/FuzzedDataProvider.h>
+
+#include "tiffio.h"
+#include <stdio.h>
+#include <unistd.h>
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    if (size == 0) {
+        return 0;
+    }
+    FuzzedDataProvider fdp(data, size);
+
+    char filename[256];
+    snprintf(filename, sizeof(filename), "/tmp/%s.tif", _FUZZ_TARGET_NAME);
+
+    TIFF* tif = TIFFOpen(filename, "w");
+    if (!tif) {
+        return 0;
+    }
+
+    uint32_t width = fdp.ConsumeIntegralInRange<uint32_t>(1, 512);
+    uint32_t height = fdp.ConsumeIntegralInRange<uint32_t>(1, 512);
+    uint16_t samples_per_pixel = fdp.ConsumeIntegralInRange<uint16_t>(1, 4);
+    uint16_t bits_per_sample = fdp.PickValueInArray<uint16_t>({8, 16});
+    uint16_t compression = fdp.PickValueInArray<uint16_t>({
+        COMPRESSION_NONE, COMPRESSION_LZW, COMPRESSION_PACKBITS,
+        COMPRESSION_JPEG, COMPRESSION_DEFLATE, COMPRESSION_ADOBE_DEFLATE
+    });
+    uint16_t photometric = fdp.PickValueInArray<uint16_t>({
+        PHOTOMETRIC_MINISBLACK, PHOTOMETRIC_RGB, PHOTOMETRIC_PALETTE,
+        PHOTOMETRIC_YCBCR
+    });
+
+    TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, width);
+    TIFFSetField(tif, TIFFTAG_IMAGELENGTH, height);
+    TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, samples_per_pixel);
+    TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, bits_per_sample);
+    TIFFSetField(tif, TIFFTAG_COMPRESSION, compression);
+    TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, photometric);
+    TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+
+    if (fdp.ConsumeBool()) { // Tiled image
+        uint32_t tile_width = fdp.ConsumeIntegralInRange<uint32_t>(16, 256);
+        uint32_t tile_height = fdp.ConsumeIntegralInRange<uint32_t>(16, 256);
+        if (tile_width > 0 && tile_height > 0) {
+            TIFFSetField(tif, TIFFTAG_TILEWIDTH, tile_width);
+            TIFFSetField(tif, TIFFTAG_TILELENGTH, tile_height);
+
+            tsize_t tile_size = TIFFTileSize(tif);
+            if (tile_size > 0 && tile_size < 1024 * 1024) {
+                uint8_t* tile_buf = new uint8_t[tile_size];
+                if (fdp.ConsumeData(tile_buf, tile_size) == tile_size) {
+                    tmsize_t num_tiles = TIFFNumberOfTiles(tif);
+                    if (num_tiles > 0) {
+                        ttile_t tile_index = fdp.ConsumeIntegralInRange<ttile_t>(0, num_tiles - 1);
+                        if (compression == COMPRESSION_NONE && fdp.ConsumeBool()) {
+                            TIFFWriteRawTile(tif, tile_index, tile_buf, tile_size);
+                        } else {
+                            TIFFWriteEncodedTile(tif, tile_index, tile_buf, tile_size);
+                        }
+                    }
+                }
+                delete[] tile_buf;
+            }
+        }
+    } else { // Strip image
+        uint32_t rows_per_strip = fdp.ConsumeIntegralInRange<uint32_t>(1, height);
+        TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, rows_per_strip);
+
+        tsize_t strip_size = TIFFStripSize(tif);
+        if (strip_size > 0 && strip_size < 1024 * 1024) {
+            uint8_t* strip_buf = new uint8_t[strip_size];
+            if (fdp.ConsumeData(strip_buf, strip_size) == strip_size) {
+                tstrip_t num_strips = TIFFNumberOfStrips(tif);
+                if (num_strips > 0) {
+                    tstrip_t strip_index = fdp.ConsumeIntegralInRange<tstrip_t>(0, num_strips - 1);
+                    if (compression == COMPRESSION_NONE && fdp.ConsumeBool()) {
+                        TIFFWriteRawStrip(tif, strip_index, strip_buf, strip_size);
+                    } else {
+                        TIFFWriteEncodedStrip(tif, strip_index, strip_buf, strip_size);
+                    }
+                }
+            }
+            delete[] strip_buf;
+        }
+    }
+
+    TIFFCheckpointDirectory(tif);
+    tdir_t main_dir_index = TIFFCurrentDirectory(tif);
+
+    if (fdp.ConsumeBool()) {
+        if (TIFFWriteDirectory(tif)) {
+            TIFFCheckpointDirectory(tif);
+            uint64_t sub_dir_offset = TIFFCurrentDirOffset(tif);
+            if (sub_dir_offset > 0) {
+                TIFFSetDirectory(tif, main_dir_index);
+                TIFFSetField(tif, TIFFTAG_SUBIFD, 1, &sub_dir_offset);
+                TIFFCheckpointDirectory(tif);
+                TIFFSetSubDirectory(tif, sub_dir_offset);
+            }
+        }
+    }
+
+    FILE* null_fp = fopen("/dev/null", "w");
+    if (null_fp) {
+        TIFFPrintDirectory(tif, null_fp, 0);
+        fclose(null_fp);
+    }
+    
+    TIFFClose(tif);
+
+    tif = TIFFOpen(filename, "r");
+    if (tif) {
+        TIFFRGBAImage img;
+        char emsg[1024];
+        if (TIFFRGBAImageBegin(&img, tif, 0, emsg)) {
+            uint32_t* raster = (uint32_t*) _TIFFmalloc(width * height * sizeof(uint32_t));
+            if (raster) {
+                TIFFRGBAImageGet(&img, raster, width, height);
+                _TIFFfree(raster);
+            }
+            TIFFRGBAImageEnd(&img);
+        }
+        TIFFClose(tif);
+    }
+    
+    tif = TIFFOpen(filename, "a");
+    if (tif) {
+        tdir_t num_dirs = TIFFNumberOfDirectories(tif);
+        if (num_dirs > 0 && fdp.ConsumeBool()) {
+            tdir_t dir_to_unlink = fdp.PickValueInArray<tdir_t>({(tdir_t)0, (tdir_t)1, (tdir_t)(num_dirs + 1)});
+            TIFFUnlinkDirectory(tif, dir_to_unlink);
+        }
+        TIFFClose(tif);
+    }
+    
+    unlink(filename);
+
+    return 0;
+}

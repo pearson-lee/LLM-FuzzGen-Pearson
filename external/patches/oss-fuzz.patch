@@ -631,15 +631,28 @@ index 6f281cd..84864d9 100644
 +COPY llm_fuzzgen* $SRC/
  WORKDIR libpng
 diff --git a/projects/libtiff/Dockerfile b/projects/libtiff/Dockerfile
-index b6c5fd8..547d181 100644
+index 997099a..44dd5e9 100644
 --- a/projects/libtiff/Dockerfile
 +++ b/projects/libtiff/Dockerfile
-@@ -24,3 +24,4 @@ ADD https://lcamtuf.coredump.cx/afl/demo/afl_testcases.tgz afl_testcases.tgz
+@@ -17,11 +17,17 @@
+ FROM gcr.io/oss-fuzz-base/base-builder
+ RUN apt-get update && apt-get install -y make autoconf automake libtool cmake nasm
+-RUN git clone --branch v4.7.0 --depth 1 https://gitlab.com/libtiff/libtiff
++ARG LIBTIFF_COMMIT=fcd4c86c4907d859c3124c8ad786868ba3f0b713
++RUN git init libtiff && \
++    cd libtiff && \
++    git remote add origin https://gitlab.com/libtiff/libtiff.git && \
++    git fetch --depth 1 origin "$LIBTIFF_COMMIT" && \
++    git checkout --detach FETCH_HEAD && \
++    test "$(git rev-parse HEAD)" = "$LIBTIFF_COMMIT"
+ RUN git clone --depth 1 https://github.com/madler/zlib
+ RUN git clone --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo
+ RUN git clone https://www.cl.cam.ac.uk/~mgk25/git/jbigkit
+ ADD https://lcamtuf.coredump.cx/afl/demo/afl_testcases.tgz afl_testcases.tgz
  ADD https://raw.githubusercontent.com/google/AFL/debe27037b9444bbf090a0ffbd5d24889bb887ae/dictionaries/tiff.dict tiff.dict
  WORKDIR libtiff
  COPY build.sh $SRC/
 +COPY llm_fuzzgen* $SRC/
-\ No newline at end of file
 diff --git a/projects/libtiff/build.sh b/projects/libtiff/build.sh
 index 0889515..87a8af5 100755
 --- a/projects/libtiff/build.sh
@@ -769,15 +782,21 @@ index 7025b67..feb7b41 100644
 +COPY llm_fuzzgen* $SRC/
 \ No newline at end of file
 diff --git a/projects/zlib/Dockerfile b/projects/zlib/Dockerfile
-index be1cb4c..2a6644d 100644
+index be1cb4c..49ad210 100644
 --- a/projects/zlib/Dockerfile
 +++ b/projects/zlib/Dockerfile
-@@ -16,6 +16,7 @@
+@@ -16,6 +16,13 @@
  
  FROM gcr.io/oss-fuzz-base/base-builder
  RUN apt-get update && apt-get install -y make autoconf automake libtool
 -RUN git clone --depth 1 -b develop https://github.com/madler/zlib.git
-+RUN git clone https://github.com/madler/zlib.git && cd zlib && git checkout 09155eaa2f9270dc4ed1fa13e2b4b2613e6e4851
++ARG ZLIB_COMMIT=5a82f71ed1dfc0bec044d9702463dbdf84ea3b71
++RUN git init zlib && \
++    cd zlib && \
++    git remote add origin https://github.com/madler/zlib.git && \
++    git fetch --depth 1 origin "$ZLIB_COMMIT" && \
++    git checkout --detach FETCH_HEAD && \
++    test "$(git rev-parse HEAD)" = "$ZLIB_COMMIT"
  WORKDIR zlib
  COPY build.sh *_fuzzer.c* $SRC/
 +COPY llm_fuzzgen* $SRC/

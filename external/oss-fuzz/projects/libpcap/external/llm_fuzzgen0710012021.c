@@ -1,0 +1,405 @@
+#include <sys/types.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pcap/pcap.h>
+#include <pcap/bpf.h>
+#include <unistd.h>
+#include <stdio.h>
+
+#ifndef _FUZZ_TARGET_NAME
+#define _FUZZ_TARGET_NAME "llm_fuzzgen0710000053"
+#endif
+
+// Helper macro to safely consume data from the fuzzing input
+#define CONSUME_DATA(type, data, size, dest) \
+    do { \
+        if (size < sizeof(type)) { \
+            return 0; \
+        } \
+        dest = *(type*)data; \
+        data += sizeof(type); \
+        size -= sizeof(type); \
+    } while (0)
+
+/*
+ * ANALYSIS: The pcap_loop and pcap_dispatch functions require a callback
+ *           function to handle packets.
+ * IMPLEMENTATION: This is a dummy callback that does nothing. It is used
+ *                 as an argument to pcap_loop and pcap_dispatch to allow
+ *                 them to be fuzzed.
+ */
+void dummy_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes) {
+    // Do nothing
+}
+
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+    if (Size < 1) {
+        return 0;
+    }
+
+    /*
+     * ANALYSIS: The function pcap_lib_version had 0% coverage.
+     * IMPLEMENTATION: Call pcap_lib_version to exercise its code path.
+     */
+    pcap_lib_version();
+
+    /*
+     * ANALYSIS: The function pcap_init, which can be used to initialize the
+     *           library, had 0% coverage.
+     * IMPLEMENTATION: Call pcap_init at the beginning of the fuzz target.
+     *                 We ignore the return value as the function is optional.
+     */
+    pcap_init(PCAP_CHAR_ENC_UTF_8, NULL);
+
+    char errbuf[PCAP_ERRBUF_SIZE];
+
+    /*
+     * ANALYSIS: The function pcap_lookupdev had 0% coverage.
+     * IMPLEMENTATION: Call pcap_lookupdev to exercise its code path. We
+     *                 ignore the return value as it's expected to fail in
+     *                 a sandboxed environment.
+     */
+    pcap_lookupdev(errbuf);
+
+    /*
+     * ANALYSIS: The function pcap_findalldevs_ex had low coverage. It was
+     *           only being called with PCAP_SRC_IFLOCAL.
+     * IMPLEMENTATION: Call pcap_findalldevs_ex with PCAP_SRC_FILE as well
+     *                 to exercise more code paths.
+     */
+    pcap_if_t *alldevs_ex;
+    char source[PCAP_ERRBUF_SIZE];
+    if (pcap_createsrcstr(source, PCAP_SRC_IFLOCAL, NULL, NULL, NULL, errbuf) == 0) {
+        if (pcap_findalldevs_ex(source, NULL, &alldevs_ex, errbuf) == 0) {
+            pcap_freealldevs(alldevs_ex);
+        }
+    }
+    if (pcap_createsrcstr(source, PCAP_SRC_FILE, "/dev/null", NULL, NULL, errbuf) == 0) {
+        if (pcap_findalldevs_ex(source, NULL, &alldevs_ex, errbuf) == 0) {
+            pcap_freealldevs(alldevs_ex);
+        }
+    }
+
+
+    pcap_if_t *alldevs;
+    if (pcap_findalldevs(&alldevs, errbuf) == 0) {
+        if (alldevs != NULL) {
+            /*
+             * ANALYSIS: pcap_activate was never successfully called because pcap_create
+             *           was called with a random string. This meant pcap_inject on a
+             *           live handle was also never called. Additionally, pcap_lookupnet
+             *           had 0% coverage.
+             * IMPLEMENTATION: If pcap_findalldevs finds a device, use its name to
+             *                 call pcap_create. This has a higher chance of success
+             *                 for pcap_activate. Also call pcap_lookupnet on the
+             *                 found device to improve coverage.
+             */
+            bpf_u_int32 net, mask;
+            pcap_lookupnet(alldevs->name, &net, &mask, errbuf);
+
+            pcap_t *p_live_real = pcap_create(alldevs->name, errbuf);
+            if (p_live_real != NULL) {
+                if (pcap_activate(p_live_real) == 0) {
+                    pcap_inject(p_live_real, Data, Size);
+                    /*
+                     * ANALYSIS: The function pcap_sendpacket had 0% coverage. It requires
+                     *           an activated handle.
+                     * IMPLEMENTATION: Call pcap_sendpacket on the activated handle.
+                     */
+                    pcap_sendpacket(p_live_real, Data, Size);
+
+                    /*
+                     * ANALYSIS: The Linux-specific implementations of several functions
+                     *           (pcap_stats_linux, pcap_getnonblock_linux, etc.) had 0%
+                     *           coverage because they were not being called on a live,
+                     *           activated handle.
+                     * IMPLEMENTATION: Call pcap_stats, pcap_getnonblock, pcap_setnonblock,
+                     *                 and pcap_setdirection on the activated handle to
+                     *                 cover these platform-specific implementations. Also
+                     *                 call pcap_datalink_ext which requires an activated
+                     *                 handle.
+                     */
+                    struct pcap_stat live_stats;
+                    pcap_stats(p_live_real, &live_stats);
+                    pcap_getnonblock(p_live_real, errbuf);
+                    pcap_setnonblock(p_live_real, 1, errbuf);
+                    pcap_setdirection(p_live_real, PCAP_D_INOUT);
+                    pcap_datalink_ext(p_live_real);
+                }
+                /*
+                 * ANALYSIS: The function pcap_can_set_rfmon had 0% coverage.
+                 * IMPLEMENTATION: Call pcap_can_set_rfmon on the created handle.
+                 */
+                pcap_can_set_rfmon(p_live_real);
+                pcap_close(p_live_real);
+            }
+        }
+        pcap_freealldevs(alldevs);
+    }
+
+    // Consume data for parameters
+    int linktype;
+    int snaplen;
+    int optimize;
+    int new_snaplen, promisc, timeout, buffer_size, tstamp_type, status_val, open_flags;
+    CONSUME_DATA(int, Data, Size, linktype);
+    CONSUME_DATA(int, Data, Size, snaplen);
+    CONSUME_DATA(int, Data, Size, optimize);
+    CONSUME_DATA(int, Data, Size, new_snaplen);
+    CONSUME_DATA(int, Data, Size, promisc);
+    CONSUME_DATA(int, Data, Size, timeout);
+    CONSUME_DATA(int, Data, Size, buffer_size);
+    CONSUME_DATA(int, Data, Size, tstamp_type);
+    CONSUME_DATA(int, Data, Size, status_val);
+    CONSUME_DATA(int, Data, Size, open_flags);
+    
+    if (snaplen < 0) {
+        snaplen = -snaplen;
+    }
+
+    /*
+     * ANALYSIS: The functions pcap_statustostr and pcap_strerror had low or
+     *           no coverage.
+     * IMPLEMENTATION: Call these functions with a fuzzed value to exercise
+     *                 their error-reporting code paths.
+     */
+    pcap_statustostr(status_val);
+    pcap_strerror(status_val);
+
+    pcap_t *p = pcap_open_dead(linktype, snaplen);
+    if (p == NULL) {
+        return 0;
+    }
+
+    /*
+     * ANALYSIS: The functions pcap_stats, pcap_breakloop, pcap_setdirection,
+     *           pcap_getnonblock, and pcap_setnonblock had 0% coverage for their
+     *           'dead' handle implementations (e.g., pcap_stats_dead).
+     * IMPLEMENTATION: Call these functions on the "dead" handle 'p' to
+     *                 exercise these specific uncovered code paths.
+     */
+    struct pcap_stat stats;
+    pcap_stats(p, &stats);
+    pcap_breakloop(p);
+    pcap_setdirection(p, PCAP_D_IN);
+    pcap_getnonblock(p, errbuf);
+    pcap_setnonblock(p, 1, errbuf);
+
+    /*
+     * ANALYSIS: The functions pcap_datalink_val_to_name and
+     *           pcap_datalink_val_to_description had 0% coverage.
+     * IMPLEMENTATION: Call these functions with a fuzzed linktype to
+     *                 exercise their code paths.
+     */
+    pcap_datalink_val_to_name(linktype);
+    pcap_datalink_val_to_description(linktype);
+
+    /*
+     * ANALYSIS: The functions pcap_datalink_name_to_val,
+     *           pcap_tstamp_type_name_to_val, pcap_tstamp_type_val_to_name,
+     *           and pcap_tstamp_type_val_to_description had 0% coverage.
+     * IMPLEMENTATION: Call these functions with constant string arguments
+     *                 to exercise their code paths.
+     */
+    pcap_datalink_name_to_val("EN10MB");
+    pcap_tstamp_type_name_to_val("adapter");
+    pcap_tstamp_type_val_to_name(PCAP_TSTAMP_ADAPTER);
+    pcap_tstamp_type_val_to_description(PCAP_TSTAMP_ADAPTER);
+
+    /*
+     * ANALYSIS: The function pcap_set_datalink had 0% coverage. It can be
+     *           called on a dead handle.
+     * IMPLEMENTATION: Call pcap_set_datalink on the dead handle 'p' to
+     *                 increase coverage.
+     */
+    pcap_set_datalink(p, linktype);
+
+    /*
+     * ANALYSIS: The functions pcap_list_datalinks and pcap_free_datalinks
+     *           had 0% or very low coverage. The detailed fuzzer report showed
+     *           the call to pcap_list_datalinks on the unactivated "live" handle
+     *           was always failing.
+     * IMPLEMENTATION: This block now operates on the "dead" pcap_t handle
+     *                 which is in a valid state for these calls. This allows the
+     *                 enumeration and free functions to be exercised correctly.
+     */
+    int *dlt_buf;
+    if (pcap_list_datalinks(p, &dlt_buf) >= 0) {
+        pcap_free_datalinks(dlt_buf);
+    }
+    int *tstamp_buf;
+    if (pcap_list_tstamp_types(p, &tstamp_buf) >= 0) {
+        pcap_free_tstamp_types(tstamp_buf);
+    }
+
+    char *filter_str = (char *)malloc(Size + 1);
+    if (filter_str == NULL) {
+        pcap_close(p);
+        return 0;
+    }
+    memcpy(filter_str, Data, Size);
+    filter_str[Size] = '\0';
+
+    struct bpf_program fp;
+    if (pcap_compile(p, &fp, filter_str, optimize, PCAP_NETMASK_UNKNOWN) == 0) {
+        pcap_setfilter(p, &fp);
+        bpf_dump(&fp, 1);
+
+        struct pcap_pkthdr header;
+        header.ts.tv_sec = 0;
+        header.ts.tv_usec = 0;
+        header.caplen = Size;
+        header.len = Size;
+
+        pcap_offline_filter(&fp, &header, Data);
+
+        char path[256];
+        snprintf(path, sizeof(path), "/tmp/%s.pcap", _FUZZ_TARGET_NAME);
+        pcap_dumper_t *dumper = pcap_dump_open(p, path);
+        if (dumper != NULL) {
+            pcap_dump((u_char *)dumper, &header, Data);
+            /*
+             * ANALYSIS: The function pcap_dump_flush had 0% coverage.
+             * IMPLEMENTATION: Call pcap_dump_flush on the opened dumper to
+             *                 exercise its code path.
+             */
+            pcap_dump_flush(dumper);
+            pcap_dump_close(dumper);
+
+            pcap_dumper_t *dumper_append = pcap_dump_open_append(p, path);
+            if (dumper_append != NULL) {
+                pcap_dump((u_char *)dumper_append, &header, Data);
+                pcap_dump_close(dumper_append);
+            }
+        }
+        
+        char another_path[256];
+        snprintf(another_path, sizeof(another_path), "/tmp/%s.pcap.2", _FUZZ_TARGET_NAME);
+        unlink(another_path); // Ensure it doesn't exist
+        pcap_dumper_t *dumper_fail = pcap_dump_open_append(p, another_path);
+        if (dumper_fail != NULL) {
+            pcap_dump_close(dumper_fail);
+        }
+
+        /*
+         * ANALYSIS: The function pcap_dump_fopen had 0% coverage.
+         * IMPLEMENTATION: Call pcap_dump_fopen with a temporary file to
+         *                 exercise its code path.
+         */
+        char fopen_path[256];
+        snprintf(fopen_path, sizeof(fopen_path), "/tmp/%s.pcap.fopen", _FUZZ_TARGET_NAME);
+        FILE *f = fopen(fopen_path, "w");
+        if (f != NULL) {
+            pcap_dumper_t *dumper_fopen = pcap_dump_fopen(p, f);
+            if (dumper_fopen != NULL) {
+                pcap_dump_close(dumper_fopen);
+            }
+            fclose(f);
+        }
+        unlink(fopen_path);
+
+
+        pcap_t *p_offline = pcap_open_offline(path, errbuf);
+        if (p_offline != NULL) {
+            pcap_is_swapped(p_offline);
+            pcap_major_version(p_offline);
+            pcap_minor_version(p_offline);
+            pcap_get_tstamp_precision(p_offline);
+            pcap_bufsize(p_offline);
+            pcap_file(p_offline);
+            pcap_fileno(p_offline);
+            pcap_get_selectable_fd(p_offline);
+            pcap_get_required_select_timeout(p_offline);
+            pcap_geterr(p_offline);
+            pcap_setdirection(p_offline, PCAP_D_IN);
+            pcap_breakloop(p_offline);
+            pcap_loop(p_offline, -1, dummy_handler, NULL);
+            pcap_dispatch(p_offline, -1, dummy_handler, NULL);
+            struct pcap_pkthdr *pkt_header;
+            const u_char *pkt_data;
+            pcap_next_ex(p_offline, &pkt_header, &pkt_data);
+            pcap_next(p_offline, &header);
+            pcap_setnonblock(p_offline, 1, errbuf);
+            pcap_getnonblock(p_offline, errbuf);
+            pcap_close(p_offline);
+        }
+
+        /*
+         * ANALYSIS: The function pcap_open had 0% coverage.
+         * IMPLEMENTATION: Call pcap_open with the path to the generated
+         *                 pcap file to exercise this code path.
+         */
+        pcap_t *p_open = pcap_open(path, snaplen, open_flags, timeout, NULL, errbuf);
+        if (p_open != NULL) {
+            pcap_close(p_open);
+        }
+
+        unlink(path);
+
+        pcap_freecode(&fp);
+    }
+
+    /*
+     * ANALYSIS: The function pcap_compile_nopcap had 0% coverage. It allows
+     *           compiling a filter without a pcap_t handle.
+     * IMPLEMENTATION: Call pcap_compile_nopcap to exercise this code path.
+     */
+    struct bpf_program fp_nopcap;
+    if (pcap_compile_nopcap(snaplen, linktype, &fp_nopcap, filter_str, optimize, PCAP_NETMASK_UNKNOWN) == 0) {
+        pcap_freecode(&fp_nopcap);
+    }
+
+    pcap_t *p_live = pcap_create(filter_str, errbuf);
+    if (p_live != NULL) {
+        /*
+         * ANALYSIS: The function pcap_setsampling had 0% coverage.
+         * IMPLEMENTATION: Call pcap_setsampling on the created handle before activation.
+         */
+        pcap_setsampling(p_live);
+        pcap_set_tstamp_type(p_live, tstamp_type);
+        pcap_set_immediate_mode(p_live, 1);
+        pcap_set_snaplen(p_live, new_snaplen);
+        pcap_set_promisc(p_live, promisc);
+        pcap_set_timeout(p_live, timeout);
+        pcap_set_buffer_size(p_live, buffer_size);
+        pcap_set_tstamp_precision(p_live, PCAP_TSTAMP_PRECISION_NANO);
+        pcap_set_rfmon(p_live, 1);
+
+        if (pcap_activate(p_live) == 0) {
+            pcap_inject(p_live, Data, Size);
+        }
+        pcap_close(p_live);
+    }
+
+    /*
+     * ANALYSIS: The function pcap_open_live had 0% coverage.
+     * IMPLEMENTATION: Call pcap_open_live with a fuzzed string to
+     *                 exercise this legacy code path.
+     */
+    pcap_t *p_open_live = pcap_open_live(filter_str, snaplen, promisc, timeout, errbuf);
+    if (p_open_live != NULL) {
+        pcap_close(p_open_live);
+    }
+
+    /*
+     * ANALYSIS: The function pcap_nametoaddr had 0% coverage.
+     * IMPLEMENTATION: Call pcap_nametoaddr to exercise this code path.
+     */
+    pcap_nametoaddr("localhost");
+
+    /*
+     * ANALYSIS: The function pcap_inject_dead, an error path for pcap_inject,
+     *           had 0% coverage.
+     * IMPLEMENTATION: Call pcap_inject on the "dead" handle 'p' to
+     *                 trigger this specific error path.
+     */
+    pcap_inject(p, Data, Size);
+
+    // Cleanup
+    free(filter_str);
+    pcap_close(p);
+
+    return 0;
+}

@@ -16,7 +16,13 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool
-RUN git clone https://github.com/madler/zlib.git && cd zlib && git checkout 09155eaa2f9270dc4ed1fa13e2b4b2613e6e4851
+ARG ZLIB_COMMIT=5a82f71ed1dfc0bec044d9702463dbdf84ea3b71
+RUN git init zlib && \
+    cd zlib && \
+    git remote add origin https://github.com/madler/zlib.git && \
+    git fetch --depth 1 origin "$ZLIB_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$ZLIB_COMMIT"
 WORKDIR zlib
 COPY build.sh *_fuzzer.c* $SRC/
 COPY llm_fuzzgen* $SRC/

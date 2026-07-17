@@ -221,7 +221,7 @@ def merge_build_context_overrides(build_context: BuildContext, args: argparse.Na
 
 
 # Phase 1 allowlist: only projects where symcc_library has been validated.
-_SYMCC_LIBRARY_PROJECTS = {"libpcap", "tinyxml2", "lcms"}
+_SYMCC_LIBRARY_PROJECTS = {"libpcap", "tinyxml2", "lcms", "zlib", "libtiff"}
 
 
 def _symcc_variant_name(symcc_bin_host: Path, length: int = 8) -> str:

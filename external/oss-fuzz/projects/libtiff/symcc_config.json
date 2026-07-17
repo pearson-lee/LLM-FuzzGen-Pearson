@@ -5,9 +5,16 @@
   "native_archive_filename": "libtiff_combined.a",
   "native_archive_include_dirs": [
     "symcc_native/include",
+    "work/include",
+    "source_code/libtiff",
     "source_code"
   ],
+  "symcc_library": true,
+  "symcc_library_build_flavor": "symcc_library",
+  "symcc_library_subdir": "symcc_library",
+  "symcc_library_filename": "libtiff_combined.a",
   "extra_ldflags": [
-    "/usr/lib/x86_64-linux-gnu/liblzma.so.5"
+    "/usr/lib/x86_64-linux-gnu/liblzma.so.5",
+    "-lm"
   ]
 }

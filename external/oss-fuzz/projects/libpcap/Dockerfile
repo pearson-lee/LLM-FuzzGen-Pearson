@@ -16,7 +16,14 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make cmake flex bison
-RUN git clone --branch libpcap-1.10.4 --depth 1 https://github.com/the-tcpdump-group/libpcap.git libpcap
+ARG LIBPCAP_COMMIT=2559282f3db683e03cd29d30ab5947d6e14a6500
+RUN git init libpcap && \
+    cd libpcap && \
+    git remote add origin https://github.com/the-tcpdump-group/libpcap.git && \
+    git fetch --depth 1 origin "$LIBPCAP_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$LIBPCAP_COMMIT"
+
 # for corpus as wireshark
 RUN git clone --depth=1 https://github.com/the-tcpdump-group/tcpdump.git tcpdump
 WORKDIR $SRC

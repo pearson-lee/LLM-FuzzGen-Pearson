@@ -326,6 +326,69 @@ def get_line_execution_count(report: str, line_no: int) -> str:
     return ""
 
 
+def _normalized_source_line(path: Path, line_no: int) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    if line_no < 1 or line_no > len(lines):
+        return ""
+    return " ".join(lines[line_no - 1].strip().split())
+
+
+def _path_matches_source_identity(path_text: str, source_names: set[str], source_suffixes: set[str]) -> bool:
+    normalized = path_text.strip().rstrip(":").replace("\\", "/")
+    if not normalized:
+        return False
+    path_name = Path(normalized).name
+    if path_name in source_names:
+        return True
+    if any(path_name.endswith(f"_{name}") for name in source_names):
+        return True
+    return any(normalized.endswith(suffix) for suffix in source_suffixes if suffix)
+
+
+def get_line_execution_count_for_source(
+    report: str,
+    line_no: int,
+    *,
+    branch_source: Path,
+    coverage_source: str | None,
+) -> str:
+    """Find a line count in an unfiltered llvm-cov report without trusting order."""
+    source_names = {branch_source.name}
+    source_suffixes = {str(branch_source).replace("\\", "/")}
+    if coverage_source:
+        coverage_path = Path(coverage_source)
+        source_names.add(coverage_path.name)
+        source_suffixes.add(str(coverage_path).replace("\\", "/"))
+
+    expected_line = _normalized_source_line(branch_source, line_no)
+    target_prefix = f"{line_no}|"
+    current_source = ""
+    matches: list[str] = []
+
+    for raw_line in report.splitlines():
+        stripped = raw_line.strip()
+        if stripped.endswith(":") and "|" not in raw_line:
+            current_source = stripped[:-1]
+            continue
+        if not raw_line.lstrip().startswith(target_prefix):
+            continue
+
+        parts = raw_line.split("|", 2)
+        if len(parts) < 2:
+            continue
+        count = parts[1].strip()
+        rendered_source = " ".join(parts[2].strip().split()) if len(parts) >= 3 else ""
+        source_matches = _path_matches_source_identity(current_source, source_names, source_suffixes)
+        line_matches = bool(expected_line and rendered_source and expected_line == rendered_source)
+        if source_matches or line_matches:
+            matches.append(count)
+
+    return matches[0] if len(matches) == 1 else ""
+
+
 def coverage_source_args(branch_source: Path, coverage_source: str | None) -> list[str]:
     """Map the binary's source identity to the local source mirror for llvm-cov."""
     local_source = branch_source.resolve()
@@ -344,9 +407,10 @@ def coverage_source_args(branch_source: Path, coverage_source: str | None) -> li
             break
         common_suffix += 1
 
-    # A filename plus one parent directory is enough to derive project/source roots
-    # without relying on project-specific path names.
-    if common_suffix >= 2:
+    # Even filename-only matches are useful for generated harness sessions: the
+    # coverage binary can embed /src/project/file.c while the local mirror is a
+    # flat source_root/file.c.
+    if common_suffix >= 1:
         embedded_root = Path(*embedded_parts[:-common_suffix])
         local_root = Path(*local_parts[:-common_suffix])
         if str(embedded_root) and str(local_root):
@@ -497,6 +561,97 @@ def run_cmd(
     finally:
         if stdin_handle is not None:
             stdin_handle.close()
+
+
+_SIMPLE_BACKEND_ASSIGNMENT_RE = re.compile(
+    r"^stdin(?P<offset>\d+)\s*->\s*(?P<value>#x[0-9a-fA-F]+|#b[01]+|\d+)\s*$"
+)
+
+
+def _parse_simple_backend_byte(value: str) -> int | None:
+    if value.startswith("#x"):
+        parsed = int(value[2:], 16)
+    elif value.startswith("#b"):
+        parsed = int(value[2:], 2)
+    else:
+        parsed = int(value, 10)
+    if parsed < 0 or parsed > 0xFF:
+        return None
+    return parsed
+
+
+def parse_symcc_simple_backend_models(output: str) -> list[dict[int, int]]:
+    """Parse simple-backend solver models printed as stdin byte assignments."""
+    models: list[dict[int, int]] = []
+    current: dict[int, int] | None = None
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped == "Found diverging input:":
+            if current:
+                models.append(current)
+            current = {}
+            continue
+        if current is None:
+            continue
+        if not stripped:
+            if current:
+                models.append(current)
+            current = None
+            continue
+
+        match = _SIMPLE_BACKEND_ASSIGNMENT_RE.match(stripped)
+        if not match:
+            continue
+        byte_value = _parse_simple_backend_byte(match.group("value"))
+        if byte_value is None:
+            continue
+        current[int(match.group("offset"))] = byte_value
+
+    if current:
+        models.append(current)
+    return models
+
+
+def materialize_symcc_simple_backend_outputs(
+    *,
+    seed_path: Path,
+    result: subprocess.CompletedProcess[str],
+    output_dir: Path,
+) -> int:
+    """Convert simple-backend stderr models into seed files.
+
+    QSYM writes candidate inputs into SYMCC_OUTPUT_DIR. The simple backend only
+    prints the solved byte assignments, so we patch those assignments onto the
+    current seed and let the normal output collector consume the materialized
+    files.
+    """
+    solver_output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    models = parse_symcc_simple_backend_models(solver_output)
+    if not models:
+        return 0
+
+    original = seed_path.read_bytes()
+    written_payloads: set[bytes] = set()
+    written = 0
+    for index, model in enumerate(models):
+        if not model:
+            continue
+        candidate = bytearray(original)
+        max_offset = max(model)
+        if max_offset >= len(candidate):
+            candidate.extend(b"\0" * (max_offset + 1 - len(candidate)))
+        for offset, byte_value in model.items():
+            candidate[offset] = byte_value
+
+        payload = bytes(candidate)
+        if payload in written_payloads:
+            continue
+        written_payloads.add(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        (output_dir / f"simple-{index:06d}-{digest[:12]}.seed").write_bytes(payload)
+        written += 1
+    return written
 
 
 def collect_seed_paths(seed_files: list[str], seed_dir: str | None) -> list[Path]:
@@ -786,6 +941,13 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
 
     symcc_env = os.environ.copy()
     symcc_env["SYMCC_ENABLE_LINEARIZATION"] = "1"
+    symcc_env["SYMCC_CLANG"] = clang
+    symcc_env["SYMCC_CLANGPP"] = clangxx
+    symcc_dir = Path(symcc).resolve().parent
+    symcc_env["SYMCC_PASS_DIR"] = str(symcc_dir)
+    symcc_runtime_dir = symcc_dir / "SymCCRuntime-prefix" / "src" / "SymCCRuntime-build"
+    if symcc_runtime_dir.is_dir():
+        symcc_env["SYMCC_RUNTIME_DIR"] = str(symcc_runtime_dir)
     if use_cxx:
         libcxx_install = REPO_ROOT / "libcxx_symcc_install"
         if libcxx_install.is_dir():
@@ -1033,6 +1195,17 @@ def explore_with_symcc(
             if result.returncode not in (0, 1):
                 log(f"[info] seed {seed_path.name} exited with code {result.returncode}")
 
+            materialized_simple_outputs = materialize_symcc_simple_backend_outputs(
+                seed_path=seed_path,
+                result=result,
+                output_dir=symcc_out,
+            )
+            if materialized_simple_outputs:
+                log(
+                    f"[info] materialized {materialized_simple_outputs} "
+                    "simple-backend output seed(s)"
+                )
+
             unique_outputs: list[tuple[Path, str]] = []
             for output_seed in sorted(path for path in symcc_out.iterdir() if path.is_file()):
                 output_hash = sha256_file(output_seed)
@@ -1222,6 +1395,35 @@ def evaluate_seed_with_coverage(
 
     branch_raw = get_line_execution_count(report, branch_line)
     blocked_raw = get_line_execution_count(report, blocked_side_line)
+    if not branch_raw:
+        unfiltered_cmd = [
+            llvm_cov,
+            "show",
+            str(coverage_bin),
+            f"-instr-profile={profdata}",
+            "-show-branches=count",
+            "-show-instantiations=false",
+        ]
+        unfiltered_result = run_cmd(unfiltered_cmd)
+        if unfiltered_result.returncode == 0:
+            unfiltered_report = unfiltered_result.stdout
+            if keep_report:
+                report_path.with_suffix(".unfiltered.linecov.txt").write_text(
+                    unfiltered_report,
+                    encoding="utf-8",
+                )
+            branch_raw = get_line_execution_count_for_source(
+                unfiltered_report,
+                branch_line,
+                branch_source=branch_source,
+                coverage_source=coverage_source,
+            )
+            blocked_raw = get_line_execution_count_for_source(
+                unfiltered_report,
+                blocked_side_line,
+                branch_source=branch_source,
+                coverage_source=coverage_source,
+            )
     if not branch_raw:
         raise CoverageOracleError(
             "branch_line_missing",

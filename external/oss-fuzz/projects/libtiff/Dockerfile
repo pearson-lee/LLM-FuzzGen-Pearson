@@ -16,7 +16,13 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool cmake nasm
-RUN git clone --branch v4.7.0 --depth 1 https://gitlab.com/libtiff/libtiff
+ARG LIBTIFF_COMMIT=fcd4c86c4907d859c3124c8ad786868ba3f0b713
+RUN git init libtiff && \
+    cd libtiff && \
+    git remote add origin https://gitlab.com/libtiff/libtiff.git && \
+    git fetch --depth 1 origin "$LIBTIFF_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$LIBTIFF_COMMIT"
 RUN git clone --depth 1 https://github.com/madler/zlib
 RUN git clone --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo
 RUN git clone https://www.cl.cam.ac.uk/~mgk25/git/jbigkit

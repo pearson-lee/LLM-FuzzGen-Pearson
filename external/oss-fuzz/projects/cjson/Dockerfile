@@ -19,11 +19,13 @@ FROM gcr.io/oss-fuzz-base/base-builder
 
 
 RUN apt-get update && apt-get install -y cmake
-# v1.7.18
-RUN git clone --depth 1 https://github.com/DaveGamble/cJSON.git cjson && \
+ARG CJSON_COMMIT=12c4bf1986c288950a3d06da757109a6aa1ece38
+RUN git init cjson && \
     cd cjson && \
-    git fetch --depth 1 origin 76be8fcf15677ca7f6db7c770f5ae6bf8b41d78f && \
-    git checkout 76be8fcf15677ca7f6db7c770f5ae6bf8b41d78f
+    git remote add origin https://github.com/DaveGamble/cJSON.git && \
+    git fetch --depth 1 origin "$CJSON_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$CJSON_COMMIT"
 WORKDIR cjson
 COPY build.sh $SRC/
 COPY llm_fuzzgen* $SRC/

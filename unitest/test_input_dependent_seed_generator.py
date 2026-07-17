@@ -40,6 +40,26 @@ def test_lcms_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) 
     assert _should_use_symcc_library("lcms", config, [str(seed)]) is True
 
 
+def test_zlib_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) -> None:
+    seed = tmp_path / "trigger.seed"
+    seed.write_bytes(b"trigger")
+    config = load_project_config("zlib")
+
+    assert config["symcc_library"] is True
+    assert config["symcc_library_filename"] == "libz.a"
+    assert _should_use_symcc_library("zlib", config, [str(seed)]) is True
+
+
+def test_libtiff_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) -> None:
+    seed = tmp_path / "trigger.seed"
+    seed.write_bytes(b"trigger")
+    config = load_project_config("libtiff")
+
+    assert config["symcc_library"] is True
+    assert config["symcc_library_filename"] == "libtiff_combined.a"
+    assert _should_use_symcc_library("libtiff", config, [str(seed)]) is True
+
+
 def test_llm_stage_timeout_returns_retryable_llm_error() -> None:
     started_at = time.monotonic()
     result = run_program(

@@ -138,6 +138,61 @@ def test_coverage_source_args_maps_embedded_source_to_local_mirror(tmp_path: Pat
     ]
 
 
+def test_coverage_source_args_maps_filename_only_source_identity(tmp_path: Path) -> None:
+    local_source = tmp_path / "session" / "source_root" / "gzwrite.c"
+    local_source.parent.mkdir(parents=True)
+    local_source.write_text("int value;\n", encoding="utf-8")
+
+    args = symcc_solver.coverage_source_args(local_source, "/src/zlib/gzwrite.c")
+
+    assert args == [
+        f"-path-equivalence=/src/zlib,{tmp_path / 'session' / 'source_root'}",
+        str(local_source.resolve()),
+    ]
+
+
+def test_missing_branch_line_retries_unfiltered_coverage_report(tmp_path: Path, monkeypatch) -> None:
+    args = fidelity_args(tmp_path)
+    raw_profile = tmp_path / "coverage" / "trigger.seed.profraw"
+
+    def run_seed(**kwargs):
+        raw_profile.parent.mkdir(parents=True, exist_ok=True)
+        raw_profile.write_bytes(b"profile")
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    command_count = 0
+
+    def run_command(command):
+        nonlocal command_count
+        command_count += 1
+        if command_count == 1:
+            output_path = Path(command[-1])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"profdata")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command_count == 2:
+            return subprocess.CompletedProcess(command, 0, "unrelated coverage report\n", "")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "/src/demo/source.c:\n"
+            "   10|      7|    if (value) {\n"
+            "   11|      0|        return 1;\n",
+            "",
+        )
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", run_seed)
+    monkeypatch.setattr(symcc_solver, "run_cmd", run_command)
+
+    evaluate_args = dict(args)
+    evaluate_args["seed_path"] = evaluate_args.pop("fidelity_seed")
+    result = symcc_solver.evaluate_seed_with_coverage(**evaluate_args)
+
+    assert result.branch_hit_count == 7
+    assert result.blocked_side_hit_count == 0
+    assert command_count == 3
+
+
 def test_missing_branch_line_is_coverage_error(tmp_path: Path, monkeypatch) -> None:
     args = fidelity_args(tmp_path)
     raw_profile = tmp_path / "coverage" / "trigger.seed.profraw"
@@ -223,6 +278,42 @@ def test_symcc_online_oracle_can_find_tail_output(tmp_path: Path, monkeypatch) -
     assert result.solved is not None
     assert result.solved.seed.read_bytes() == b"seed-99"
     assert result.candidate_evaluations == 5
+
+
+def test_symcc_simple_backend_stdout_model_is_materialized(tmp_path: Path, monkeypatch) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "initial.seed").write_bytes(b"AAAA")
+
+    def generate_simple_backend_model(**_kwargs):
+        stderr = "Found diverging input:\nstdin0 -> #x53\nstdin2 -> #x4d\n\n"
+        return subprocess.CompletedProcess([], 0, "", stderr)
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", generate_simple_backend_model)
+
+    def evaluate(seed: Path, _timeout: float) -> symcc_solver.CoverageResult:
+        solved = seed.read_bytes() == b"SAMA"
+        return symcc_solver.CoverageResult(
+            seed=seed,
+            branch_hit_count_raw="1",
+            blocked_side_hit_count_raw="1" if solved else "0",
+            branch_hit_count=1,
+            blocked_side_hit_count=1 if solved else 0,
+            blocked_side_line_reached=solved,
+        )
+
+    result = symcc_solver.explore_with_symcc(
+        symcc_exploration_args(tmp_path, max_generations=1),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        evaluate,
+    )
+
+    assert result.stop_reason == "blocked_side_reached"
+    assert result.outputs_discovered == 1
+    assert result.solved is not None
+    assert result.solved.seed.read_bytes() == b"SAMA"
 
 
 def test_symcc_evaluation_budget_is_fair_across_frontier(tmp_path: Path, monkeypatch) -> None:
