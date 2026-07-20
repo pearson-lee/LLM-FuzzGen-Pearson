@@ -2401,6 +2401,7 @@ def run_fuzzers_and_get_coverage(
     budget_mode: str = "wall-clock",
     target_exposure_min_seconds: int = 0,
     generated_target_priority_seconds: int = 300,
+    collect_crash_artifacts: bool = False,
 ):
     """Helper function to run all fuzzers and then optionally get coverage."""
     initial_growth_summary: TotalCoverageSummary | None = None
@@ -2409,6 +2410,12 @@ def run_fuzzers_and_get_coverage(
     if minimize_corpus:
         oss_fuzz.minimize_corpus(proj_name)
     deadline = time.monotonic() + run_seconds if budget_mode == "wall-clock" else None
+    # Only persist fuzzer artifacts from accepted targets during the normal scheduled fuzzing phase.
+    crash_artifact_dir = (
+        experiment_dir / "crash_seeds"
+        if collect_crash_artifacts and experiment_dir is not None
+        else None
+    )
 
     if not use_blocker:
         if budget_mode == "fuzzing-cpu":
@@ -2423,6 +2430,7 @@ def run_fuzzers_and_get_coverage(
                     served_seconds_budget=chunk_budget,
                     generated_target_priority_seconds=generated_target_priority_seconds,
                     target_exposure_min_seconds=target_exposure_min_seconds,
+                    crash_artifact_dir=crash_artifact_dir,
                 )
                 if result.charged_seconds <= 0:
                     logger.warning(
@@ -2440,7 +2448,13 @@ def run_fuzzers_and_get_coverage(
                     initial_summary=initial_growth_summary,
                 )
             return
-        oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
+        oss_fuzz.run_all_fuzzers(
+            proj_name,
+            run_seconds,
+            max_workers=fuzz_targets_parallel,
+            deadline=deadline,
+            crash_artifact_dir=crash_artifact_dir,
+        )
         if get_coverage:
             _log_final_run_coverage(
                 proj_name,
@@ -2469,6 +2483,7 @@ def run_fuzzers_and_get_coverage(
                     served_seconds_budget=chunk_budget,
                     generated_target_priority_seconds=generated_target_priority_seconds,
                     target_exposure_min_seconds=target_exposure_min_seconds,
+                    crash_artifact_dir=crash_artifact_dir,
                 )
                 if result.charged_seconds <= 0:
                     logger.warning(
@@ -2478,7 +2493,13 @@ def run_fuzzers_and_get_coverage(
                     break
                 remaining_budget -= result.charged_seconds
         else:
-            oss_fuzz.run_all_fuzzers(proj_name, run_seconds, max_workers=fuzz_targets_parallel, deadline=deadline)
+            oss_fuzz.run_all_fuzzers(
+                proj_name,
+                run_seconds,
+                max_workers=fuzz_targets_parallel,
+                deadline=deadline,
+                crash_artifact_dir=crash_artifact_dir,
+            )
         if get_coverage:
             _log_final_run_coverage(
                 proj_name,
@@ -2568,6 +2589,7 @@ def run_fuzzers_and_get_coverage(
             served_seconds_budget=chunk_seconds if budget_mode == "fuzzing-cpu" else None,
             generated_target_priority_seconds=generated_target_priority_seconds,
             target_exposure_min_seconds=target_exposure_min_seconds if budget_mode == "fuzzing-cpu" else 0,
+            crash_artifact_dir=crash_artifact_dir,
         )
         if budget_mode == "fuzzing-cpu":
             fuzzing_budget_consumed += chunk_result.charged_seconds
@@ -2765,6 +2787,7 @@ def run_all_fuzzer(
                     budget_mode,
                     target_exposure_min_seconds,
                     generated_target_priority_seconds,
+                    use_blocker,
                 ): project_name
                 for project_name in projects_to_process
             }
@@ -2899,6 +2922,75 @@ def run_all_fuzzer(
         logger.info(row_line)
 
     logger.info("=" * len(header_line))
+    return overall_success
+
+
+def replay_corpus_crashes(
+    project_names: list[str],
+    parallel: int = 1,
+    fuzz_targets_parallel: int | None = None,
+    timeout_per_target: int = 3600,
+    build_fuzzers: bool = False,
+    continue_after_artifact: bool = True,
+    crash_artifact_dir: Path | None = None,
+) -> bool:
+    """Replay current corpora once without mutating original corpus directories."""
+    if not project_names:
+        logger.error("replay_corpus_crashes requires at least one project name.")
+        return False
+
+    output_dir = crash_artifact_dir or (experiment_dir / "crash_seeds" if experiment_dir is not None else None)
+    logger.info(
+        "Replaying current corpora for %d project(s), project_workers=%d, target_workers=%s, "
+        "timeout_per_target=%ds, build_fuzzers=%s, crash_artifact_dir=%s",
+        len(project_names),
+        parallel,
+        fuzz_targets_parallel or 1,
+        timeout_per_target,
+        build_fuzzers,
+        output_dir,
+    )
+
+    overall_success = True
+    with ThreadPoolExecutor(max_workers=parallel) as executor:
+        future_to_project = {
+            executor.submit(
+                oss_fuzz.replay_all_fuzzer_corpora,
+                project_name,
+                timeout_per_fuzzer=timeout_per_target,
+                max_workers=fuzz_targets_parallel or 1,
+                build_fuzzer=build_fuzzers,
+                crash_artifact_dir=output_dir,
+                continue_after_artifact=continue_after_artifact,
+            ): project_name
+            for project_name in project_names
+        }
+        for future, project_name in future_to_project.items():
+            try:
+                results = future.result()
+                failed_targets = [result for result in results if not result.success]
+                logger.info(
+                    "Replay finished for %s: targets=%d, nonzero_results=%d",
+                    project_name,
+                    len(results),
+                    len(failed_targets),
+                )
+                _log_experiment_event(
+                    "corpus_replay_finished",
+                    project_name=project_name,
+                    targets=len(results),
+                    nonzero_results=len(failed_targets),
+                    crash_artifact_dir=str(output_dir) if output_dir else "",
+                )
+            except BaseException as exc:
+                overall_success = False
+                logger.exception("Corpus replay failed for %s: %s", project_name, exc)
+                _log_experiment_event(
+                    "corpus_replay_failed",
+                    project_name=project_name,
+                    exception_type=type(exc).__name__,
+                    exception_message=str(exc),
+                )
     return overall_success
 
 
@@ -3198,6 +3290,54 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     add_periodic_coverage_args(parser_run)
+
+    parser_replay = subparsers.add_parser(
+        "replay_corpus_crashes",
+        help="Replay existing corpora once and collect crash artifacts without mutating original corpus directories.",
+    )
+    parser_replay.add_argument(
+        "project_names",
+        nargs="+",
+        help="The project names whose current corpora should be replayed.",
+    )
+    parser_replay.add_argument(
+        "--parallel",
+        "-p",
+        type=int,
+        default=1,
+        help="The number of projects to replay in parallel. Defaults to 1.",
+    )
+    parser_replay.add_argument(
+        "--fuzz-targets-parallel",
+        type=int,
+        default=1,
+        help="The number of fuzz targets to replay in parallel within a project. Defaults to 1.",
+    )
+    parser_replay.add_argument(
+        "--timeout-per-target",
+        type=int,
+        default=3600,
+        metavar="SECONDS",
+        help="Wall-clock timeout for each target replay. Defaults to 3600 seconds.",
+    )
+    parser_replay.add_argument(
+        "--build",
+        action="store_true",
+        default=False,
+        help="Rebuild fuzzers before replay. Default is to reuse the current build/out binaries.",
+    )
+    parser_replay.add_argument(
+        "--stop-after-first-artifact",
+        action="store_true",
+        default=False,
+        help="Do not pass libFuzzer ignore flags; replay may stop at the first crash/timeout/OOM.",
+    )
+    parser_replay.add_argument(
+        "--crash-artifact-dir",
+        type=Path,
+        default=None,
+        help="Directory for recovered crash seeds. Defaults to experiments/<run>/crash_seeds.",
+    )
 
     parser_blocker = subparsers.add_parser("run_blocker_once", help="Run a single blocker pipeline directly.")
     parser_blocker.add_argument("project_name", help="The project name to run the blocker pipeline for.")
@@ -3774,7 +3914,12 @@ def main() -> None:
         t0 = time.perf_counter()
         args = _parse_args()
 
-        log_name = "run_all_fuzzer" if args.command == "run_all_fuzzer" else args.project_name
+        if args.command == "run_all_fuzzer":
+            log_name = "run_all_fuzzer"
+        elif args.command == "replay_corpus_crashes":
+            log_name = "replay_corpus_crashes"
+        else:
+            log_name = args.project_name
 
         global llm_client
         global experiment_logger
@@ -3783,9 +3928,15 @@ def main() -> None:
         experiment_dir = Path("experiments") / f"{run_id}_{log_name}"
         experiment_dir.mkdir(parents=True, exist_ok=True)
 
-        setup_logging(log_name, model_name=args.model, log_dir=experiment_dir, log_filename="run.log")
+        model_name = getattr(args, "model", None)
+        llm_backend = getattr(args, "llm", "")
 
-        llm_client = LLMClient(backend=args.llm, model_name=args.model)
+        setup_logging(log_name, model_name=model_name, log_dir=experiment_dir, log_filename="run.log")
+
+        llm_client = None if args.command == "replay_corpus_crashes" else LLMClient(
+            backend=llm_backend,
+            model_name=model_name,
+        )
         system_name = "blocker" if args.command == "run_all_fuzzer" and args.use_blocker else "baseline"
         experiment_logger = ExperimentLogger(system_name=system_name, project_name=log_name,
                                              run_id=run_id, output_dir=experiment_dir)
@@ -3793,8 +3944,8 @@ def main() -> None:
             "run_started",
             command=args.command,
             args=vars(args),
-            model=args.model,
-            llm_backend=args.llm,
+            model=model_name,
+            llm_backend=llm_backend,
         )
         
         coverage_log = (
@@ -3840,6 +3991,20 @@ def main() -> None:
                 args.budget_mode,
                 args.target_exposure_min_seconds,
                 args.generated_target_priority_seconds,
+            )
+            _log_experiment_event("run_finished", success=run_success, total_seconds=time.perf_counter() - t0)
+            logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")
+            return
+
+        if args.command == "replay_corpus_crashes":
+            run_success = replay_corpus_crashes(
+                args.project_names,
+                parallel=args.parallel,
+                fuzz_targets_parallel=args.fuzz_targets_parallel,
+                timeout_per_target=args.timeout_per_target,
+                build_fuzzers=args.build,
+                continue_after_artifact=not args.stop_after_first_artifact,
+                crash_artifact_dir=args.crash_artifact_dir,
             )
             _log_experiment_event("run_finished", success=run_success, total_seconds=time.perf_counter() - t0)
             logger.info(f"Total execution time: {time.perf_counter() - t0:.2f} seconds")

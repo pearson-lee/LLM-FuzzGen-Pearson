@@ -1,3 +1,5 @@
+import base64
+import binascii
 import codecs
 import hashlib
 import json
@@ -12,6 +14,7 @@ import uuid
 import zipfile
 import os
 import sys
+from contextlib import contextmanager
 from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from datetime import datetime
@@ -88,6 +91,7 @@ class OSSFuzz:
         "_leak-",
         "_slow-unit-",
     )
+    ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
     def __init__(self, oss_fuzz_dir: Path | None = None):
         self.oss_fuzz_dir: Path = oss_fuzz_dir or Path(__file__).parent / "oss-fuzz"
@@ -216,6 +220,257 @@ class OSSFuzz:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"{timestamp}_{safe_fuzzer}_{uuid.uuid4().hex[:8]}.log"
         return self.oss_fuzz_dir / "build" / "logs" / proj_name / "run_fuzzer" / filename
+
+    def _artifact_kind(self, artifact_name: str) -> str:
+        for marker in self.FUZZER_OUTPUT_ARTIFACT_MARKERS:
+            if marker in artifact_name:
+                return marker.strip("_-")
+        return "unknown"
+
+    def _artifact_sha1(self, artifact_name: str) -> str | None:
+        marker_pattern = "|".join(re.escape(marker) for marker in self.FUZZER_OUTPUT_ARTIFACT_MARKERS)
+        match = re.search(rf"(?:{marker_pattern})([0-9a-fA-F]{{40}})$", artifact_name)
+        return match.group(1).lower() if match else None
+
+    def _read_full_log(self, log_path: Path | None, fallback_text: str = "") -> str:
+        if log_path and log_path.exists():
+            try:
+                return log_path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                pass
+        return fallback_text
+
+    def _extract_fuzzer_output_artifacts(self, log_text: str) -> list[dict[str, str]]:
+        matches = list(re.finditer(r"Test unit written to\s+(\S+)", log_text))
+        artifacts: list[dict[str, str]] = []
+        for index, match in enumerate(matches):
+            raw_path = match.group(1).strip("'\"")
+            artifact_name = Path(raw_path).name
+            if not any(marker in artifact_name for marker in self.FUZZER_OUTPUT_ARTIFACT_MARKERS):
+                continue
+
+            next_start = matches[index + 1].start() if index + 1 < len(matches) else len(log_text)
+            section = log_text[match.end():next_start]
+            base64_match = re.search(r"Base64:\s*([A-Za-z0-9+/=]+)", section)
+            artifacts.append(
+                {
+                    "raw_path": raw_path,
+                    "name": artifact_name,
+                    "kind": self._artifact_kind(artifact_name),
+                    "sha1": self._artifact_sha1(artifact_name) or "",
+                    "base64": base64_match.group(1) if base64_match else "",
+                }
+            )
+        return artifacts
+
+    def _artifact_candidate_paths(self, proj_name: str, raw_path: str, artifact_name: str) -> list[Path]:
+        candidates: list[Path] = []
+        raw = Path(raw_path)
+        if raw.is_absolute() and not str(raw).startswith("/out/"):
+            candidates.append(raw)
+        candidates.append(self.build_out_dir / proj_name / artifact_name)
+        candidates.append(self.build_out_dir / proj_name / raw.name)
+        return list(dict.fromkeys(candidates))
+
+    def _find_seed_by_sha1(self, proj_name: str, corpus_dir: Path, sha1: str) -> Path | None:
+        if not sha1:
+            return None
+        direct_candidate = corpus_dir / sha1
+        if direct_candidate.is_file():
+            return direct_candidate
+
+        project_corpus_dir = self.build_corpus_dir / proj_name
+        if not project_corpus_dir.exists():
+            return None
+        try:
+            for candidate in project_corpus_dir.rglob(sha1):
+                if candidate.is_file():
+                    return candidate
+        except OSError:
+            return None
+        return None
+
+    def _decode_artifact_base64(self, encoded: str) -> bytes | None:
+        if not encoded:
+            return None
+        try:
+            return base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error):
+            return None
+
+    def _crash_summary_from_log(self, log_text: str) -> dict[str, object]:
+        clean_log = self.ANSI_ESCAPE_RE.sub("", log_text)
+        summary = ""
+        sanitizer_error = ""
+        for line in clean_log.splitlines():
+            if not sanitizer_error and re.search(r"==\d+==ERROR:", line):
+                sanitizer_error = line.strip()
+            if line.startswith("SUMMARY:"):
+                summary = line.strip()
+                break
+        return {
+            "sanitizer_error": sanitizer_error,
+            "summary": summary,
+            "dedup_tokens": re.findall(r"DEDUP_TOKEN:\s*(.+)", clean_log),
+        }
+
+    def _materialize_fuzzer_artifact(
+        self,
+        proj_name: str,
+        corpus_dir: Path,
+        artifact: dict[str, str],
+        destination: Path,
+        log_text: str,
+    ) -> dict[str, object]:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        for candidate in self._artifact_candidate_paths(proj_name, artifact["raw_path"], artifact["name"]):
+            if candidate.is_file():
+                shutil.copy2(candidate, destination)
+                return {
+                    "saved": True,
+                    "source": "build_out",
+                    "source_path": str(candidate),
+                }
+
+        corpus_seed = self._find_seed_by_sha1(proj_name, corpus_dir, artifact.get("sha1", ""))
+        if corpus_seed:
+            shutil.copy2(corpus_seed, destination)
+            return {
+                "saved": True,
+                "source": "corpus_sha1",
+                "source_path": str(corpus_seed),
+            }
+
+        decoded = self._decode_artifact_base64(artifact.get("base64", ""))
+        if decoded is not None:
+            destination.write_bytes(decoded)
+            return {
+                "saved": True,
+                "source": "log_base64",
+                "source_path": "",
+            }
+
+        return {
+            "saved": False,
+            "source": "missing",
+            "source_path": "",
+            "reason": "artifact file, corpus sha1 seed, and Base64 payload were all unavailable",
+        }
+
+    def _save_fuzzer_output_artifacts(
+        self,
+        proj_name: str,
+        fuzzer_name: str,
+        corpus_dir: Path,
+        helper_result: HelperCommandResult,
+        crash_artifact_dir: Path | None,
+    ) -> list[Path]:
+        if crash_artifact_dir is None:
+            return []
+
+        output_log_path = Path(helper_result.output_log_path) if helper_result.output_log_path else None
+        log_text = self._read_full_log(output_log_path, helper_result.stdout + helper_result.stderr)
+        artifacts = self._extract_fuzzer_output_artifacts(log_text)
+        if not artifacts:
+            return []
+
+        summary = self._crash_summary_from_log(log_text)
+        output_dir = crash_artifact_dir / proj_name / fuzzer_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        saved_paths: list[Path] = []
+
+        for artifact in artifacts:
+            seed_path = output_dir / artifact["name"]
+            materialized = self._materialize_fuzzer_artifact(
+                proj_name,
+                corpus_dir,
+                artifact,
+                seed_path,
+                log_text,
+            )
+            log_copy_path = output_dir / f"{artifact['name']}.log"
+            if output_log_path and output_log_path.exists():
+                shutil.copy2(output_log_path, log_copy_path)
+
+            metadata = {
+                "project": proj_name,
+                "fuzzer": fuzzer_name,
+                "artifact_name": artifact["name"],
+                "artifact_kind": artifact["kind"],
+                "artifact_sha1": artifact["sha1"],
+                "seed_path": str(seed_path),
+                "seed_saved": materialized["saved"],
+                "seed_source": materialized["source"],
+                "source_path": materialized.get("source_path", ""),
+                "run_fuzzer_log": str(output_log_path) if output_log_path else "",
+                "saved_log_path": str(log_copy_path) if log_copy_path.exists() else "",
+                "summary": summary,
+            }
+            if seed_path.exists():
+                metadata["seed_size"] = seed_path.stat().st_size
+                metadata["seed_sha1"] = hashlib.sha1(seed_path.read_bytes()).hexdigest()
+            if "reason" in materialized:
+                metadata["reason"] = materialized["reason"]
+
+            metadata_path = output_dir / f"{artifact['name']}.metadata.json"
+            metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+            saved_paths.append(seed_path)
+
+            if materialized["saved"]:
+                logger.warning(
+                    "Saved fuzzer artifact seed for %s/%s: %s (%s)",
+                    proj_name,
+                    fuzzer_name,
+                    seed_path,
+                    materialized["source"],
+                )
+            else:
+                logger.warning(
+                    "Recorded fuzzer artifact for %s/%s but could not recover seed bytes: %s",
+                    proj_name,
+                    fuzzer_name,
+                    metadata_path,
+                )
+        return saved_paths
+
+    def _hardlink_or_copy_tree(self, source_dir: Path, destination_dir: Path) -> int:
+        copied = 0
+        if not source_dir.exists():
+            return copied
+        for root, dirs, files in os.walk(source_dir):
+            root_path = Path(root)
+            relative_root = root_path.relative_to(source_dir)
+            target_root = destination_dir / relative_root
+            target_root.mkdir(parents=True, exist_ok=True)
+            for dirname in dirs:
+                (target_root / dirname).mkdir(exist_ok=True)
+            for filename in files:
+                source_path = root_path / filename
+                destination_path = target_root / filename
+                try:
+                    os.link(source_path, destination_path)
+                except OSError:
+                    shutil.copy2(source_path, destination_path)
+                copied += 1
+        return copied
+
+    @contextmanager
+    def _temporary_replay_corpus(self, proj_name: str, fuzzer_name: str):
+        source_dir = self.build_corpus_dir / proj_name / fuzzer_name
+        replay_parent = self.build_corpus_dir / proj_name
+        replay_parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=f".{fuzzer_name}_replay_", dir=replay_parent) as tmp_dir:
+            replay_dir = Path(tmp_dir)
+            seed_count = self._hardlink_or_copy_tree(source_dir, replay_dir)
+            logger.info(
+                "Prepared replay corpus snapshot for %s/%s with %d seed(s): %s",
+                proj_name,
+                fuzzer_name,
+                seed_count,
+                replay_dir,
+            )
+            yield replay_dir
 
     def _helper_log_path(self, proj_name: str, operation: str, label: str = "") -> Path:
         safe_operation = re.sub(r"[^A-Za-z0-9_.-]+", "_", operation)
@@ -716,6 +971,9 @@ class OSSFuzz:
         seconds: int = 30,
         build_fuzzer: bool = True,
         deadline: float | None = None,
+        corpus_dir_override: Path | None = None,
+        fuzzer_args: list[str] | None = None,
+        crash_artifact_dir: Path | None = None,
     ) -> CompilationResult:
         """Runs the fuzzer for the given project and fuzzer name."""
         if deadline is not None:
@@ -731,7 +989,7 @@ class OSSFuzz:
             logger.error(f"Fuzzer {fuzzer_name} for project {proj_name} failed to build.")
             return CompilationResult(success=False, error=build_result.error)
 
-        corpus_dir = self.build_corpus_dir / proj_name / fuzzer_name
+        corpus_dir = corpus_dir_override or self.build_corpus_dir / proj_name / fuzzer_name
         corpus_dir.mkdir(parents=True, exist_ok=True)
 
         if deadline is not None:
@@ -742,6 +1000,9 @@ class OSSFuzz:
             seconds = min(seconds, max(1, int(remaining)))
         timeout, deadline_limited_timeout = self._bounded_fuzzer_timeout(seconds, deadline)
         output_log_path = self._run_fuzzer_log_path(proj_name, fuzzer_name)
+        effective_fuzzer_args = list(fuzzer_args) if fuzzer_args is not None else [
+            f" -max_total_time={seconds} ",  # Add space to avoid issues with command parsing
+        ]
 
         helper_result = self._run_helper_command(
             [
@@ -749,11 +1010,18 @@ class OSSFuzz:
                 f"--corpus-dir={corpus_dir.absolute()}",
                 proj_name,
                 fuzzer_name,
-                f" -max_total_time={seconds} ",  # Add space to avoid issues with command parsing
+                *effective_fuzzer_args,
             ],
             timeout=timeout,
             output_log_path=output_log_path,
             tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
+        )
+        saved_artifacts = self._save_fuzzer_output_artifacts(
+            proj_name,
+            fuzzer_name,
+            corpus_dir,
+            helper_result,
+            crash_artifact_dir,
         )
 
         if not helper_result.success:
@@ -782,9 +1050,19 @@ class OSSFuzz:
                     f"{error_message.rstrip()}\n"
                     f"[full run_fuzzer output log: {helper_result.output_log_path}]"
                 )
+            if saved_artifacts:
+                joined_paths = ", ".join(str(path) for path in saved_artifacts)
+                error_message = f"{error_message.rstrip()}\n[saved fuzzer artifacts: {joined_paths}]"
             logger.error(f"Failed to run fuzzer {fuzzer_name}: \n{error_message}")
             return CompilationResult(success=False, error=error_message)
 
+        if saved_artifacts:
+            logger.warning(
+                "Fuzzer %s ran successfully but emitted %d artifact seed(s): %s",
+                fuzzer_name,
+                len(saved_artifacts),
+                ", ".join(str(path) for path in saved_artifacts),
+            )
         logger.info("Fuzzer %s ran successfully; output log: %s", fuzzer_name, helper_result.output_log_path)
         return CompilationResult(success=True, error="")
 
@@ -844,6 +1122,7 @@ class OSSFuzz:
         fuzzer_name: str,
         seconds: int,
         deadline: float | None = None,
+        crash_artifact_dir: Path | None = None,
     ) -> FuzzerTimeSliceResult:
         started_at = time.monotonic()
         result = self.run_fuzzer(
@@ -852,6 +1131,7 @@ class OSSFuzz:
             seconds,
             build_fuzzer=False,
             deadline=deadline,
+            crash_artifact_dir=crash_artifact_dir,
         )
         actual_seconds = max(0.0, time.monotonic() - started_at)
         return FuzzerTimeSliceResult(
@@ -868,6 +1148,7 @@ class OSSFuzz:
         seconds: int = 30,
         max_workers: int | None = None,
         deadline: float | None = None,
+        crash_artifact_dir: Path | None = None,
     ):
         """Build and run all fuzzers using the original per-target execution model."""
         logger.info(f"Building all fuzzers for project {project_name}")
@@ -894,6 +1175,7 @@ class OSSFuzz:
                         seconds,
                         build_fuzzer=False,
                         deadline=deadline,
+                        crash_artifact_dir=crash_artifact_dir,
                     )
                     for fuzzer_name in fuzzers_to_run
                     if deadline is None or deadline - time.monotonic() > 0
@@ -906,6 +1188,122 @@ class OSSFuzz:
         except KeyboardInterrupt:
             logger.info("Fuzzing interrupted by user. Shutting down...")
 
+    def replay_fuzzer_corpus(
+        self,
+        project_name: str,
+        fuzzer_name: str,
+        timeout_per_fuzzer: int = 3600,
+        build_fuzzer: bool = False,
+        deadline: float | None = None,
+        crash_artifact_dir: Path | None = None,
+        continue_after_artifact: bool = True,
+    ) -> FuzzerTimeSliceResult:
+        """Replay the current corpus once without writing to the original corpus."""
+        started_at = time.monotonic()
+        replay_args = [" -runs=0 -reload=0 "]
+        if continue_after_artifact:
+            replay_args = [" -runs=0 -reload=0 -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1 "]
+
+        with self._temporary_replay_corpus(project_name, fuzzer_name) as replay_corpus_dir:
+            result = self.run_fuzzer(
+                project_name,
+                fuzzer_name,
+                timeout_per_fuzzer,
+                build_fuzzer=build_fuzzer,
+                deadline=deadline,
+                corpus_dir_override=replay_corpus_dir,
+                fuzzer_args=replay_args,
+                crash_artifact_dir=crash_artifact_dir,
+            )
+
+        actual_seconds = max(0.0, time.monotonic() - started_at)
+        return FuzzerTimeSliceResult(
+            fuzzer_name=fuzzer_name,
+            requested_seconds=timeout_per_fuzzer,
+            actual_seconds=actual_seconds,
+            success=result.success,
+            error=result.error,
+        )
+
+    def replay_all_fuzzer_corpora(
+        self,
+        project_name: str,
+        timeout_per_fuzzer: int = 3600,
+        max_workers: int | None = None,
+        build_fuzzer: bool = False,
+        deadline: float | None = None,
+        crash_artifact_dir: Path | None = None,
+        continue_after_artifact: bool = True,
+    ) -> list[FuzzerTimeSliceResult]:
+        """Replay every current fuzzer corpus once and collect emitted crash artifacts."""
+        if build_fuzzer:
+            logger.info("Building all fuzzers for replay in project %s", project_name)
+            build_result = self.build_fuzzers(project_name, deadline=deadline)
+            if not build_result.success:
+                logger.error("Failed to build fuzzers for replay in project %s.", project_name)
+                return [
+                    FuzzerTimeSliceResult(
+                        fuzzer_name="<build_fuzzers>",
+                        requested_seconds=0,
+                        actual_seconds=0.0,
+                        success=False,
+                        error=build_result.error,
+                    )
+                ]
+
+        fuzzers_to_run = self._list_project_fuzzers(project_name)
+        if not fuzzers_to_run:
+            logger.warning("No llm_fuzzgen fuzzers found for replay in %s.", project_name)
+            return []
+
+        workers = max_workers or 1
+        results: list[FuzzerTimeSliceResult] = []
+        logger.info(
+            "Replaying current corpus for %d fuzzer target(s) in %s with workers=%d.",
+            len(fuzzers_to_run),
+            project_name,
+            workers,
+        )
+        with ThreadPoolExecutor(workers) as executor:
+            futures = {
+                executor.submit(
+                    self.replay_fuzzer_corpus,
+                    project_name,
+                    fuzzer_name,
+                    timeout_per_fuzzer,
+                    build_fuzzer=False,
+                    deadline=deadline,
+                    crash_artifact_dir=crash_artifact_dir,
+                    continue_after_artifact=continue_after_artifact,
+                ): fuzzer_name
+                for fuzzer_name in fuzzers_to_run
+                if deadline is None or deadline - time.monotonic() > 0
+            }
+            for future in as_completed(futures):
+                fuzzer_name = futures[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    logger.info(
+                        "Replay completed for %s/%s: success=%s actual=%.2fs",
+                        project_name,
+                        fuzzer_name,
+                        result.success,
+                        result.actual_seconds,
+                    )
+                except BaseException as exc:
+                    logger.exception("Replay generated an exception for %s/%s: %s", project_name, fuzzer_name, exc)
+                    results.append(
+                        FuzzerTimeSliceResult(
+                            fuzzer_name=fuzzer_name,
+                            requested_seconds=timeout_per_fuzzer,
+                            actual_seconds=0.0,
+                            success=False,
+                            error=str(exc),
+                        )
+                    )
+        return results
+
     def run_all_fuzzers_scheduled(
         self,
         project_name: str,
@@ -915,6 +1313,7 @@ class OSSFuzz:
         served_seconds_budget: float | None = None,
         generated_target_priority_seconds: int = 0,
         target_exposure_min_seconds: int = 0,
+        crash_artifact_dir: Path | None = None,
     ) -> FuzzerScheduleChunkResult:
         """Run fuzzers within a wall-clock budget using least-served-first scheduling."""
         logger.info(f"Building all fuzzers for project {project_name}")
@@ -1017,12 +1416,16 @@ class OSSFuzz:
                     served_seconds.get(next_fuzzer, 0.0),
                     remaining,
                 )
+                submit_kwargs = {}
+                if crash_artifact_dir is not None:
+                    submit_kwargs["crash_artifact_dir"] = crash_artifact_dir
                 future = executor.submit(
                     self._run_fuzzer_time_slice,
                     project_name,
                     next_fuzzer,
                     slice_seconds,
                     effective_deadline,
+                    **submit_kwargs,
                 )
                 in_flight[future] = next_fuzzer
                 chunk_reserved_seconds += float(slice_seconds)

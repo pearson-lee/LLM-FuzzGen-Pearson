@@ -34,6 +34,11 @@ testSymccSTL_sym
 testSymccSTL_normal
 lcms_0617/
 logs/
-experiments/
+/experiments/*/blocker_sessions/
+/experiments/*/blockers/
+/experiments/*/branch_blockers/
+/experiments/*/coverage/
+/experiments/*/symcc/
+/experiments/*/oss-fuzz-build-out-*.tar.zst
 experiment_artifact_backup/
 original_fuzz_target/
