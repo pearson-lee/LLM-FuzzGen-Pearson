@@ -92,8 +92,11 @@ class LLMClient:
             if backend == "vertexai":
                 import vertexai
                 import langchain_google_vertexai
-                PROJECT_ID = "regal-wall-495909-g5" 
-                LOCATION = "us-central1"
+                PROJECT_ID = os.getenv(
+                    "VERTEXAI_PROJECT_ID",
+                    os.getenv("GOOGLE_CLOUD_PROJECT", "project-def9a177-752e-48d4-85b"),
+                )
+                LOCATION = os.getenv("VERTEXAI_LOCATION", "us-central1")
 
                 vertexai.init(project=PROJECT_ID, location=LOCATION)
                 llm_base = langchain_google_vertexai.ChatVertexAI(

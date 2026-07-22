@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0710140410_crash-1a1df6df550cb81625267dd9a85646ba27f5ea8e",
+  "artifact_sha1": "1a1df6df550cb81625267dd9a85646ba27f5ea8e",
+  "fuzzer": "llm_fuzzgen0710140410",
+  "project": "libpcap",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libpcap/run_fuzzer/20260722_051558_533434_llm_fuzzgen0710140410_c47715dd.log",
+  "saved_log_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710140410/llm_fuzzgen0710140410_crash-1a1df6df550cb81625267dd9a85646ba27f5ea8e.log",
+  "seed_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710140410/llm_fuzzgen0710140410_crash-1a1df6df550cb81625267dd9a85646ba27f5ea8e",
+  "seed_saved": true,
+  "seed_sha1": "1a1df6df550cb81625267dd9a85646ba27f5ea8e",
+  "seed_size": 15,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libpcap/llm_fuzzgen0710140410_crash-1a1df6df550cb81625267dd9a85646ba27f5ea8e",
+  "summary": {
+    "dedup_tokens": [
+      "pcapint_install_bpf_program--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000008 (pc 0x5591469df675 bp 0x7ffe220af690 sp 0x7ffe220af660 T0)",
+    "summary": "SUMMARY: AddressSanitizer: SEGV /src/libpcap/optimize.c:2933:35 in pcapint_install_bpf_program"
+  }
+}

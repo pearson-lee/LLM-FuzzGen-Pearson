@@ -1,0 +1,23 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0710075201_crash-335e9d0acf8784cb7de162a7420b2250ea4bdeb6",
+  "artifact_sha1": "335e9d0acf8784cb7de162a7420b2250ea4bdeb6",
+  "fuzzer": "llm_fuzzgen0710075201",
+  "project": "libpcap",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libpcap/run_fuzzer/20260720_233019_830078_llm_fuzzgen0710075201_ead83021.log",
+  "saved_log_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710075201/llm_fuzzgen0710075201_crash-335e9d0acf8784cb7de162a7420b2250ea4bdeb6.log",
+  "seed_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710075201/llm_fuzzgen0710075201_crash-335e9d0acf8784cb7de162a7420b2250ea4bdeb6",
+  "seed_saved": true,
+  "seed_sha1": "335e9d0acf8784cb7de162a7420b2250ea4bdeb6",
+  "seed_size": 163,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libpcap/llm_fuzzgen0710075201_crash-335e9d0acf8784cb7de162a7420b2250ea4bdeb6",
+  "summary": {
+    "dedup_tokens": [
+      "__asan_memcpy--dup_sockaddr--pcapint_add_addr_to_dev",
+      "__interceptor_malloc--operator new(unsigned long)--fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*)"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x50f0000000e3 at pc 0x55e6e3d930b2 bp 0x7fffd25ad5b0 sp 0x7fffd25acd70",
+    "summary": "SUMMARY: AddressSanitizer: heap-buffer-overflow /src/libpcap/pcap.c:724:10 in dup_sockaddr"
+  }
+}

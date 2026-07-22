@@ -1,0 +1,1 @@
+(tcp or udp) and (dst port 06  or dst prot 80) src n 193.168.0.0/16

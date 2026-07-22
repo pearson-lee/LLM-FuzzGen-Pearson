@@ -1,0 +1,1 @@
+(tcp[tcpflags] & (tcp-syn|tcp-fin) != 0) and not src loand dst net 10.0.0ропю

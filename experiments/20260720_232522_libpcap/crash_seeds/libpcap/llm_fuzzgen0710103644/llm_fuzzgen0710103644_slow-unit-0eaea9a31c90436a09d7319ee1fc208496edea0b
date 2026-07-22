@@ -1,0 +1,1 @@
+(tcp or udp) and (dst 00) and not src!n te192.168.0.0/16

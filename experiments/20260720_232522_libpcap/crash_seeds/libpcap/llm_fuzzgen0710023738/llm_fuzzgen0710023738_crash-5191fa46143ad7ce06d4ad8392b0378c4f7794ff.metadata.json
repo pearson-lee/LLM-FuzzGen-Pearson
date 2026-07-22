@@ -1,0 +1,23 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0710023738_crash-5191fa46143ad7ce06d4ad8392b0378c4f7794ff",
+  "artifact_sha1": "5191fa46143ad7ce06d4ad8392b0378c4f7794ff",
+  "fuzzer": "llm_fuzzgen0710023738",
+  "project": "libpcap",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libpcap/run_fuzzer/20260720_232740_174947_llm_fuzzgen0710023738_bd07c3c9.log",
+  "saved_log_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710023738/llm_fuzzgen0710023738_crash-5191fa46143ad7ce06d4ad8392b0378c4f7794ff.log",
+  "seed_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710023738/llm_fuzzgen0710023738_crash-5191fa46143ad7ce06d4ad8392b0378c4f7794ff",
+  "seed_saved": true,
+  "seed_sha1": "5191fa46143ad7ce06d4ad8392b0378c4f7794ff",
+  "seed_size": 14,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libpcap/llm_fuzzgen0710023738_crash-5191fa46143ad7ce06d4ad8392b0378c4f7794ff",
+  "summary": {
+    "dedup_tokens": [
+      "pcap_findalldevs_ex--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)",
+      "pcap_findalldevs_ex"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7f9817cc183f at pc 0x5624fa04dac9 bp 0x7ffd2db28210 sp 0x7ffd2db28208",
+    "summary": "SUMMARY: AddressSanitizer: stack-buffer-overflow /src/libpcap/pcap.c:4742:7 in pcap_findalldevs_ex"
+  }
+}

@@ -7,6 +7,7 @@ from blocker_process.blocker_classifier import (
     build_input_independent_solver_args,
     build_seed_generation_args,
     enrich_classification_args,
+    resolve_triggering_input_from_extraction,
 )
 
 
@@ -99,6 +100,64 @@ def test_missing_yaml_still_collects_textual_callsites(monkeypatch, tmp_path):
     assert captured["triggering_input"] == "known-trigger.seed"
     assert "sample.c:10" in result.blocker_call_sites
     assert result.cfg_collection_status == "failed"
+
+
+def test_gdb_failure_falls_back_to_coverage_selected_seed(monkeypatch, tmp_path):
+    seed = tmp_path / "branch_reaching.seed"
+    seed.write_bytes(b"hit-branch")
+
+    def fake_extract(**_kwargs):
+        return {
+            "call_sites": {"entries": []},
+            "matching_seeds": [{"seed": str(seed)}],
+            "gdb_result": {
+                "error": "GDB did not hit breakpoints with seed.",
+                "selected_seed": str(seed),
+                "seed_source": "find_blocker_seeds_by_coverage",
+            },
+            "cfg_error": "Data file not found",
+        }
+
+    monkeypatch.setattr(blocker_callpath_extractor, "extract_blocker_callchain_info", fake_extract)
+    args = Namespace(
+        project_name="demo",
+        target_name="demo_fuzzer",
+        function_name="blocker_api",
+        branch_line_number=11,
+        blocked_side_line_number=12,
+        source_api_file="/src/demo/sample.c",
+        source_file=str(tmp_path / "sample.c"),
+        yaml_file=str(tmp_path / "missing.yaml"),
+        callpath_source_root=str(tmp_path),
+        max_gdb_inputs=0,
+        runtime_blocker_segment=None,
+        runtime_blocker_segment_file=None,
+        runtime_blocker_segment_source_codes=None,
+        runtime_blocker_segment_source_codes_file=None,
+        cfg_call_chain=None,
+        cfg_call_chain_file=None,
+        cfg_source_codes=None,
+        cfg_source_codes_file=None,
+        blocker_call_sites=None,
+        triggering_input="",
+    )
+
+    result = auto_collect_callpath_context(args)
+
+    assert result.runtime_collection_status == "failed"
+    assert result.triggering_input == str(seed.resolve())
+
+
+def test_triggering_input_fallback_uses_matching_seed_when_gdb_has_no_seed(tmp_path):
+    seed = tmp_path / "matching.seed"
+    seed.write_bytes(b"hit-branch")
+
+    result = resolve_triggering_input_from_extraction(
+        {"matching_seeds": [{"seed": str(seed)}]},
+        {"error": "GDB unavailable"},
+    )
+
+    assert result == str(seed.resolve())
 
 
 def test_enrichment_prefers_cached_local_source_over_unavailable_api(monkeypatch, tmp_path):

@@ -1,0 +1,1 @@
+(tcp or udp) and (dst eth0 53 or dst port 80) and not src net 1;21.68.0.0/16

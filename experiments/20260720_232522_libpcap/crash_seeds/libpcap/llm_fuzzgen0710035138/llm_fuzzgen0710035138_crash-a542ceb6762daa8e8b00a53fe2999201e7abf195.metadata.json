@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0710035138_crash-a542ceb6762daa8e8b00a53fe2999201e7abf195",
+  "artifact_sha1": "a542ceb6762daa8e8b00a53fe2999201e7abf195",
+  "fuzzer": "llm_fuzzgen0710035138",
+  "project": "libpcap",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libpcap/run_fuzzer/20260721_003348_812942_llm_fuzzgen0710035138_abbb22ea.log",
+  "saved_log_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710035138/llm_fuzzgen0710035138_crash-a542ceb6762daa8e8b00a53fe2999201e7abf195.log",
+  "seed_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710035138/llm_fuzzgen0710035138_crash-a542ceb6762daa8e8b00a53fe2999201e7abf195",
+  "seed_saved": true,
+  "seed_sha1": "a542ceb6762daa8e8b00a53fe2999201e7abf195",
+  "seed_size": 23,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libpcap/llm_fuzzgen0710035138_crash-a542ceb6762daa8e8b00a53fe2999201e7abf195",
+  "summary": {
+    "dedup_tokens": [
+      "__interceptor_free--LLVMFuzzerTestOneInput--fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long)"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: attempting free on address which was not malloc()-ed: 0x7f96a9fe98b0 in thread T0",
+    "summary": "SUMMARY: AddressSanitizer: bad-free /src/llm_fuzzgen0710035138.c:540:7 in LLVMFuzzerTestOneInput"
+  }
+}

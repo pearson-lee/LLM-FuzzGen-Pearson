@@ -405,6 +405,39 @@ def should_collect_callpath_context(args: argparse.Namespace) -> bool:
     )
 
 
+def _local_seed_path(candidate: object) -> str:
+    if not candidate:
+        return ""
+    try:
+        path = Path(str(candidate)).expanduser()
+    except Exception:
+        return ""
+    if path.is_file():
+        return str(path.resolve())
+    return ""
+
+
+def resolve_triggering_input_from_extraction(extraction_result: dict, gdb_result: dict) -> str:
+    for candidate in (
+        gdb_result.get("triggering_input"),
+        gdb_result.get("selected_seed"),
+        gdb_result.get("seed"),
+    ):
+        seed_path = _local_seed_path(candidate)
+        if seed_path:
+            return seed_path
+
+    matching_seeds = extraction_result.get("matching_seeds")
+    if isinstance(matching_seeds, list):
+        for entry in matching_seeds:
+            if not isinstance(entry, dict):
+                continue
+            seed_path = _local_seed_path(entry.get("seed"))
+            if seed_path:
+                return seed_path
+    return ""
+
+
 def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespace:
     if not should_collect_callpath_context(args):
         return args
@@ -465,7 +498,7 @@ def auto_collect_callpath_context(args: argparse.Namespace) -> argparse.Namespac
     if not getattr(args, "blocker_call_sites", None):
         args.blocker_call_sites = render_call_sites_for_prompt(extraction_result.get("call_sites"))
     if not getattr(args, "triggering_input", None):
-        args.triggering_input = gdb_result.get("triggering_input", "")
+        args.triggering_input = resolve_triggering_input_from_extraction(extraction_result, gdb_result)
 
     args.runtime_collection_status = runtime_status
     args.runtime_collection_error = runtime_error

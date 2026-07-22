@@ -1,0 +1,20 @@
+{
+  "artifact_kind": "slow-unit",
+  "artifact_name": "llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813",
+  "artifact_sha1": "c58b6cd52ef932fe45321ab14800019465d92813",
+  "fuzzer": "llm_fuzzgen0625125553",
+  "project": "lcms",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/lcms/run_fuzzer/20260720_222244_768227_llm_fuzzgen0625125553_349c1804.log",
+  "saved_log_path": "experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625125553/llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813.log",
+  "seed_path": "experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625125553/llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813",
+  "seed_saved": true,
+  "seed_sha1": "c58b6cd52ef932fe45321ab14800019465d92813",
+  "seed_size": 20,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/lcms/llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813",
+  "summary": {
+    "dedup_tokens": [],
+    "sanitizer_error": "",
+    "summary": ""
+  }
+}

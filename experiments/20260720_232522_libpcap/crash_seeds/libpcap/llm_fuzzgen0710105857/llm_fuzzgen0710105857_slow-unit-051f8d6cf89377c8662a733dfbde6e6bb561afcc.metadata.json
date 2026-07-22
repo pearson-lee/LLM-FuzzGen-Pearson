@@ -1,0 +1,20 @@
+{
+  "artifact_kind": "slow-unit",
+  "artifact_name": "llm_fuzzgen0710105857_slow-unit-051f8d6cf89377c8662a733dfbde6e6bb561afcc",
+  "artifact_sha1": "051f8d6cf89377c8662a733dfbde6e6bb561afcc",
+  "fuzzer": "llm_fuzzgen0710105857",
+  "project": "libpcap",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libpcap/run_fuzzer/20260721_095827_134815_llm_fuzzgen0710105857_a8dbd5e7.log",
+  "saved_log_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710105857/llm_fuzzgen0710105857_slow-unit-051f8d6cf89377c8662a733dfbde6e6bb561afcc.log",
+  "seed_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710105857/llm_fuzzgen0710105857_slow-unit-051f8d6cf89377c8662a733dfbde6e6bb561afcc",
+  "seed_saved": true,
+  "seed_sha1": "051f8d6cf89377c8662a733dfbde6e6bb561afcc",
+  "seed_size": 27,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libpcap/llm_fuzzgen0710105857_slow-unit-051f8d6cf89377c8662a733dfbde6e6bb561afcc",
+  "summary": {
+    "dedup_tokens": [],
+    "sanitizer_error": "",
+    "summary": ""
+  }
+}

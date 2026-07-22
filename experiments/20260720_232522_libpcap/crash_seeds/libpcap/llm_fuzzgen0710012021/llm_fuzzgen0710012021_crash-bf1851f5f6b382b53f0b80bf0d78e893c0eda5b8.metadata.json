@@ -1,0 +1,24 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0710012021_crash-bf1851f5f6b382b53f0b80bf0d78e893c0eda5b8",
+  "artifact_sha1": "bf1851f5f6b382b53f0b80bf0d78e893c0eda5b8",
+  "fuzzer": "llm_fuzzgen0710012021",
+  "project": "libpcap",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libpcap/run_fuzzer/20260720_232706_705238_llm_fuzzgen0710012021_53a41ca0.log",
+  "saved_log_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710012021/llm_fuzzgen0710012021_crash-bf1851f5f6b382b53f0b80bf0d78e893c0eda5b8.log",
+  "seed_path": "experiments/20260720_232522_run_all_fuzzer/crash_seeds/libpcap/llm_fuzzgen0710012021/llm_fuzzgen0710012021_crash-bf1851f5f6b382b53f0b80bf0d78e893c0eda5b8",
+  "seed_saved": true,
+  "seed_sha1": "bf1851f5f6b382b53f0b80bf0d78e893c0eda5b8",
+  "seed_size": 43,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libpcap/llm_fuzzgen0710012021_crash-bf1851f5f6b382b53f0b80bf0d78e893c0eda5b8",
+  "summary": {
+    "dedup_tokens": [
+      "__interceptor_free--_IO_fclose--__interceptor_fclose",
+      "__interceptor_free--_IO_fclose",
+      "__interceptor_malloc--fopen64"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: attempting double-free on 0x515000004b80 in thread T0:",
+    "summary": "SUMMARY: AddressSanitizer: double-free (/lib/x86_64-linux-gnu/libc.so.6+0x81ec2) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d) in _IO_fclose"
+  }
+}
