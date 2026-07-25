@@ -40,6 +40,26 @@ def test_lcms_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) 
     assert _should_use_symcc_library("lcms", config, [str(seed)]) is True
 
 
+def test_cjson_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) -> None:
+    seed = tmp_path / "trigger.seed"
+    seed.write_bytes(b"trigger")
+    config = load_project_config("cjson")
+
+    assert config["symcc_library"] is True
+    assert config["symcc_library_filename"] == "libcjson.a"
+    assert _should_use_symcc_library("cjson", config, [str(seed)]) is True
+
+
+def test_libvpx_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) -> None:
+    seed = tmp_path / "trigger.seed"
+    seed.write_bytes(b"trigger")
+    config = load_project_config("libvpx")
+
+    assert config["symcc_library"] is True
+    assert config["symcc_library_filename"] == "libvpx.a"
+    assert _should_use_symcc_library("libvpx", config, [str(seed)]) is True
+
+
 def test_zlib_symcc_library_is_enabled_for_branch_reaching_seed(tmp_path: Path) -> None:
     seed = tmp_path / "trigger.seed"
     seed.write_bytes(b"trigger")

@@ -7,6 +7,10 @@
     "source_code",
     "symcc_native/build_headers"
   ],
+  "symcc_library": true,
+  "symcc_library_build_flavor": "symcc_library",
+  "symcc_library_subdir": "symcc_library",
+  "symcc_library_filename": "libvpx.a",
   "extra_include_dirs": [
     "llvm-project-14/compiler-rt/include/fuzzer"
   ]

@@ -1,0 +1,506 @@
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: cJSON_strdup must return NULL during the duplication of a cJSON item's 'string' member. This happens when memory allocation fails.
+state_constructor: A custom malloc function is installed via cJSON_InitHooks. This malloc is designed to succeed on the first call but fail on the second. In cJSON_Duplicate_rec, the first allocation is for the new cJSON item itself, and the second is for duplicating the item's 'string' (key). The failure of the second allocation causes cJSON_strdup to return NULL.
+trigger_api: cJSON_Duplicate is called on a cJSON item that has a non-NULL 'string' member (i.e., it has a key). This call path leads to cJSON_Duplicate_rec, where the first allocation succeeds and the second one fails, triggering the predicate.
+preserved_invariants: The FuzzedDataProvider consumption sequence is unchanged. The new logic is added at the end of the test case, preserving the original API calls and their order. The memory hooks are reset to default after the trigger to not interfere with subsequent cleanup.
+END_BLOCKER_STRATEGY_CONTRACT */
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <fuzzer/FuzzedDataProvider.h>
+
+#include "/src/cjson/cJSON.h"
+
+// Custom malloc function for testing cJSON_InitHooks
+void *custom_malloc(size_t size) {
+    return malloc(size);
+}
+
+// Custom free function for testing cJSON_InitHooks
+void custom_free(void *ptr) {
+    free(ptr);
+}
+
+// Custom malloc function that fails on the second call
+static int malloc_counter = 0;
+void *selective_failing_malloc(size_t size) {
+    malloc_counter++;
+    // In cJSON_Duplicate_rec, the first allocation is for the new item.
+    // The second is for the item's string (the key). We make this one fail.
+    if (malloc_counter == 2) {
+        return NULL;
+    }
+    return malloc(size);
+}
+
+// Custom free function to pair with the selective failing malloc
+void custom_free_for_selective_malloc(void *ptr) {
+    free(ptr);
+}
+
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+  FuzzedDataProvider fdp(Data, Size);
+
+  // Consume data for various operations
+  std::string str1 = fdp.ConsumeRandomLengthString(100);
+  std::string str2 = fdp.ConsumeRandomLengthString(100);
+  const char *error_ptr = nullptr;
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_InitHooks had 0% coverage.
+   *           The line-level report confirmed that branches for both NULL and non-NULL
+   *           hooks, as well as setting individual allocation functions, were not covered.
+   * IMPLEMENTATION: The following code block exercises cJSON_InitHooks. It sometimes
+   *                 passes NULL to reset hooks to default. Other times, it passes a
+   *                 cJSON_Hooks struct with malloc_fn and free_fn either set or not,
+   *                 based on fuzzer input, to cover all branches.
+   */
+  if (fdp.ConsumeBool()) {
+    cJSON_InitHooks(NULL);
+  } else {
+    cJSON_Hooks hooks;
+    hooks.malloc_fn = fdp.ConsumeBool() ? custom_malloc : NULL;
+    hooks.free_fn = fdp.ConsumeBool() ? custom_free : NULL;
+    cJSON_InitHooks(&hooks);
+  }
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_malloc was uncovered.
+   *           This is a simple wrapper around the internal allocation function.
+   * IMPLEMENTATION: The following code calls cJSON_malloc and cJSON_free to
+   *                 exercise this wrapper.
+   */
+  void *mem = cJSON_malloc(128);
+  if (mem) {
+      cJSON_free(mem);
+  }
+
+  // Create a variety of JSON objects for testing
+  cJSON *json_num = cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>());
+  cJSON *json_str = cJSON_CreateString(fdp.ConsumeRandomLengthString(50).c_str());
+  cJSON *json_bool = cJSON_CreateBool(fdp.ConsumeBool());
+  cJSON *json_null = cJSON_CreateNull();
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_CreateTrue and
+   *           cJSON_CreateFalse were uncovered.
+   * IMPLEMENTATION: The following code calls these functions and stores the
+   *                 result. The objects are deleted at the end of the test.
+   */
+  cJSON *json_true = cJSON_CreateTrue();
+  cJSON *json_false = cJSON_CreateFalse();
+
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_ParseWithOpts had low
+   *           branch coverage. The line-level report confirmed the branch at line 1103,
+   *           in the `if (NULL == value)` check, was never taken. The report also
+   *           showed cJSON_GetErrorPtr was uncovered.
+   * IMPLEMENTATION: The following code block sometimes passes a NULL pointer as the first
+   *                 argument to cJSON_ParseWithOpts to exercise this uncovered error path.
+   *                 It also calls cJSON_GetErrorPtr after a parse failure to improve coverage.
+   */
+  cJSON *parsed_json1 = nullptr;
+  if (fdp.ConsumeBool()) {
+    parsed_json1 = cJSON_ParseWithOpts(NULL, &error_ptr, fdp.ConsumeBool());
+    cJSON_GetErrorPtr();
+  } else {
+    parsed_json1 = cJSON_ParseWithOpts(str1.c_str(), &error_ptr, fdp.ConsumeBool());
+    if (!parsed_json1) {
+      cJSON_GetErrorPtr();
+    }
+  }
+
+  cJSON *parsed_json2 = cJSON_Parse(str2.c_str());
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_ParseWithLength was
+   *           completely uncovered.
+   * IMPLEMENTATION: The following code calls cJSON_ParseWithLength with a substring
+   *                 of the fuzzer input data to exercise this function.
+   */
+  std::string str3 = fdp.ConsumeRandomLengthString(100);
+  cJSON *parsed_json3 = cJSON_ParseWithLength(str3.c_str(), str3.length());
+
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_Compare had 0% coverage.
+   *           The line-level report showed numerous uncovered paths, including NULL
+   *           checks, type comparisons, and comparisons of identical objects.
+   * IMPLEMENTATION: The following calls to cJSON_Compare are designed to cover these
+   *                 paths by comparing various object combinations:
+   *                 1. A parsed object against itself (for the identical object check).
+   *                 2. Two different parsed objects.
+   *                 3. A parsed object against NULL.
+   *                 4. Two objects of different, known types.
+   */
+  if (parsed_json1) {
+    cJSON_Compare(parsed_json1, parsed_json1, fdp.ConsumeBool());
+  }
+  cJSON_Compare(parsed_json1, parsed_json2, fdp.ConsumeBool());
+  cJSON_Compare(parsed_json1, NULL, fdp.ConsumeBool());
+  cJSON_Compare(json_num, json_str, fdp.ConsumeBool());
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_SetValuestring was
+   *           completely uncovered. The line-level report indicated missed branches for
+   *           object type checks, NULL value checks, and string length comparisons.
+   * IMPLEMENTATION: The following code calls cJSON_SetValuestring on a string object
+   *                 with a fuzzer-provided string to cover the main logic. It also
+   *                 calls it on a non-string object (json_num) to trigger the type
+   *                 check error path.
+   */
+  if (json_str) {
+    std::string new_val = fdp.ConsumeRandomLengthString(50);
+    cJSON_SetValuestring(json_str, new_val.c_str());
+  }
+  // Call on a non-string object to hit the type check branch
+  cJSON_SetValuestring(json_num, "should fail");
+
+  /*
+   * ANALYSIS: The line-level coverage for cJSON_SetValuestring showed several
+   *           uncovered branches: checking for a NULL object, a NULL value
+   *           argument, and checking if the object is a reference.
+   * IMPLEMENTATION: The following code calls cJSON_SetValuestring with a NULL
+   *                 object and a NULL value to cover the error-handling paths.
+   *                 It also creates a string reference and attempts to set its
+   *                 value to cover the reference check.
+   */
+  cJSON_SetValuestring(NULL, "test");
+  if (json_str) {
+      cJSON_SetValuestring(json_str, NULL);
+  }
+  cJSON *str_ref_for_set = cJSON_CreateStringReference("ref");
+  if (str_ref_for_set) {
+      cJSON_SetValuestring(str_ref_for_set, "new_val");
+      cJSON_Delete(str_ref_for_set);
+  }
+  
+  /*
+   * ANALYSIS: The line-level coverage report for cJSON_SetValuestring showed
+   *           the branch for when an object's existing valuestring is NULL
+   *           was not taken.
+   * IMPLEMENTATION: The following code creates a string object with a NULL
+   *                 value, and then attempts to set its value, exercising
+   *                 this specific error-handling path.
+   */
+  cJSON *str_with_null_val = cJSON_CreateString(NULL);
+  cJSON_SetValuestring(str_with_null_val, "new value");
+  cJSON_Delete(str_with_null_val);
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_SetNumberHelper was
+   *           completely uncovered. Analysis of cJSON_SetNumberValue revealed that
+   *           cJSON_SetNumberHelper is only called when cJSON_SetNumberValue is used
+   *           on a non-number cJSON object.
+   * IMPLEMENTATION: The following code calls cJSON_SetNumberValue on a string object
+   *                 to trigger the call to the uncovered cJSON_SetNumberHelper function.
+   */
+  if (json_str) {
+    cJSON_SetNumberValue(json_str, fdp.ConsumeFloatingPoint<double>());
+  }
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_PrintPreallocated was
+   *           uncovered. The line-level report showed the initial check for a negative
+   *           length or a NULL buffer was never executed. It also showed that the error
+   *           path in the internal 'ensure' function when a preallocated buffer is too
+   *           small was not covered.
+   * IMPLEMENTATION: The code below calls cJSON_PrintPreallocated with a valid buffer
+   *                 of random size (to sometimes trigger the too-small condition), a
+   *                 negative length, and a NULL buffer to ensure these specific
+   *                 error-handling branches are exercised.
+   */
+  if (parsed_json1) {
+    std::vector<char> buffer(fdp.ConsumeIntegralInRange<size_t>(1, 1024));
+    cJSON_PrintPreallocated(parsed_json1, buffer.data(), buffer.size(), fdp.ConsumeBool());
+    // Test error conditions
+    cJSON_PrintPreallocated(parsed_json1, buffer.data(), -1, fdp.ConsumeBool());
+    cJSON_PrintPreallocated(parsed_json1, NULL, buffer.size(), fdp.ConsumeBool());
+  }
+
+  /*
+   * ANALYSIS: The function-level coverage report showed cJSON_Version,
+   *           cJSON_GetStringValue, cJSON_GetNumberValue, and the entire family of
+   *           cJSON_Is<Type> functions were uncovered.
+   * IMPLEMENTATION: The following code block adds direct calls to these simple
+   *                 getter and type-checking functions to achieve coverage.
+   */
+  cJSON_Version();
+  if (json_str) {
+    cJSON_GetStringValue(json_str);
+    cJSON_IsString(json_str);
+    /*
+     * ANALYSIS: The line-level coverage report for cJSON_GetNumberValue showed
+     *           the branch for handling a non-number item was not taken.
+     * IMPLEMENTATION: The following code calls cJSON_GetNumberValue with a
+     *                 string item to cover this error-handling path.
+     */
+    cJSON_GetNumberValue(json_str);
+  }
+  if (json_num) {
+    cJSON_GetNumberValue(json_num);
+    cJSON_IsNumber(json_num);
+    /*
+     * ANALYSIS: The line-level coverage report for cJSON_GetStringValue showed
+     *           the branch for handling a non-string item was not taken.
+     * IMPLEMENTATION: The following code calls cJSON_GetStringValue with a
+     *                 number item to cover this error-handling path.
+     */
+    cJSON_GetStringValue(json_num);
+  }
+  if (json_bool) {
+    cJSON_IsBool(json_bool);
+    cJSON_IsTrue(json_bool);
+    cJSON_IsFalse(json_bool);
+  }
+  if (json_null) {
+    cJSON_IsNull(json_null);
+  }
+  /*
+   * ANALYSIS: The line-level coverage report for all cJSON_Is<Type> functions
+   *           showed that the initial `if (item == NULL)` check was never taken.
+   * IMPLEMENTATION: The following code calls all cJSON_Is<Type> functions with
+   *                 a NULL argument to cover this common error-handling path.
+   */
+  cJSON_IsInvalid(NULL);
+  cJSON_IsFalse(NULL);
+  cJSON_IsTrue(NULL);
+  cJSON_IsBool(NULL);
+  cJSON_IsNull(NULL);
+  cJSON_IsNumber(NULL);
+  cJSON_IsString(NULL);
+  cJSON_IsArray(NULL);
+  cJSON_IsObject(NULL);
+  cJSON_IsRaw(NULL);
+
+
+  cJSON *root_obj = cJSON_CreateObject();
+  cJSON *another_obj = cJSON_CreateObject();
+  cJSON *root_arr = cJSON_CreateArray();
+  cJSON *item_to_ref = cJSON_CreateString("referenced string");
+
+  if (root_obj) {
+    cJSON_AddItemToObject(root_obj, "number", cJSON_CreateNumber(fdp.ConsumeIntegral<int>()));
+    cJSON_GetObjectItem(root_obj, "number");
+
+    /*
+     * ANALYSIS: The coverage report showed 0% coverage for cJSON_HasObjectItem,
+     *           cJSON_GetObjectItemCaseSensitive, and cJSON_ReplaceItemInObject.
+     * IMPLEMENTATION: This block adds an item, checks for it using cJSON_HasObjectItem
+     *                 and cJSON_GetObjectItemCaseSensitive, and then replaces it with
+     *                 cJSON_ReplaceItemInObject to exercise these uncovered functions.
+     */
+    const char *key_to_replace = "key_to_replace";
+    cJSON_AddItemToObject(root_obj, key_to_replace, cJSON_CreateString("original_value"));
+    cJSON_HasObjectItem(root_obj, key_to_replace);
+    /*
+     * ANALYSIS: The line-level coverage report for cJSON_HasObjectItem showed
+     *           the 'false' branch (item not found) was never taken.
+     * IMPLEMENTATION: The following code calls cJSON_HasObjectItem with a
+     *                 non-existent key to cover this path.
+     */
+    cJSON_HasObjectItem(root_obj, "non_existent_key");
+    cJSON_GetObjectItemCaseSensitive(root_obj, key_to_replace);
+    /*
+     * ANALYSIS: The line-level coverage report for case_insensitive_strcmp showed
+     *           the branch for handling NULL inputs was not taken. This function is
+     *           called by cJSON_GetObjectItemCaseSensitive.
+     * IMPLEMENTATION: The following code calls cJSON_GetObjectItemCaseSensitive
+     *                 with a NULL key to cover this error-handling path.
+     */
+    cJSON_GetObjectItemCaseSensitive(root_obj, NULL);
+    cJSON_ReplaceItemInObject(root_obj, key_to_replace, cJSON_CreateString("new_value"));
+
+    /*
+     * ANALYSIS: The coverage report showed 0% coverage for cJSON_AddItemToObjectCS
+     *           and the cJSON_Add<Type>ToObject family of functions (e.g. cJSON_AddNullToObject).
+     * IMPLEMENTATION: This block adds items using cJSON_AddNullToObject and
+     *                 cJSON_AddItemToObjectCS to cover these previously uncovered functions.
+     */
+    cJSON_AddNullToObject(root_obj, "null_item_cs");
+    cJSON_AddItemToObjectCS(root_obj, "cs_item", cJSON_CreateString("cs_value"));
+
+    /*
+     * ANALYSIS: The function-level coverage report showed the cJSON_Add<Type>ToObject
+     *           family of functions (e.g., cJSON_AddTrueToObject) were uncovered.
+     * IMPLEMENTATION: This block adds items using these helper functions to cover them.
+     */
+    cJSON_AddTrueToObject(root_obj, "true_item");
+    cJSON_AddFalseToObject(root_obj, "false_item");
+    cJSON_AddBoolToObject(root_obj, "bool_item", fdp.ConsumeBool());
+    cJSON_AddNumberToObject(root_obj, "number_item", fdp.ConsumeIntegral<int>());
+    cJSON_AddStringToObject(root_obj, "string_item", "value");
+
+    /*
+     * ANALYSIS: The coverage report showed 0% coverage for cJSON_CreateRaw,
+     *           cJSON_IsRaw, and by extension cJSON_AddRawToObject.
+     * IMPLEMENTATION: This block creates a raw JSON item, adds it to the object,
+     *                 and checks its type to cover these functions.
+     */
+    cJSON *raw_item = cJSON_CreateRaw("{\"raw\": true}");
+    if (raw_item) {
+        cJSON_IsRaw(raw_item);
+        cJSON_AddItemToObject(root_obj, "raw_item", raw_item);
+    }
+
+    /*
+     * ANALYSIS: The coverage report showed cJSON_AddItemReferenceToObject was uncovered.
+     *           This function does not take ownership of the added item.
+     * IMPLEMENTATION: This block adds a pre-allocated item (item_to_ref) to the
+     *                 object by reference. To prevent memory leaks, the referenced item
+     *                 is manually deleted at the end of the test.
+     */
+    cJSON_AddItemReferenceToObject(root_obj, "ref_item", item_to_ref);
+    /*
+     * ANALYSIS: The line-level coverage report for cJSON_AddItemReferenceToObject showed
+     *           the branch for handling a NULL object or string was not taken.
+     * IMPLEMENTATION: The following code calls cJSON_AddItemReferenceToObject with a NULL
+     *                 object and a NULL string to cover these error-handling paths.
+     */
+    cJSON_AddItemReferenceToObject(NULL, "ref_item", item_to_ref);
+    cJSON_AddItemReferenceToObject(root_obj, NULL, item_to_ref);
+
+    /*
+     * ANALYSIS: The coverage report showed 0% coverage for
+     *           cJSON_ReplaceItemInObjectCaseSensitive and cJSON_DeleteItemFromObjectCaseSensitive.
+     * IMPLEMENTATION: This block adds items and then uses the case-sensitive versions
+     *                 of Replace and Delete to exercise these uncovered functions.
+     */
+    const char *cs_replace_key = "CS_REPLACE";
+    cJSON_AddItemToObject(root_obj, cs_replace_key, cJSON_CreateString("original_cs"));
+    cJSON_ReplaceItemInObjectCaseSensitive(root_obj, cs_replace_key, cJSON_CreateString("replaced_cs"));
+
+    const char *cs_delete_key = "CS_DELETE";
+    cJSON_AddItemToObject(root_obj, cs_delete_key, cJSON_CreateString("to_delete_cs"));
+    cJSON_DeleteItemFromObjectCaseSensitive(root_obj, cs_delete_key);
+    /*
+     * ANALYSIS: The line-level coverage report for cJSON_DetachItemFromObject and
+     *           cJSON_DetachItemFromObjectCaseSensitive showed that the path for
+     *           detaching a non-existent item was not taken.
+     * IMPLEMENTATION: The following code calls these functions with a non-existent
+     *           key, which returns NULL and covers this error path.
+     */
+    cJSON_DetachItemFromObject(root_obj, "non_existent_key");
+    cJSON_DetachItemFromObjectCaseSensitive(root_obj, "non_existent_key_cs");
+
+
+    /*
+     * ANALYSIS: The function-level coverage report showed cJSON_AddObjectToObject,
+     *           cJSON_AddArrayToObject, and cJSON_AddRawToObject were uncovered (0% coverage).
+     * IMPLEMENTATION: The following code calls these helper functions to create and
+     *                 add items to an object, covering these functions. The created
+     *                 items are managed by root_obj and freed when it is deleted.
+     */
+    cJSON_AddObjectToObject(root_obj, "new_object");
+    cJSON_AddArrayToObject(root_obj, "new_array");
+    cJSON_AddRawToObject(root_obj, "new_raw", "{\"key\":\"value\"}");
+    /*
+     * ANALYSIS: The line-level coverage report for the cJSON_Add...ToObject family of
+     *           functions showed that the failure path of the internal add_item_to_object
+     *           call was not taken. This happens if the target 'object' is not an object.
+     * IMPLEMENTATION: The following code calls cJSON_AddNullToObject on a non-object
+     *                 item (json_str) to cover this error-handling path.
+     */
+    if (json_str) {
+        cJSON_AddNullToObject(json_str, "should_fail");
+    }
+
+
+    cJSON_DeleteItemFromObject(root_obj, "number"); // Test deletion
+    
+    if (another_obj) {
+        /*
+         * ANALYSIS: The line-level coverage report for add_item_to_object showed
+         *           the branch for handling an item with a const string key was
+         *           not taken. This occurs when an item added with cJSON_AddItemToObjectCS
+         *           (which sets the cJSON_StringIsConst flag) is detached and then
+         *           added to a different object.
+         * IMPLEMENTATION: The following code adds an item with a case-sensitive
+         *                 (and therefore const) key, detaches it, and adds it to
+         *                 another object, forcing the desired branch to be taken.
+         */
+        cJSON_AddItemToObjectCS(root_obj, "item_to_move_cs", cJSON_CreateString("move_me_cs"));
+        cJSON *item_to_move = cJSON_DetachItemFromObjectCaseSensitive(root_obj, "item_to_move_cs");
+        if (item_to_move) {
+            cJSON_AddItemToObject(another_obj, "new_home_cs", item_to_move);
+        }
+    }
+
+    /*
+     * ANALYSIS: The line-level coverage report for cJSON_ReplaceItemViaPointer showed
+     *           several uncovered branches: handling NULL inputs, and replacing an item
+     *           that is not the last item in the list (i.e., `replacement->next != NULL`).
+     * IMPLEMENTATION: The following code adds two items to an object and then replaces
+     *                 the first one, covering the case where the replaced item is not
+     *                 the tail. It also calls ReplaceItemInObject with NULL arguments to
+     *                 cover the error-handling paths.
+     */
+    cJSON *replace_test_obj = cJSON_CreateObject();
+    if (replace_test_obj) {
+        cJSON_AddItemToObject(replace_test_obj, "key1", cJSON_CreateString("value1"));
+        cJSON_AddItemToObject(replace_test_obj, "key2", cJSON_CreateString("value2"));
+        cJSON_ReplaceItemInObject(replace_test_obj, "key1", cJSON_CreateString("new_value1"));
+        cJSON_Delete(replace_test_obj);
+    }
+    cJSON *item1 = cJSON_CreateString("value");
+    if (!cJSON_ReplaceItemInObject(root_obj, "non_existent", item1)) {
+        cJSON_Delete(item1);
+    }
+
+    /*
+     * BLOCKER: cJSON_Duplicate_rec
+     * PREDICATE: !newitem->string
+     * STRATEGY: To make `newitem->string` NULL, the call to `cJSON_strdup` must fail.
+     *           This is achieved by installing a custom malloc function that fails on
+     *           the second allocation. In `cJSON_Duplicate_rec`, the first allocation
+     *           is for the new cJSON item, and the second is for its `string` member.
+     *           By making the second allocation fail, we set `newitem->string` to NULL
+     *           and trigger the desired branch.
+     */
+    cJSON *obj_for_dup = cJSON_CreateObject();
+    if (obj_for_dup) {
+        // Add an item with a key, so item->string is non-NULL
+        cJSON_AddItemToObject(obj_for_dup, "key_to_fail_dup", cJSON_CreateNull());
+        cJSON *item_to_dup = cJSON_GetObjectItem(obj_for_dup, "key_to_fail_dup");
+        if (item_to_dup) {
+            cJSON_Hooks selective_hooks;
+            // Reset counter before use
+            malloc_counter = 0; 
+            selective_hooks.malloc_fn = selective_failing_malloc;
+            selective_hooks.free_fn = custom_free_for_selective_malloc;
+            cJSON_InitHooks(&selective_hooks);
+
+            // This call will trigger the blocker
+            cJSON *dup_item = cJSON_Duplicate(item_to_dup, true);
+            if (dup_item) {
+                cJSON_Delete(dup_item);
+            }
+
+            // Restore original hooks for cleanup
+            cJSON_InitHooks(NULL);
+        }
+        cJSON_Delete(obj_for_dup);
+    }
+  }
+
+
+  // Cleanup
+  if (parsed_json1) cJSON_Delete(parsed_json1);
+  if (parsed_json2) cJSON_Delete(parsed_json2);
+  if (parsed_json3) cJSON_Delete(parsed_json3);
+  cJSON_Delete(json_num);
+  cJSON_Delete(json_str);
+  cJSON_Delete(json_bool);
+  cJSON_Delete(json_null);
+  cJSON_Delete(json_true);
+  cJSON_Delete(json_false);
+  cJSON_Delete(root_obj);
+  cJSON_Delete(another_obj);
+  cJSON_Delete(root_arr);
+  cJSON_Delete(item_to_ref);
+
+  return 0;
+}

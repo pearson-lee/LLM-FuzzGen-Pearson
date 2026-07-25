@@ -1,0 +1,242 @@
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/cjson/cJSON.h"
+
+// Forward declaration for recursive generation
+cJSON* generate_random_json(FuzzedDataProvider& fdp, int depth);
+
+// Custom memory allocation hooks for testing allocation failures
+static bool out_of_memory = false;
+
+static void* failing_malloc(size_t size) {
+    if (out_of_memory) {
+        return NULL;
+    }
+    return malloc(size);
+}
+
+static void failing_free(void* ptr) {
+    free(ptr);
+}
+
+// Helper to generate a random cJSON object
+cJSON* generate_random_json(FuzzedDataProvider& fdp, int depth) {
+    // To prevent deep recursion
+    if (depth > 5) {
+        return cJSON_CreateNull();
+    }
+
+    // Select a random type for the JSON item
+    uint8_t type = fdp.ConsumeIntegralInRange<uint8_t>(0, 6);
+    switch (type) {
+        case 0:
+            /*
+             * ANALYSIS: The function-level coverage report showed low coverage for string printing functions.
+             * IMPLEMENTATION: This part of the fuzzer generates strings of various lengths and content to exercise the string printing logic, including escape sequences.
+             */
+            return cJSON_CreateString(fdp.ConsumeRandomLengthString(100).c_str());
+        case 1:
+            /*
+             * ANALYSIS: The function-level coverage report showed print_number has untested branches related to float precision.
+             * IMPLEMENTATION: This part of the fuzzer generates various double values to test the precision-related logic in print_number.
+             */
+            return cJSON_CreateNumber(fdp.ConsumeFloatingPoint<double>());
+        case 2:
+            return cJSON_CreateBool(fdp.ConsumeBool());
+        case 3: {
+            cJSON* arr = cJSON_CreateArray();
+            int num_items = fdp.ConsumeIntegralInRange<int>(0, 5);
+            for (int i = 0; i < num_items; ++i) {
+                cJSON_AddItemToArray(arr, generate_random_json(fdp, depth + 1));
+            }
+            return arr;
+        }
+        case 4: {
+            cJSON* obj = cJSON_CreateObject();
+            int num_items = fdp.ConsumeIntegralInRange<int>(0, 5);
+            for (int i = 0; i < num_items; ++i) {
+                cJSON_AddItemToObject(obj, fdp.ConsumeRandomLengthString(20).c_str(), generate_random_json(fdp, depth + 1));
+            }
+            return obj;
+        }
+        case 5:
+            return cJSON_CreateRaw(fdp.ConsumeRandomLengthString(100).c_str());
+        case 6:
+        default:
+            return cJSON_CreateNull();
+    }
+}
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    FuzzedDataProvider fdp(data, size);
+
+    // Initialize custom memory hooks
+    cJSON_Hooks hooks;
+    hooks.malloc_fn = failing_malloc;
+    hooks.free_fn = failing_free;
+    cJSON_InitHooks(&hooks);
+
+    /*
+     * ANALYSIS: The coverage report for 'ensure' and 'print' functions showed that many error-handling paths related to memory allocation failures were not covered.
+     * IMPLEMENTATION: The 'out_of_memory' flag is controlled by the fuzzer. When set, the custom malloc will fail, allowing the fuzzer to exercise the allocation failure handling logic in cJSON.
+     */
+    out_of_memory = fdp.ConsumeBool();
+
+    cJSON *root = generate_random_json(fdp, 0);
+
+    if (root) {
+        // Exercise printing functions
+        char *printed_unformatted = cJSON_PrintUnformatted(root);
+        if (printed_unformatted) {
+            free(printed_unformatted);
+        }
+
+        char *printed_buffered = cJSON_PrintBuffered(root, fdp.ConsumeIntegralInRange<int>(0, 1024), fdp.ConsumeBool());
+        if (printed_buffered) {
+            free(printed_buffered);
+        }
+
+        /*
+         * ANALYSIS: The function-level coverage report showed that cJSON_Print was not being called.
+         * IMPLEMENTATION: This block calls cJSON_Print to exercise the formatted printing logic.
+         */
+        char *printed_formatted = cJSON_Print(root);
+        if (printed_formatted) {
+            /*
+             * ANALYSIS: The function-level coverage report showed that cJSON_Minify was completely uncovered.
+             * IMPLEMENTATION: This block calls cJSON_Minify on a freshly printed string to exercise the minification logic.
+             * The string from cJSON_Print is malloc'd and thus writable, which is required by cJSON_Minify.
+             */
+            cJSON_Minify(printed_formatted);
+            free(printed_formatted);
+        }
+
+        /*
+         * ANALYSIS: The coverage report for 'create_reference' showed that the NULL check for the 'item' parameter was not covered.
+         * IMPLEMENTATION: This block sometimes calls cJSON_CreateArrayReference with a NULL item to exercise this specific error-handling path.
+         */
+        if (fdp.ConsumeBool()) {
+            cJSON *ref = cJSON_CreateArrayReference(root);
+            if (ref) {
+                cJSON_Delete(ref);
+            }
+        } else {
+            cJSON *ref = cJSON_CreateArrayReference(NULL);
+            if (ref) {
+                cJSON_Delete(ref);
+            }
+        }
+
+        /*
+         * ANALYSIS: The function 'cJSON_Duplicate_rec' had low coverage.
+         * IMPLEMENTATION: Calling cJSON_Duplicate will recursively call cJSON_Duplicate_rec, improving its coverage.
+         */
+        cJSON *duplicate = cJSON_Duplicate(root, fdp.ConsumeBool());
+        if (duplicate) {
+            /*
+             * ANALYSIS: The function cJSON_Compare had some uncovered branches.
+             * IMPLEMENTATION: Comparing the original and duplicated JSON objects will exercise the logic in cJSON_Compare.
+             */
+            cJSON_Compare(root, duplicate, fdp.ConsumeBool());
+            cJSON_Delete(duplicate);
+        }
+        
+        cJSON_Delete(root);
+    }
+    
+    /*
+     * ANALYSIS: The coverage report for cJSON_ReplaceItemViaPointer showed the 'replacement == NULL' branch was never taken.
+     * IMPLEMENTATION: This block creates an object, gets a pointer to an item within it, and calls cJSON_ReplaceItemViaPointer with a NULL replacement to cover this error path.
+     */
+    cJSON *parent = cJSON_CreateObject();
+    if (parent) {
+        cJSON_AddItemToObject(parent, "child", cJSON_CreateNumber(42));
+        cJSON *child = cJSON_GetObjectItem(parent, "child");
+        if (child) {
+            cJSON_ReplaceItemViaPointer(parent, child, NULL);
+        }
+        cJSON_Delete(parent);
+    }
+
+    /*
+     * ANALYSIS: The function-level coverage report showed that cJSON_Minify's NULL check was not covered.
+     * IMPLEMENTATION: This call to cJSON_Minify with a NULL argument specifically targets the initial NULL check in the function.
+     */
+    cJSON_Minify(NULL);
+
+    /*
+     * ANALYSIS: The line coverage report for 'skip_utf8_bom' showed that the branch checking for a BOM was not always taken.
+     * IMPLEMENTATION: This block constructs a string with a UTF-8 BOM and calls cJSON_Parse to exercise the BOM skipping logic.
+     */
+    const char *bom_and_json = "\xEF\xBB\xBF{\"key\":\"value\"}";
+    cJSON *parsed_with_bom = cJSON_Parse(bom_and_json);
+    if (parsed_with_bom) {
+        cJSON_Delete(parsed_with_bom);
+    }
+
+    /*
+     * ANALYSIS: The function-level coverage report showed low coverage for cJSON_Create<Type>Array functions. The line-level report indicated that error handling for invalid arguments (NULL pointer, negative count) was not covered.
+     * IMPLEMENTATION: This block calls the array creation functions with both valid and invalid arguments to improve coverage.
+    */
+    if (fdp.ConsumeBool()) {
+        // Test with invalid arguments
+        cJSON_Delete(cJSON_CreateIntArray(NULL, 10));
+        cJSON_Delete(cJSON_CreateFloatArray(NULL, 10));
+        cJSON_Delete(cJSON_CreateDoubleArray(NULL, 10));
+        cJSON_Delete(cJSON_CreateStringArray(NULL, 10));
+
+        int numbers[] = {1, 2, 3};
+        cJSON_Delete(cJSON_CreateIntArray(numbers, -1));
+    } else {
+        // Test with valid arguments
+        size_t count = fdp.ConsumeIntegralInRange<size_t>(0, 10);
+        std::vector<int> ints;
+        for (size_t i = 0; i < count; ++i) {
+            ints.push_back(fdp.ConsumeIntegral<int>());
+        }
+        cJSON *int_array = cJSON_CreateIntArray(ints.data(), ints.size());
+        if (int_array) cJSON_Delete(int_array);
+
+        count = fdp.ConsumeIntegralInRange<size_t>(0, 10);
+        std::vector<float> floats;
+        for (size_t i = 0; i < count; ++i) {
+            floats.push_back(fdp.ConsumeFloatingPoint<float>());
+        }
+        cJSON *float_array = cJSON_CreateFloatArray(floats.data(), floats.size());
+        if (float_array) cJSON_Delete(float_array);
+
+        count = fdp.ConsumeIntegralInRange<size_t>(0, 10);
+        std::vector<double> doubles;
+        for (size_t i = 0; i < count; ++i) {
+            doubles.push_back(fdp.ConsumeFloatingPoint<double>());
+        }
+        cJSON *double_array = cJSON_CreateDoubleArray(doubles.data(), doubles.size());
+        if (double_array) cJSON_Delete(double_array);
+
+        std::vector<std::string> strings = {fdp.ConsumeRandomLengthString(10), fdp.ConsumeRandomLengthString(10)};
+        std::vector<const char*> c_strings;
+        for(const auto& s : strings) {
+            c_strings.push_back(s.c_str());
+        }
+        cJSON *string_array = cJSON_CreateStringArray(c_strings.data(), c_strings.size());
+        if (string_array) cJSON_Delete(string_array);
+    }
+    
+    /*
+     * ANALYSIS: The line coverage report for 'create_reference' showed that the 'item == NULL' check was never executed. This function is called by 'cJSON_InsertItemInArray'.
+     * IMPLEMENTATION: This block calls cJSON_InsertItemInArray with a NULL item to trigger the uncovered NULL check in 'create_reference'.
+     */
+    cJSON *array_for_null_insert = cJSON_CreateArray();
+    if (array_for_null_insert) {
+        cJSON_InsertItemInArray(array_for_null_insert, 0, NULL);
+        cJSON_Delete(array_for_null_insert);
+    }
+
+    // Reset hooks to default for subsequent runs
+    cJSON_InitHooks(NULL);
+
+    return 0;
+}
