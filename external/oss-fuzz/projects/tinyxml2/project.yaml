@@ -9,7 +9,7 @@ sanitizers:
   - memory
   - undefined
 main_repo: 'https://github.com/leethomason/tinyxml2'
-commit_hash: '57ec94127bda7979282315b7d4b0059eeb6f3b5d'
+commit_hash: '8224e427b655b83dae5e2298f1e6919523a78737'
 fuzzing_engines:
   - afl
   - honggfuzz

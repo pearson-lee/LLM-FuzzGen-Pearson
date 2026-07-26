@@ -17,8 +17,14 @@
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y cmake make
 
-RUN git clone --depth 1 https://github.com/marzer/tomlplusplus.git tomlplusplus \
-        && cp tomlplusplus/fuzzing/build.sh $SRC/
+ARG TOMLPLUSPLUS_COMMIT=1e8829b793b66ad17011732a146b8077d379b011
+RUN git init tomlplusplus && \
+    cd tomlplusplus && \
+    git remote add origin https://github.com/marzer/tomlplusplus.git && \
+    git fetch --depth 1 origin "$TOMLPLUSPLUS_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$TOMLPLUSPLUS_COMMIT" && \
+    cp fuzzing/build.sh $SRC/
 WORKDIR tomlplusplus
 
 COPY build.sh *.cpp *.dict *.options $SRC/
