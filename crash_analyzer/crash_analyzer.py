@@ -76,21 +76,46 @@ class CrashAnalyzer:
         match = self.fuzzer_base_name_pattern.match(crash_path.stem)
         if not match:
             logger.error(f"Could not extract fuzzer base name from '{crash_path.name}'.")
-            return
+            return None
 
         fuzzer_binary_name = match.group(1)
+        return self.analyze_crash(project_name, fuzzer_binary_name, crash_path)
+
+    def analyze_crash(
+        self,
+        project_name: str,
+        fuzzer_binary_name: str,
+        crash_path: Path,
+    ) -> Path | None:
+        """Analyze one explicit project/fuzzer/seed tuple and return its artifact directory."""
+        crash_path = Path(crash_path)
+        logger.info(
+            "Processing crash seed %s with %s/%s",
+            crash_path.name,
+            project_name,
+            fuzzer_binary_name,
+        )
+        if not crash_path.is_file():
+            logger.error("Crash input does not exist or is not a file: %s", crash_path)
+            return None
+
+        fuzzer_binary = self.oss_fuzz.build_out_dir / project_name / fuzzer_binary_name
+        if not fuzzer_binary.is_file():
+            logger.error("Fuzzer binary does not exist: %s", fuzzer_binary)
+            return None
+
         source_file = self._find_source_file(project_name, fuzzer_binary_name)
 
         if not source_file:
             logger.error(f"Could not find source file for fuzzer '{fuzzer_binary_name}'.")
-            return
+            return None
 
         try:
             crash_input_bytes = crash_path.read_bytes()
             fuzzer_source_code = source_file.read_text()
         except IOError as e:
             logger.error(f"Error reading crash files: {e}")
-            return
+            return None
 
         # Reproduce the crash to get a clean stack trace
         stack_trace = self.oss_fuzz.reproduce_crash(project_name, fuzzer_binary_name, crash_path)
@@ -109,10 +134,10 @@ class CrashAnalyzer:
 
         if not analysis:
             logger.error(f"LLM analysis failed for '{crash_path.name}'.")
-            return
+            return None
 
         # Save the artifacts
-        self._save_artifacts(
+        return self._save_artifacts(
             project_name=project_name,
             fuzzer_binary_name=fuzzer_binary_name,
             original_source_path=source_file,
@@ -764,7 +789,7 @@ class CrashAnalyzer:
         analysis: dict[str, Any],
         stack_trace: str,
         triage: CrashHeuristicTriage,
-    ):
+    ) -> Path:
         """
         Saves the analysis report and copies the original source and crash input.
         """
@@ -808,3 +833,4 @@ class CrashAnalyzer:
         shutil.copy(crash_input_path, artifact_dir / crash_input_path.name)
 
         logger.info(f"Artifacts saved to: {artifact_dir}")
+        return artifact_dir

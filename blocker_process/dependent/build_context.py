@@ -249,6 +249,39 @@ def _discover_include_dirs(
     return include_dirs
 
 
+def discover_project_generated_header_dirs(project_name: str | None) -> list[Path]:
+    if not project_name:
+        return []
+
+    project_out = OSS_FUZZ_OUT / project_name
+    work_dir = project_out / "work"
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def add(path: Path) -> None:
+        resolved = _safe_resolve(path)
+        if not resolved.is_dir() or resolved in seen:
+            return
+        seen.add(resolved)
+        candidates.append(resolved)
+
+    # Several OSS-Fuzz projects generate public config headers outside the source
+    # tree. libvpx's vpx_config.h is the main case; old generated-harness contexts
+    # can miss this path when their stored source_root cannot be resolved anymore.
+    add(project_out / "work" / "build")
+    add(project_out / "symcc_native" / "build_headers")
+
+    if work_dir.is_dir():
+        for subdir in sorted(work_dir.iterdir()):
+            resolved = _safe_resolve(subdir)
+            if resolved.name == "ccache":
+                continue
+            if resolved.is_dir() and any(resolved.glob("*.h")):
+                add(resolved)
+
+    return candidates
+
+
 @dataclass(slots=True)
 class BuildContext:
     project_name: str | None
@@ -387,15 +420,10 @@ def reconstruct_build_context(
         related_paths=[path for path in [branch_path, target_path, harness_path, header_path, *required, *optional] if path],
     )
 
-    if project_name:
-        work_dir = OSS_FUZZ_OUT / project_name / "work"
-        if work_dir.is_dir():
-            for subdir in sorted(work_dir.iterdir()):
-                resolved = _safe_resolve(subdir)
-                if resolved.is_dir() and resolved.name != "ccache" and any(resolved.glob("*.h")):
-                    if resolved not in include_dirs:
-                        include_dirs.append(resolved)
-                        diagnostics.append(f"Added build-generated headers dir: {resolved}")
+    for generated_include_dir in discover_project_generated_header_dirs(project_name):
+        if generated_include_dir not in include_dirs:
+            include_dirs.append(generated_include_dir)
+            diagnostics.append(f"Added build-generated headers dir: {generated_include_dir}")
 
     diagnostics.append(f"Resolved {len(include_dirs)} include directorie(s).")
 

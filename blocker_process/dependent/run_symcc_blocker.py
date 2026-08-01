@@ -24,7 +24,11 @@ DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from blocker_process.dependent.build_context import BuildContext, reconstruct_build_context
+from blocker_process.dependent.build_context import (
+    BuildContext,
+    discover_project_generated_header_dirs,
+    reconstruct_build_context,
+)
 from external.oss_fuzz import OSSFuzz
 
 C_EXTENSIONS = {".c"}
@@ -203,6 +207,12 @@ def _merge_shell_flags(existing: str, additional: str) -> str:
 
 
 def merge_build_context_overrides(build_context: BuildContext, args: argparse.Namespace) -> BuildContext:
+    for generated_include_dir in discover_project_generated_header_dirs(getattr(args, "project_name", None)):
+        resolved = str(generated_include_dir)
+        if resolved not in build_context.include_dirs:
+            build_context.include_dirs.append(resolved)
+            build_context.diagnostics.append(f"Added build-generated headers dir: {resolved}")
+
     for include_dir in getattr(args, "include_dir", []) or []:
         resolved = str(Path(include_dir).resolve())
         if resolved not in build_context.include_dirs:
@@ -792,13 +802,18 @@ def main() -> int:
             failure_kind = "missing_link_library"
         elif "undefined reference to" in stdout_lower:
             failure_kind = "missing_link_symbol"
-        elif "link failed" in stdout_lower:
-            failure_kind = "build_failure"
         elif "file not found" in stdout_lower:
             failure_kind = "build_context_missing_header"
         elif "no such file or directory" in stdout_lower and "fatal error:" in stdout_lower:
             failure_kind = "build_context_missing_header"
-        elif "compile failed" in stdout_lower:
+        elif "link failed" in stdout_lower:
+            failure_kind = "build_failure"
+        elif (
+            "compile failed" in stdout_lower
+            or "compilation failed" in stdout_lower
+            or "error: use of undeclared identifier" in stdout_lower
+            or "undeclared" in stdout_lower
+        ):
             failure_kind = "build_failure"
         elif "no seed reached the blocked-side line" in stdout_lower:
             failure_kind = "coverage_no_blocked_side"

@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-08-01T13:49:37.726681+00:00",
+  "finished_at": "2026-08-01T13:51:40.712027+00:00",
+  "llm_backend": "vertexai",
+  "model": "gemini-2.5-pro",
+  "temperature": 0.1,
+  "artifact_kinds": [
+    "crash"
+  ],
+  "dry_run": false,
+  "output_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260801_214937_crash_analysis",
+  "totals": {
+    "discovered": 7,
+    "selected": 1,
+    "analyzed": 1,
+    "tp": 1,
+    "fp": 0,
+    "tbd": 0,
+    "pending": 0,
+    "skipped": 6,
+    "errors": 0
+  },
+  "experiments": [
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "discovered": 6,
+      "selected": 0,
+      "analyzed": 0,
+      "tp": 0,
+      "fp": 0,
+      "tbd": 0,
+      "pending": 0,
+      "skipped": 6,
+      "errors": 0
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260724_025850_cjson",
+      "discovered": 0,
+      "selected": 0,
+      "analyzed": 0,
+      "tp": 0,
+      "fp": 0,
+      "tbd": 0,
+      "pending": 0,
+      "skipped": 0,
+      "errors": 0
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260726_231453_libvpx",
+      "discovered": 1,
+      "selected": 1,
+      "analyzed": 1,
+      "tp": 1,
+      "fp": 0,
+      "tbd": 0,
+      "pending": 0,
+      "skipped": 0,
+      "errors": 0
+    }
+  ],
+  "results": [
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "project": "lcms",
+      "fuzzer": "llm_fuzzgen0625124224",
+      "artifact_name": "llm_fuzzgen0625124224_slow-unit-165d83e7d0c24627e290be745089e2a1102d6505",
+      "artifact_kind": "slow-unit",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625124224/llm_fuzzgen0625124224_slow-unit-165d83e7d0c24627e290be745089e2a1102d6505.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625124224/llm_fuzzgen0625124224_slow-unit-165d83e7d0c24627e290be745089e2a1102d6505",
+      "status": "SKIPPED",
+      "finding": "",
+      "confidence": null,
+      "artifact_dir": "",
+      "error": "artifact kind 'slow-unit' was not selected"
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "project": "lcms",
+      "fuzzer": "llm_fuzzgen0625124224",
+      "artifact_name": "llm_fuzzgen0625124224_slow-unit-2217945ce86c6bfc2a65f906a6c750d3609b786b",
+      "artifact_kind": "slow-unit",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625124224/llm_fuzzgen0625124224_slow-unit-2217945ce86c6bfc2a65f906a6c750d3609b786b.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625124224/llm_fuzzgen0625124224_slow-unit-2217945ce86c6bfc2a65f906a6c750d3609b786b",
+      "status": "SKIPPED",
+      "finding": "",
+      "confidence": null,
+      "artifact_dir": "",
+      "error": "artifact kind 'slow-unit' was not selected"
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "project": "lcms",
+      "fuzzer": "llm_fuzzgen0625125553",
+      "artifact_name": "llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813",
+      "artifact_kind": "slow-unit",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625125553/llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625125553/llm_fuzzgen0625125553_slow-unit-c58b6cd52ef932fe45321ab14800019465d92813",
+      "status": "SKIPPED",
+      "finding": "",
+      "confidence": null,
+      "artifact_dir": "",
+      "error": "artifact kind 'slow-unit' was not selected"
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "project": "lcms",
+      "fuzzer": "llm_fuzzgen0625125553",
+      "artifact_name": "llm_fuzzgen0625125553_slow-unit-dd1bd1e15f82518a90e512b777c9efaf08b081ec",
+      "artifact_kind": "slow-unit",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625125553/llm_fuzzgen0625125553_slow-unit-dd1bd1e15f82518a90e512b777c9efaf08b081ec.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625125553/llm_fuzzgen0625125553_slow-unit-dd1bd1e15f82518a90e512b777c9efaf08b081ec",
+      "status": "SKIPPED",
+      "finding": "",
+      "confidence": null,
+      "artifact_dir": "",
+      "error": "artifact kind 'slow-unit' was not selected"
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "project": "lcms",
+      "fuzzer": "llm_fuzzgen0625130830",
+      "artifact_name": "llm_fuzzgen0625130830_slow-unit-8f95738cf37795e0d67aae9704166a3d1a442b4b",
+      "artifact_kind": "slow-unit",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625130830/llm_fuzzgen0625130830_slow-unit-8f95738cf37795e0d67aae9704166a3d1a442b4b.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen0625130830/llm_fuzzgen0625130830_slow-unit-8f95738cf37795e0d67aae9704166a3d1a442b4b",
+      "status": "SKIPPED",
+      "finding": "",
+      "confidence": null,
+      "artifact_dir": "",
+      "error": "artifact kind 'slow-unit' was not selected"
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus",
+      "project": "lcms",
+      "fuzzer": "llm_fuzzgen_reference_guided_0707162631_554255",
+      "artifact_name": "llm_fuzzgen_reference_guided_0707162631_554255_slow-unit-8f95738cf37795e0d67aae9704166a3d1a442b4b",
+      "artifact_kind": "slow-unit",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen_reference_guided_0707162631_554255/llm_fuzzgen_reference_guided_0707162631_554255_slow-unit-8f95738cf37795e0d67aae9704166a3d1a442b4b.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260720_replay_current_corpus/crash_seeds/lcms/llm_fuzzgen_reference_guided_0707162631_554255/llm_fuzzgen_reference_guided_0707162631_554255_slow-unit-8f95738cf37795e0d67aae9704166a3d1a442b4b",
+      "status": "SKIPPED",
+      "finding": "",
+      "confidence": null,
+      "artifact_dir": "",
+      "error": "artifact kind 'slow-unit' was not selected"
+    },
+    {
+      "experiment_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260726_231453_libvpx",
+      "project": "libvpx",
+      "fuzzer": "llm_fuzzgen0720135316",
+      "artifact_name": "llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee",
+      "artifact_kind": "crash",
+      "metadata_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260726_231453_libvpx/crash_seeds/libvpx/llm_fuzzgen0720135316/llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee.metadata.json",
+      "seed_path": "/home/kyliechien/LLM-FuzzGen/experiments/20260726_231453_libvpx/crash_seeds/libvpx/llm_fuzzgen0720135316/llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee",
+      "status": "TP",
+      "finding": "Real Crash",
+      "confidence": 1.0,
+      "artifact_dir": "/home/kyliechien/LLM-FuzzGen/experiments/20260801_214937_crash_analysis/artifacts/libvpx/llm_fuzzgen0720135316",
+      "error": ""
+    }
+  ]
+}

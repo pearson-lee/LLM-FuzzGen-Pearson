@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee",
+  "artifact_sha1": "031116f0718ace62289293a87d15f2c26e68d2ee",
+  "fuzzer": "llm_fuzzgen0720135316",
+  "project": "libvpx",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/libvpx/run_fuzzer/20260727_035842_114274_llm_fuzzgen0720135316_8d2c6fc3.log",
+  "saved_log_path": "experiments/20260726_231453_run_all_fuzzer/crash_seeds/libvpx/llm_fuzzgen0720135316/llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee.log",
+  "seed_path": "experiments/20260726_231453_run_all_fuzzer/crash_seeds/libvpx/llm_fuzzgen0720135316/llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee",
+  "seed_saved": true,
+  "seed_sha1": "031116f0718ace62289293a87d15f2c26e68d2ee",
+  "seed_size": 181,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/libvpx/llm_fuzzgen0720135316_crash-031116f0718ace62289293a87d15f2c26e68d2ee",
+  "summary": {
+    "dedup_tokens": [
+      "decode_one--decoder_decode"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x000000000000 bp 0x7ffc15236670 sp 0x7ffc152364f8 T0)",
+    "summary": "SUMMARY: AddressSanitizer: SEGV (<unknown module>)"
+  }
+}

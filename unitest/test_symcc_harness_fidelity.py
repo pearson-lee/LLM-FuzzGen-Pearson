@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 
+import blocker_process.dependent.build_context as build_context_module
 import blocker_process.dependent.symcc_blocker_solver as symcc_solver
 from blocker_process.dependent.build_context import BuildContext
 from blocker_process.dependent.run_symcc_blocker import merge_build_context_overrides
@@ -123,6 +124,34 @@ def test_generated_harness_context_merges_project_link_flags(tmp_path: Path) -> 
     assert merged.include_dirs == [str(include_dir.resolve())]
     assert merged.defines == ["FEATURE=1"]
     assert "Merged project SymCC config" in merged.diagnostics[-1]
+
+
+def test_generated_harness_context_adds_project_generated_headers(tmp_path: Path, monkeypatch) -> None:
+    generated_headers = tmp_path / "libvpx" / "work" / "build"
+    generated_headers.mkdir(parents=True)
+    (generated_headers / "vpx_config.h").write_text("#define VPX_CONFIG_H 1\n", encoding="utf-8")
+    monkeypatch.setattr(build_context_module, "OSS_FUZZ_OUT", tmp_path)
+    context = BuildContext(
+        project_name="libvpx",
+        mode="generated_harness",
+        target_source=None,
+        branch_source="branch.c",
+        harness_source="harness.c",
+        source_root=None,
+        language="c++",
+    )
+    args = SimpleNamespace(
+        project_name="libvpx",
+        include_dir=[],
+        define=[],
+        cflags="",
+        cxxflags="",
+        ldflags="",
+    )
+
+    merged = merge_build_context_overrides(context, args)
+
+    assert str(generated_headers.resolve()) in merged.include_dirs
 
 
 def test_coverage_source_args_maps_embedded_source_to_local_mirror(tmp_path: Path) -> None:
