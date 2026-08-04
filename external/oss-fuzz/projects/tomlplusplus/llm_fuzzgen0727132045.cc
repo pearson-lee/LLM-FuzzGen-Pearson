@@ -1,0 +1,334 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <unistd.h>
+#include <sstream>
+#include <optional>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/tomlplusplus/include/toml++/toml.h"
+#include "/src/tomlplusplus/include/toml++/impl/yaml_formatter.hpp"
+#include "/src/tomlplusplus/include/toml++/impl/json_formatter.hpp"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+
+  std::string toml_string = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange<size_t>(0, 1024));
+  
+  /*
+   * ANALYSIS: The function-level coverage report showed that
+   *           toml::v3::impl::impl_ex::parser::parse_literal_string and
+   *           toml::v3::impl::impl_ex::parser::parse_basic_string had low
+   *           branch coverage, especially for multi-line strings.
+   *           The functions toml::v3::impl::impl_ex::parser::parse_inf_or_nan and
+   *           toml::v3::impl::impl_ex::parser::parse_hex_float had low coverage.
+   * IMPLEMENTATION: The following code block generates various TOML constructs
+   *                 to exercise these uncovered code paths. This was present in the
+   *                 original fuzzer but was not being executed according to the
+   *                 coverage report. The conditional logic has been fixed.
+   */
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nkey1 = ''''\n" + fdp.ConsumeRandomLengthString(50) + "''''\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nkey2 = \"\"\"\n" + fdp.ConsumeRandomLengthString(50) + "\\\n" + fdp.ConsumeRandomLengthString(50) + "\"\"\"\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += std::string("\nkey3 = ") + fdp.PickValueInArray({"+inf", "-inf", "inf", "+nan", "-nan", "nan"}) + "\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nkey4 = 0x" + fdp.ConsumeRandomLengthString(4) + "." + fdp.ConsumeRandomLengthString(4) + "p-" + std::to_string(fdp.ConsumeIntegralInRange<int>(0, 5)) + "\n";
+  }
+
+  /*
+   * ANALYSIS: The function-level coverage report showed 0% coverage for functions
+   *           in `date_time.hpp` and for `value<bool>`. This is because the fuzzer
+   *           never generated TOML with boolean, date, or time types.
+   * IMPLEMENTATION: The following code blocks add various boolean, date, and time
+   *                 formats to the generated TOML string to exercise the parsing and
+   *                 formatting logic for these uncovered types.
+   */
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nbool1 = true\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nld1 = 1979-05-27\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nlt1 = 07:32:00\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nldt1 = 1979-05-27T07:32:00\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nodt1 = 1979-05-27T07:32:00-07:00\n";
+  }
+
+
+  /*
+   * ANALYSIS: The detailed fuzz target coverage report showed that the code path for
+   *           handling arrays (view.as_array()) was never taken. This resulted in 0%
+   *           coverage for almost all functions in toml::v3::array.
+   * IMPLEMENTATION: The following code explicitly adds array and array-of-table
+   *                 constructs to the generated TOML string, ensuring that the
+   *                 array-handling logic in the fuzzer is exercised.
+   */
+  if (fdp.ConsumeBool()) {
+    toml_string += "\narr1 = [1, 2, 3]\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\n[[products]]\nname = \"Hammer\"\n\n[[products]]\nname = \"Nail\"\n";
+  }
+
+
+  std::optional<toml::table> tbl;
+
+  try {
+    /*
+     * ANALYSIS: The function-level coverage report showed 0% coverage for parsing
+     *           from an istream (e.g., toml::v3::ex::parse(std::basic_istream&, ...)).
+     * IMPLEMENTATION: Added a third parsing path that uses a std::stringstream to
+     *                 create an istream from the fuzzed data, which is then passed
+     *                 to toml::parse to cover the istream-based parsing functions.
+     */
+    int parse_mode = fdp.ConsumeIntegralInRange(0, 2);
+    if (parse_mode == 0) {
+      tbl = toml::parse(toml_string);
+    } else if (parse_mode == 1) {
+      std::string path = std::string("/tmp/") + _FUZZ_TARGET_NAME + ".tmp";
+      std::ofstream out(path);
+      out << toml_string;
+      out.close();
+      tbl = toml::parse_file(path);
+      unlink(path.c_str());
+    } else {
+        std::stringstream ss(toml_string);
+        tbl = toml::parse(ss);
+    }
+
+    if (tbl) {
+       /*
+       * ANALYSIS: The function-level coverage report showed 0% coverage for the
+       *           equality operators (==, !=) for tables, arrays, and values.
+       * IMPLEMENTATION: The following block creates a copy of the parsed table and
+       *                 compares it with the original, exercising the uncovered
+       *                 recursive equality-checking logic.
+       */
+      if (fdp.ConsumeBool()) {
+        toml::table tbl2 = *tbl;
+        (void)(tbl2 == *tbl);
+        (void)(tbl2 != *tbl);
+      }
+
+      /*
+       * ANALYSIS: The function-level coverage report showed that the toml::v3::toml_formatter,
+       *           toml::v3::json_formatter, and toml::v3::yaml_formatter classes and their
+       *           associated functions had 0% coverage.
+       * IMPLEMENTATION: The following code blocks create instances of these formatters
+       *                 and stream the parsed table to a stringstream to exercise the
+       *                 formatting logic.
+       */
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        ss << *tbl;
+      }
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        ss << toml::json_formatter{*tbl};
+      }
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        ss << toml::yaml_formatter{*tbl};
+      }
+      /*
+       * ANALYSIS: The function `yaml_formatter::print_yaml_string` was uncovered.
+       * IMPLEMENTATION: This call specifically targets that function by formatting
+       *                 a standalone string value with the yaml_formatter.
+       */
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        ss << toml::yaml_formatter{toml::value{fdp.ConsumeRandomLengthString(10)}};
+      }
+
+      /*
+       * ANALYSIS: The function-level coverage report showed that toml::v3::table::erase
+       *           was uncovered.
+       * IMPLEMENTATION: The following code block calls erase() on the parsed table
+       *                 with a fuzzer-generated key to exercise this function.
+       */
+      if (fdp.ConsumeBool()) {
+        tbl->erase(fdp.ConsumeRandomLengthString(10));
+      }
+
+      /*
+       * ANALYSIS: The function-level coverage report showed that many methods of toml::v3::table,
+       *           toml::v3::array, and toml::v3::node_view had 0% coverage, particularly
+       *           functions for type checking (e.g., is_table()), access (e.g., as_string()),
+       *           and manipulation (e.g., prune(), flatten()).
+       * IMPLEMENTATION: The following code iterates through the parsed table, recursively
+       *                 descends into sub-tables and arrays, and calls various methods
+       *                 on the nodes to improve coverage.
+       */
+      std::vector<toml::node*> nodes;
+      nodes.push_back(&*tbl);
+      std::optional<toml::date> first_date;
+      std::optional<toml::time> first_time;
+      std::optional<toml::date_time> first_date_time;
+      while (!nodes.empty() && fdp.remaining_bytes() > 2) {
+          toml::node* n = nodes.back();
+          nodes.pop_back();
+          if (!n) continue;
+
+          toml::node_view view{n};
+
+          (void)view.is_table();
+          (void)view.is_array();
+          (void)view.is_value();
+
+          if (auto t = view.as_table()) {
+              for (auto&& [k, v] : *t) {
+                  nodes.push_back(&v);
+              }
+              if (fdp.ConsumeBool()) {
+                  t->prune(fdp.ConsumeBool());
+              }
+          } else if (auto a = view.as_array()) {
+              for (auto&& v : *a) {
+                  nodes.push_back(&v);
+              }
+              if (fdp.ConsumeBool()) {
+                  a->prune(fdp.ConsumeBool());
+              }
+              if (fdp.ConsumeBool()) {
+                  a->flatten();
+              }
+              /*
+               * ANALYSIS: The function-level coverage report showed that array accessors
+               *           like get() and at() were uncovered.
+               * IMPLEMENTATION: Added calls to get() and at() with a fuzzer-controlled
+               *                 index to exercise these functions. A try-catch block handles
+               *                 out-of-bounds access for at().
+               */
+              if (!a->empty() && fdp.ConsumeBool()) {
+                  size_t index = fdp.ConsumeIntegralInRange<size_t>(0, a->size() - 1);
+                  (void)a->get(index);
+                  try {
+                      (void)a->at(index);
+                  } catch (...) {}
+              }
+             /*
+              * ANALYSIS: The function-level coverage report showed that many array
+              *           manipulation functions like clear() and pop_back() were uncovered.
+              * IMPLEMENTATION: The following code block explicitly calls these functions
+              *                 on a newly created array to improve coverage.
+              */
+              if (fdp.ConsumeBool()) {
+                toml::array new_arr;
+                new_arr.push_back(1);
+                new_arr.pop_back();
+                new_arr.emplace_back(false);
+                if (!new_arr.empty()) {
+                  new_arr.truncate(1);
+                  new_arr.shrink_to_fit();
+                  new_arr.erase(new_arr.cbegin());
+                }
+                new_arr.insert(new_arr.cbegin(), 42);
+                new_arr.clear();
+              }
+          } else if (view.is_value()) {
+              /*
+               * ANALYSIS: The function-level coverage report showed that numerous
+               *           type-checking and value-retrieval functions on node_view
+               *           were uncovered.
+               * IMPLEMENTATION: The following block calls all is_* and as_* variants
+               *                 to exercise these simple but uncovered functions.
+               */
+              (void)view.is_string();
+              (void)view.as_string();
+              (void)view.is_integer();
+              (void)view.as_integer();
+              (void)view.is_floating_point();
+              (void)view.as_floating_point();
+              (void)view.is_boolean();
+              (void)view.as_boolean();
+              (void)view.is_date();
+              (void)view.as_date();
+              (void)view.is_time();
+              (void)view.as_time();
+              (void)view.is_date_time();
+              (void)view.as_date_time();
+              
+              /*
+               * ANALYSIS: The function-level coverage report showed 0% coverage for
+               *           the comparison operators in `date_time.hpp`.
+               * IMPLEMENTATION: The following code captures the first date/time values
+               *                 found and compares them with subsequent ones to exercise
+               *                 the uncovered comparison logic.
+               */
+              if (auto d = view.as_date()) {
+                if (!first_date) first_date.emplace(*d);
+                else {
+                    (void)(*d == *first_date); (void)(*d != *first_date);
+                    (void)(*d < *first_date); (void)(*d <= *first_date);
+                    (void)(*d > *first_date); (void)(*d >= *first_date);
+                }
+              }
+              if (auto t = view.as_time()) {
+                if (!first_time) first_time.emplace(*t);
+                else {
+                    (void)(*t == *first_time); (void)(*t != *first_time);
+                    (void)(*t < *first_time); (void)(*t <= *first_time);
+                    (void)(*t > *first_time); (void)(*t >= *first_time);
+                }
+              }
+              if (auto dt = view.as_date_time()) {
+                if (!first_date_time) first_date_time.emplace(*dt);
+                else {
+                    (void)(*dt == *first_date_time); (void)(*dt != *first_date_time);
+                    (void)(*dt < *first_date_time); (void)(*dt <= *first_date_time);
+                    (void)(*dt > *first_date_time); (void)(*dt >= *first_date_time);
+                }
+              }
+          }
+      }
+
+      /*
+       * ANALYSIS: The function-level coverage report indicated that functions related
+       *           to `toml::v3::path` were completely uncovered. The existing fuzzer only
+       *           called at_path with a string, not a path object.
+       * IMPLEMENTATION: The following block generates a random path string, creates a
+       *                 `toml::path` object, manipulates it with `push_back` and `pop_back`,
+       *                 and uses it with the `at_path` method to exercise the path-parsing
+       *                 and node-retrieval logic.
+       */
+      if (fdp.remaining_bytes() > 0) {
+          std::string path_str = fdp.ConsumeRandomLengthString(16);
+          try {
+              (void)tbl->at_path(path_str);
+              toml::path p1(path_str);
+              (void)p1.parent();
+              if (fdp.ConsumeBool()) {
+                toml::path p2(fdp.ConsumeRandomLengthString(8));
+                (void)(p1 == p2);
+                (void)(p1 != p2);
+                p1.append(p2);
+              }
+              (void)tbl->at_path(p1);
+          } catch (...) {
+              // Errors are expected with random paths.
+          }
+      }
+    }
+  } catch (const toml::parse_error &err) {
+      /*
+       * ANALYSIS: The `parse_error` exception class and its methods were uncovered.
+       * IMPLEMENTATION: Catching the `parse_error` and streaming it exercises
+       *                 the `description()` and `source()` methods, as well as the
+       *                 stream insertion operator.
+       */
+       std::stringstream ss;
+       ss << err;
+  }
+
+  return 0;
+}

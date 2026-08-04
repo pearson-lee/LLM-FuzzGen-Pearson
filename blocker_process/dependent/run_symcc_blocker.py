@@ -559,6 +559,12 @@ def main() -> int:
         )
         if symcc_build_context.source_root:
             print(f"[info] reconstructed source root: {symcc_build_context.source_root}", flush=True)
+    if project_config.get("header_only", False):
+        symcc_build_context.optional_sources = []
+        symcc_build_context.sources = list(symcc_build_context.required_sources)
+        symcc_build_context.diagnostics.append(
+            "Skipped guided optional compilation units for header-only project."
+        )
     build_context_path = base_work_dir / "build_context.json"
     symcc_build_context.write_json(build_context_path)
     print(

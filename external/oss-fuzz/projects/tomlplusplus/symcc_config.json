@@ -1,0 +1,10 @@
+{
+  "header_only": true,
+  "native_archive": false,
+  "symcc_library": false,
+  "extra_cxxflags": [
+    "-std=c++17",
+    "-DNDEBUG",
+    "-DTOML_ENABLE_SIMD=0"
+  ]
+}
