@@ -67,3 +67,28 @@ Quick notes:
 
 - The STL-instrumented flow is currently tracked against `llvmorg-14.0.6`.
 - Do not commit LLVM source trees, SymCC build directories, or instrumented libc++ install artifacts into Git.
+
+## Analyze Saved Crash Seeds
+
+Analyze `crash_seeds` saved under one or more experiment directories with the
+repository CrashAnalyzer. By default only `artifact_kind=crash` is analyzed;
+`slow-unit`, timeout, and OOM artifacts are not mixed into TP/FP counts.
+
+```bash
+export VERTEXAI_PROJECT_ID="YOUR_GCP_PROJECT_ID"
+export VERTEXAI_LOCATION="us-central1"
+
+.venv/bin/python tools/analyze_experiment_crashes.py \
+  experiments/20260720_replay_current_corpus \
+  experiments/20260724_025850_cjson \
+  experiments/20260726_231453_libvpx \
+  --llm vertexai \
+  --model gemini-2.5-pro \
+  --build
+```
+
+Use `--dry-run` first to list valid inputs without Docker or LLM calls. Results
+are written to `experiments/<timestamp>_crash_analysis/`: `summary.md`,
+`summary.json`, and `results.csv` contain per-experiment TP/FP/TBD totals,
+while `artifacts/` contains each full analysis report and reproduced stack
+trace.

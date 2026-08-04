@@ -135,6 +135,7 @@ class CrashAnalyzer:
         if not analysis:
             logger.error(f"LLM analysis failed for '{crash_path.name}'.")
             return None
+        self._apply_final_status(analysis, stack_trace)
 
         # Save the artifacts
         return self._save_artifacts(
@@ -351,7 +352,129 @@ class CrashAnalyzer:
 
         return analysis
 
-    def _parse_stack_frames(self, stack_trace: str, fuzz_target_filename: str) -> tuple[str, str, str]:
+    @staticmethod
+    def _rubric_score(analysis: dict[str, Any], field: str) -> int | None:
+        rubric = analysis.get("rubric_scores")
+        if not isinstance(rubric, dict):
+            return None
+        entry = rubric.get(field)
+        if not isinstance(entry, dict):
+            return None
+        score = entry.get("score")
+        if isinstance(score, bool) or not isinstance(score, int):
+            return None
+        return score
+
+    @staticmethod
+    def _rubric_total(analysis: dict[str, Any]) -> int | None:
+        rubric = analysis.get("rubric_scores")
+        if not isinstance(rubric, dict):
+            return None
+        total = rubric.get("total")
+        if isinstance(total, bool) or not isinstance(total, int):
+            return None
+        return total
+
+    @staticmethod
+    def _stack_has_null_indirect_pc(stack_trace: str) -> bool:
+        trace = stack_trace or ""
+        return (
+            "pc 0x000000000000" in trace
+            or "#0 0x0" in trace
+            or "(<unknown module>)" in trace
+        )
+
+    @classmethod
+    def _final_status_from_analysis(
+        cls,
+        analysis: dict[str, Any],
+        stack_trace: str = "",
+    ) -> tuple[str, str]:
+        finding = analysis.get("finding", "Ambiguous")
+        api_score = cls._rubric_score(analysis, "api_contract")
+        caller_score = cls._rubric_score(analysis, "normal_caller_feasibility")
+        reproducibility_score = cls._rubric_score(analysis, "reproducibility")
+        total_score = cls._rubric_total(analysis)
+        reproduce_result = analysis.get("reproduce_result")
+        reproduced = (
+            reproduce_result.get("succeeded")
+            if isinstance(reproduce_result, dict)
+            else None
+        )
+
+        if reproduced is False or reproducibility_score == 0:
+            return "TBD", "crash reproduction did not succeed"
+
+        if analysis.get("api_contract_violation") or api_score == 0:
+            return "FP", "API contract violation blocks TP classification"
+
+        if finding == "Fuzzer Logic Error":
+            return "FP", "LLM finding is Fuzzer Logic Error"
+
+        if finding == "Ambiguous":
+            return "TBD", "LLM finding is Ambiguous"
+
+        if finding != "Real Crash":
+            return "TBD", f"unknown finding {finding!r}"
+
+        if api_score != 2:
+            return "TBD", "API contract was not proven valid"
+
+        if caller_score != 2:
+            return "TBD", "normal-caller feasibility was not proven"
+
+        if analysis.get("missing_evidence"):
+            return "TBD", "analysis still has missing evidence"
+
+        if cls._stack_has_null_indirect_pc(stack_trace):
+            return (
+                "TBD",
+                "null-PC or unknown-module crash needs independent valid-PoC replay before TP",
+            )
+
+        if total_score is None:
+            return "TBD", "rubric total is missing"
+
+        if total_score >= 6:
+            return "TP", "hard gates passed and rubric total is at least 6"
+
+        if total_score <= 3:
+            return "FP", "hard gates passed but rubric total leans to fuzzer logic error"
+
+        return "TBD", "rubric total is in the ambiguous range"
+
+    @classmethod
+    def _apply_final_status(
+        cls,
+        analysis: dict[str, Any],
+        stack_trace: str = "",
+    ) -> dict[str, Any]:
+        status, reason = cls._final_status_from_analysis(analysis, stack_trace)
+        analysis["final_status"] = status
+        analysis["final_status_reason"] = reason
+        return analysis
+
+    @staticmethod
+    def _should_adopt_audit_revision(
+        initial_finding: str,
+        revised_finding: str,
+        initial_confidence: float,
+        revised_confidence: float,
+    ) -> bool:
+        if initial_finding == revised_finding:
+            return False
+        if initial_finding == "Real Crash" and revised_finding in {
+            "Fuzzer Logic Error",
+            "Ambiguous",
+        }:
+            return True
+        return revised_confidence > initial_confidence + 0.15
+
+    def _parse_stack_frames(
+        self,
+        stack_trace: str,
+        fuzz_target_filename: str,
+    ) -> tuple[str, str, str]:
         """
         Parse ASAN/MSAN stack frames to find the top application frame.
 
@@ -499,6 +622,8 @@ class CrashAnalyzer:
 
     def _render_markdown_report(self, analysis: dict[str, Any], triage: CrashHeuristicTriage) -> str:
         finding = analysis.get("finding", triage.finding)
+        final_status = analysis.get("final_status", "")
+        final_status_reason = analysis.get("final_status_reason", "")
         crash_type = analysis.get("crash_type", triage.crash_type or "unknown")
         crash_function = analysis.get("crash_function", "unknown")
         confidence = analysis.get("confidence", triage.confidence)
@@ -513,6 +638,10 @@ class CrashAnalyzer:
 
         lines = [f"# Crash Analysis Report: {finding} in `{crash_function}`", "", "## Triage"]
         lines.append(f"- Finding: **{finding}**")
+        if final_status:
+            lines.append(f"- Final Status: **{final_status}**")
+        if final_status_reason:
+            lines.append(f"- Final Status Reason: {final_status_reason}")
         lines.append(f"- Crash Type: {crash_type}")
         lines.append(f"- Crash Site: {analysis.get('crash_site', triage.crash_site)}")
         lines.append(f"- Confidence: {confidence}")
@@ -606,6 +735,7 @@ class CrashAnalyzer:
         triage: CrashHeuristicTriage,
         stack_trace: str,
         source_code: str,
+        crash_input_hex: str,
     ) -> dict[str, Any] | None:
         """
         Runs a targeted evidence-gathering pass when the initial analysis is low-confidence,
@@ -623,6 +753,18 @@ class CrashAnalyzer:
                 top_app_frame_source=triage.top_app_frame_source,
                 stack_trace=stack_trace,
                 fuzzer_source_code=source_code,
+                crash_input_hex=crash_input_hex,
+                initial_evidence=json.dumps(
+                    {
+                        "api_contract_violation": initial_analysis.get(
+                            "api_contract_violation", ""
+                        ),
+                        "rubric_scores": initial_analysis.get("rubric_scores", {}),
+                        "missing_evidence": initial_analysis.get("missing_evidence", []),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
             )
             raw = self.llm_client.generate(prompt)
             parsed = self._extract_json_object(raw or "")
@@ -651,7 +793,11 @@ class CrashAnalyzer:
             return None
 
     @staticmethod
-    def _needs_audit(analysis: dict[str, Any], triage: CrashHeuristicTriage) -> bool:
+    def _needs_audit(
+        analysis: dict[str, Any],
+        triage: CrashHeuristicTriage,
+        stack_trace: str = "",
+    ) -> bool:
         """Returns True when the evidence audit pass should be triggered."""
         confidence = analysis.get("confidence", 1.0)
         finding = analysis.get("finding", "Ambiguous")
@@ -668,6 +814,20 @@ class CrashAnalyzer:
             return True
         if frame_class == "library" and finding == "Fuzzer Logic Error":
             return True
+
+        if finding == "Real Crash":
+            api_score = CrashAnalyzer._rubric_score(analysis, "api_contract")
+            caller_score = CrashAnalyzer._rubric_score(analysis, "normal_caller_feasibility")
+            if analysis.get("api_contract_violation"):
+                return True
+            if api_score != 2:
+                return True
+            if caller_score != 2:
+                return True
+            if analysis.get("missing_evidence"):
+                return True
+            if CrashAnalyzer._stack_has_null_indirect_pc(stack_trace):
+                return True
 
         return False
 
@@ -703,7 +863,9 @@ class CrashAnalyzer:
                 ensure_ascii=False,
                 indent=2,
             )
-            effective_reproduce_summary = reproduce_summary or self._build_reproduce_summary(stack_trace)
+            effective_reproduce_summary = reproduce_summary or self._build_reproduce_summary(
+                stack_trace
+            )
             reproduce_result = json.dumps(
                 effective_reproduce_summary,
                 ensure_ascii=False,
@@ -726,7 +888,10 @@ class CrashAnalyzer:
                 logger.error("Crash analysis did not return a valid JSON object.")
                 return None
 
-            parsed = self._validate_analysis_schema(parsed, reproduce_summary=effective_reproduce_summary)
+            parsed = self._validate_analysis_schema(
+                parsed,
+                reproduce_summary=effective_reproduce_summary,
+            )
             if not parsed:
                 logger.error("Crash analysis JSON object failed schema validation.")
                 return None
@@ -740,28 +905,41 @@ class CrashAnalyzer:
             parsed["raw_response"] = raw_response
 
             # --- Evidence audit pass ---
-            if self._needs_audit(parsed, triage):
+            if self._needs_audit(parsed, triage, stack_trace):
                 logger.info(
                     "Triggering evidence audit (finding=%s, confidence=%.2f, frame=%s).",
                     parsed.get("finding"),
                     parsed.get("confidence", 0.0),
                     triage.frame_classification,
                 )
-                audit = self._run_evidence_audit(parsed, triage, stack_trace, source_code)
+                audit = self._run_evidence_audit(
+                    parsed,
+                    triage,
+                    stack_trace,
+                    source_code,
+                    crash_input_hex,
+                )
                 if audit:
                     initial_conf = float(parsed.get("confidence", 0.0))
                     revised_conf = audit["revised_confidence"]
-
-                    if revised_conf > initial_conf + 0.15:
-                        # Strong revision — adopt the new finding
+                    initial_finding = parsed["finding"]
+                    revised_finding = audit["revised_finding"]
+                    if self._should_adopt_audit_revision(
+                        initial_finding,
+                        revised_finding,
+                        initial_conf,
+                        revised_conf,
+                    ):
+                        # Demotions from Real Crash prevent unsupported TP results even
+                        # when the initial pass reported confidence 1.0.
                         logger.info(
                             "Audit revised finding from %r to %r (confidence %.2f → %.2f).",
-                            parsed["finding"],
-                            audit["revised_finding"],
+                            initial_finding,
+                            revised_finding,
                             initial_conf,
                             revised_conf,
                         )
-                        parsed["finding"] = audit["revised_finding"]
+                        parsed["finding"] = revised_finding
                         parsed["confidence"] = revised_conf
                     else:
                         # Weak or moderate revision — keep original, slightly lower confidence

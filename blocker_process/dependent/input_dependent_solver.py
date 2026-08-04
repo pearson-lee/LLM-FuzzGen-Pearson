@@ -30,6 +30,10 @@ DEFAULT_LLVM18_ROOT = Path.home() / "tools" / "llvm-18.1.8" / "bin"
 DEFAULT_LLVM_PROFDATA = str(DEFAULT_LLVM18_ROOT / "llvm-profdata")
 DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
 DEFAULT_MAX_PERSISTED_BLOCKER_SEEDS = 5
+# Each fidelity seed costs one coverage replay of the generated harness. Archived corpora
+# carried 5-155 branch-reaching seeds, so this is capped rather than exhaustive: the point
+# is to survive a seed that does not fit the new harness, not to search the whole corpus.
+MAX_HARNESS_FIDELITY_SEEDS = 8
 
 
 def sanitize_name(value: str) -> str:
@@ -198,16 +202,28 @@ def resolve_seed_generator_triggering_input(args: argparse.Namespace, seeds: lis
     return seeds[0] if seeds else ""
 
 
-def resolve_harness_fidelity_seed(args: argparse.Namespace, seeds: list[str]) -> str:
+def resolve_harness_fidelity_seeds(args: argparse.Namespace, seeds: list[str]) -> list[str]:
+    """Offer every branch-reaching seed to the generated-harness fidelity check.
+
+    All of these reached the branch under the original fuzz target, but a generated harness
+    can consume bytes differently, so any one of them may miss while another hits. Handing
+    over only the first conflated "the harness is wrong" with "this seed does not fit this
+    harness" and ended 30 of 66 archived attempts before SymCC ran. The trigger stays first
+    because it is the seed the rest of the pipeline reasoned about.
+    """
+    ordered: list[str] = []
     if args.triggering_input:
         trigger_path = Path(args.triggering_input)
         if trigger_path.is_file():
-            return str(trigger_path.resolve())
+            ordered.append(str(trigger_path.resolve()))
     for seed in seeds:
         seed_path = Path(seed)
-        if seed_path.is_file():
-            return str(seed_path.resolve())
-    return ""
+        if not seed_path.is_file():
+            continue
+        resolved = str(seed_path.resolve())
+        if resolved not in ordered:
+            ordered.append(resolved)
+    return ordered[:MAX_HARNESS_FIDELITY_SEEDS]
 
 
 def get_symcc_failure_kind(stage: dict | None) -> str:
@@ -721,7 +737,7 @@ def build_symcc_cmd(
     fuzz_target: str | None,
     target_name: str | None,
     json_output_path: Path,
-    fidelity_seed: str | None = None,
+    fidelity_seeds: list[str] | None = None,
     fidelity_only: bool = False,
 ) -> list[str]:
     cmd = [
@@ -762,8 +778,9 @@ def build_symcc_cmd(
         cmd.extend(["--target-name", target_name])
     for seed in seeds:
         cmd.extend(["--seed", seed])
-    if fidelity_seed and Path(fidelity_seed).is_file():
-        cmd.extend(["--fidelity-seed", str(Path(fidelity_seed).resolve())])
+    for fidelity_seed in fidelity_seeds or []:
+        if Path(fidelity_seed).is_file():
+            cmd.extend(["--fidelity-seed", str(Path(fidelity_seed).resolve())])
     if fidelity_only:
         cmd.append("--fidelity-only")
     if args.keep_coverage_reports:
@@ -839,6 +856,11 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
     seed_generator_triggering_input = resolve_seed_generator_triggering_input(args, seeds)
     if seed_generator_triggering_input and not args.triggering_input:
         seed_generator_context_args.extend(["--triggering-input", seed_generator_triggering_input])
+    # --seed-generation-mode is a seed-generator-only flag. It must be forwarded here
+    # rather than from the shared build_context_args(), which also feeds the harness
+    # generator whose CLI does not define this flag (argparse would exit code 2).
+    if getattr(args, "seed_generation_mode", None):
+        seed_generator_context_args.extend(["--seed-generation-mode", str(args.seed_generation_mode)])
 
     llm_seed_cmd = [
         sys.executable,
@@ -922,7 +944,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         getattr(args, "symcc_initial_frontier_cap", 30),
     )
     symcc_seeds, initial_handoff_limits = select_bounded_symcc_handoff_seeds(
-        priority_seeds=[*seeds, *candidate_symcc_seeds],
+        priority_seeds=candidate_symcc_seeds,
         corpus_dir=None,
         max_total_seeds=initial_seed_limit,
     )
@@ -967,7 +989,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         result["message"] = "SymCC coverage oracle was unavailable; this blocker remains retryable."
         return result
 
-    fidelity_seed = resolve_harness_fidelity_seed(args, seeds)
+    fidelity_seeds = resolve_harness_fidelity_seeds(args, seeds)
     fidelity_feedback = ""
     previous_harness_file = ""
     parsed_symcc_harness: dict | None = None
@@ -1022,7 +1044,7 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             fuzz_target=parsed_symcc_harness["harness_path"],
             target_name=simplified_target_name,
             json_output_path=fidelity_json,
-            fidelity_seed=fidelity_seed,
+            fidelity_seeds=fidelity_seeds,
             fidelity_only=True,
         )
         fidelity_run = run_program(fidelity_cmd, json_output_file=fidelity_json)
@@ -1175,6 +1197,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--blocker-call-sites", default=None)
     parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
+    parser.add_argument(
+        "--seed-generation-mode",
+        choices=["fresh", "mutation", "auto"],
+        default="fresh",
+        help="Seed generation strategy forwarded to the LLM seed generator. Default 'fresh' "
+             "reproduces the original pipeline; 'mutation' derives bounded edits of the "
+             "triggering input.",
+    )
     parser.add_argument("--seed", action="append", default=[])
     parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)

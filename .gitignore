@@ -22,6 +22,7 @@ Judge/
 blocker_process/dependent/generated_generators/
 blocker_process/dependent/generated_harnesses/
 blocker_process/dependent/generated_symbolic_runs/
+replays/
 blocker_process/independent/generated_targets/
 artifacts/
 llvm-project/

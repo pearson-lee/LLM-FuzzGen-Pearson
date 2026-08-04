@@ -5,13 +5,15 @@
   "native_archive_filename": "libvpx.a",
   "native_archive_include_dirs": [
     "source_code",
-    "symcc_native/build_headers"
+    "symcc_native/build_headers",
+    "work/build"
   ],
   "symcc_library": true,
   "symcc_library_build_flavor": "symcc_library",
   "symcc_library_subdir": "symcc_library",
   "symcc_library_filename": "libvpx.a",
   "extra_include_dirs": [
-    "llvm-project-14/compiler-rt/include/fuzzer"
+    "llvm-project-14/compiler-rt/include/fuzzer",
+    "{build_out}/{project}/work/build"
   ]
 }

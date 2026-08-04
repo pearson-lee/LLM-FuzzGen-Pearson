@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from crash_analyzer.crash_analyzer import CrashAnalyzer, CrashHeuristicTriage
-from tools.analyze_experiment_crashes import discover_crash_seeds, run
+from tools.analyze_experiment_crashes import _status_from_analysis, discover_crash_seeds, run
 
 
 def _write_artifact(
@@ -58,6 +58,16 @@ def test_discovers_metadata_for_crash_and_slow_unit(tmp_path):
     reference_seed = next(seed for seed in seeds if seed.project == "libvpx")
     assert reference_seed.fuzzer == "llm_fuzzgen_reference_guided_123"
     assert reference_seed.seed_path == crash
+
+
+def test_status_prefers_hard_gated_final_status():
+    analysis = {"finding": "Real Crash", "final_status": "TBD"}
+
+    assert _status_from_analysis(analysis) == "TBD"
+
+
+def test_status_falls_back_for_legacy_analysis():
+    assert _status_from_analysis({"finding": "Fuzzer Logic Error"}) == "FP"
 
 
 def test_dry_run_writes_selected_and_skipped_counts(tmp_path):

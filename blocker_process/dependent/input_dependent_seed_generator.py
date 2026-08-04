@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
+import difflib
 import hashlib
 import json
 import logging
@@ -29,7 +30,10 @@ except Exception:
     repair_json = None
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "blocker_seed_generator_template"
+FRESH_TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "blocker_seed_generator_template"
+MUTATION_TEMPLATE_PATH = REPO_ROOT / "prompts" / "templates" / "blocker_seed_mutator_template"
+# Kept as an alias for callers that previously imported TEMPLATE_PATH.
+TEMPLATE_PATH = FRESH_TEMPLATE_PATH
 OUTPUT_ROOT = MODULE_ROOT / "generated_generators"
 OSS_FUZZ_IMAGE_PREFIX = "gcr.io/oss-fuzz"
 FAMILY_TAG_RE = re.compile(r"^(F\d+_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)_(\d+)$")
@@ -45,6 +49,20 @@ DEFAULT_GENERATOR_TIMEOUT_SEC = 120   # Seed materialization should be short; lo
 DEFAULT_COVERAGE_SEED_TIMEOUT_SEC = 30    # libfuzzer -timeout per seed (primary defence)
 DEFAULT_COVERAGE_EVAL_TIMEOUT_SEC = 120   # subprocess wall-clock limit for per-seed Docker eval
 DEFAULT_COVERAGE_BATCH_TIMEOUT_SEC = 600  # subprocess wall-clock limit for aggregate batch eval
+# Without coverage evidence there is no way to rank seeds, so keep the handoff small
+# enough that SymCC's own frontier budget is not swamped by unranked inputs.
+EVALUATION_FAILED_HANDOFF_SEEDS = 4
+SEED_GENERATION_MODES = ("fresh", "mutation", "auto")
+# Fresh is the default so the archived experiment behaviour is reproduced unless a run
+# explicitly opts into mutation; "auto" exists only for ad-hoc use.
+DEFAULT_SEED_GENERATION_MODE = "fresh"
+MUTATION_MAX_CHANGED_RATIO = 0.25
+MUTATION_MIN_CHANGED_BYTES = 16
+MUTATION_MAX_CHANGED_BYTES = 4096
+# Cap on the *changed region* handed to SequenceMatcher, which is quadratic. A local mutation
+# leaves a tiny region once the common prefix/suffix is trimmed, so this only trips for wholesale
+# rewrites -- which the positional fallback already scores far above any budget.
+MUTATION_EDIT_DISTANCE_MAX_BYTES = 8192
 _SESSION_FILE_HANDLER_FLAG = "_llm_fuzzgen_session_file_handler"
 SEED_BUDGET_ERROR_KINDS = {
     "all_generated_seeds_oversized",
@@ -363,9 +381,18 @@ def save_sample_seeds(output_dir: Path, sample_seeds: list[object], format_info:
     return saved_paths
 
 
-def build_prompt(args: argparse.Namespace) -> str:
-    if not TEMPLATE_PATH.exists():
-        raise FileNotFoundError(f"Template missing: {TEMPLATE_PATH}")
+def template_path_for_generation_mode(generation_mode: str) -> Path:
+    if generation_mode == "mutation":
+        return MUTATION_TEMPLATE_PATH
+    if generation_mode == "fresh":
+        return FRESH_TEMPLATE_PATH
+    raise ValueError(f"Unsupported seed generation mode: {generation_mode}")
+
+
+def build_prompt(args: argparse.Namespace, generation_mode: str = "fresh") -> str:
+    template_path = template_path_for_generation_mode(generation_mode)
+    if not template_path.exists():
+        raise FileNotFoundError(f"Template missing: {template_path}")
 
     oss_fuzz = OSSFuzz()
     language = args.language or oss_fuzz.proj_lang(args.project_name) or "unknown"
@@ -457,9 +484,10 @@ def build_prompt(args: argparse.Namespace) -> str:
             max_chars=8000,
         ),
         "format_strategy_notes": format_strategy_notes,
+        "generation_mode": generation_mode,
     }
     mapping.update(format_info.to_prompt_mapping())
-    template = load_text(TEMPLATE_PATH)
+    template = load_text(template_path)
     return format_prompt(template, mapping)
 
 
@@ -467,6 +495,7 @@ def build_iteration_prompt(
     base_prompt: str,
     iteration_index: int,
     max_iterations: int,
+    generation_mode: str = "fresh",
     previous_generator_code: str = "",
     previous_rationale: str = "",
     previous_analysis_summary: list[str] | None = None,
@@ -479,6 +508,11 @@ def build_iteration_prompt(
         return base_prompt
 
     analysis_text = "\n".join(f"- {item}" for item in (previous_analysis_summary or [])) or "N/A"
+    mode_reminder = (
+        "Keep the `--base-seed` interface and revise only bounded local mutations of that seed."
+        if generation_mode == "mutation"
+        else "Continue producing standalone native-format seeds without assuming a base seed exists."
+    )
     format_hint_section = ""
     if format_hint:
         format_hint_section = f"""
@@ -493,7 +527,7 @@ def build_iteration_prompt(
 
 This is iteration {iteration_index} of {max_iterations}.
 
-You are revising the previous generator based on execution feedback. Keep any working ideas that improved blocker reachability, but change the generator where the evidence shows it is insufficient.
+You are revising the previous generator based on execution feedback. Keep any working ideas that improved blocker reachability, but change the generator where the evidence shows it is insufficient. {mode_reminder}
 {format_hint_section}
 ## Previous generator analysis summary
 {analysis_text}
@@ -558,7 +592,22 @@ def build_generator_fix_prompt(
     previous_rationale: str,
     fix_attempt_index: int,
     max_fix_attempts: int,
+    generation_mode: str = "fresh",
 ) -> str:
+    if generation_mode == "mutation":
+        # The validator always re-runs the script with --base-seed, so a repair that drops
+        # the option turns every later attempt into an argparse failure.
+        interface_reminder = (
+            "- Keep the `build_seeds(base_seed)` interface and the\n"
+            "  `python generator.py --output-dir DIR --base-seed PATH` behavior intact. `--base-seed` is required;\n"
+            "  never remove it and never add a fallback path that runs without it.\n"
+            "- Preserve the base-seed local mutation strategy. Every output must still be a bounded derivative of\n"
+            "  the base seed, never a fresh seed and never an unchanged copy."
+        )
+    else:
+        interface_reminder = (
+            "- Keep the `build_seeds()` interface and `python generator.py --output-dir DIR` behavior intact."
+        )
     return (
         base_prompt
         + f"""
@@ -571,7 +620,7 @@ Your job in this repair attempt is different from the normal blocker-solving ite
 
 - Repair only the generator's low-level executable issues.
 - Preserve the existing blocker-oriented seed strategy unless the error directly requires a local fix.
-- Keep the `build_seeds()` interface and `python generator.py --output-dir DIR` behavior intact.
+{interface_reminder}
 - Keep stable family tags and filenames when possible.
 - Do not replace the generator with a brand-new strategy unless the current script is fundamentally unusable.
 
@@ -688,6 +737,132 @@ def scan_and_reject_oversized_seeds(
     }
 
 
+def measure_mutation_distance(base_seed: bytes, payload: bytes) -> int:
+    """Estimate how much of ``base_seed`` an output rewrote.
+
+    Positional comparison alone treats an insertion as a rewrite of everything
+    after it, which would reject exactly the structure-aware edits a mutator is
+    supposed to make (adding a field, element, chunk, or token). Edit distance
+    prices those correctly, so take whichever measure is more forgiving. Very
+    large seeds skip the quadratic path and keep the positional estimate.
+    """
+    positional = sum(
+        left != right for left, right in zip(base_seed, payload)
+    ) + abs(len(base_seed) - len(payload))
+    if not positional:
+        return 0
+
+    # A local edit leaves a long common prefix and suffix. Trimming them first keeps the
+    # quadratic diff confined to the region that actually changed, which is what makes this
+    # affordable on seeds near MAX_SEED_SIZE_BYTES.
+    limit = min(len(base_seed), len(payload))
+    prefix = 0
+    while prefix < limit and base_seed[prefix] == payload[prefix]:
+        prefix += 1
+    suffix = 0
+    while suffix < limit - prefix and base_seed[-1 - suffix] == payload[-1 - suffix]:
+        suffix += 1
+
+    base_middle = base_seed[prefix:len(base_seed) - suffix]
+    payload_middle = payload[prefix:len(payload) - suffix]
+    if max(len(base_middle), len(payload_middle)) > MUTATION_EDIT_DISTANCE_MAX_BYTES:
+        return positional
+
+    edit_distance = 0
+    matcher = difflib.SequenceMatcher(None, base_middle, payload_middle, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        edit_distance += max(i2 - i1, j2 - j1)
+    return min(positional, edit_distance)
+
+
+def filter_mutation_outputs(
+    generated_dir: Path,
+    base_seed_path: Path,
+    *,
+    max_changed_ratio: float = MUTATION_MAX_CHANGED_RATIO,
+) -> dict:
+    """Keep only bounded local derivatives of ``base_seed_path``.
+
+    A mutation generator may update related length or checksum bytes, so the
+    bound is intentionally expressed as a byte budget rather than fixed
+    offsets. This prevents an LLM response from silently replacing a large
+    trigger with an unrelated fresh seed while leaving room for structural
+    repairs.
+    """
+    base_seed = base_seed_path.read_bytes()
+    rejected_dir = generated_dir.parent / f"{generated_dir.name}_mutation_rejected"
+    if rejected_dir.exists():
+        shutil.rmtree(rejected_dir, ignore_errors=True)
+
+    files = sorted(path for path in generated_dir.rglob("*") if path.is_file())
+    accepted_records: list[dict] = []
+    rejected_records: list[dict] = []
+
+    for seed_path in files:
+        relative_path = seed_path.relative_to(generated_dir)
+        try:
+            payload = seed_path.read_bytes()
+        except OSError as exc:
+            rejected_records.append(
+                {
+                    "source_path": str(seed_path),
+                    "reason": f"read_failed: {exc}",
+                }
+            )
+            continue
+
+        changed_bytes = measure_mutation_distance(base_seed, payload)
+        size_for_budget = max(len(base_seed), len(payload))
+        allowed_changed_bytes = min(
+            MUTATION_MAX_CHANGED_BYTES,
+            max(MUTATION_MIN_CHANGED_BYTES, int(size_for_budget * max_changed_ratio)),
+        )
+        reason = ""
+        if payload == base_seed:
+            reason = "unchanged_base_seed"
+        elif changed_bytes > allowed_changed_bytes:
+            reason = "mutation_exceeds_local_change_budget"
+
+        if reason:
+            rejected_path = rejected_dir / relative_path
+            rejected_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(seed_path), str(rejected_path))
+            rejected_records.append(
+                {
+                    "source_path": str(seed_path),
+                    "rejected_path": str(rejected_path),
+                    "reason": reason,
+                    "changed_bytes": changed_bytes,
+                    "allowed_changed_bytes": allowed_changed_bytes,
+                }
+            )
+            continue
+
+        accepted_records.append(
+            {
+                "seed_path": str(seed_path),
+                "changed_bytes": changed_bytes,
+                "allowed_changed_bytes": allowed_changed_bytes,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        )
+
+    return {
+        "mutation_base_seed_path": str(base_seed_path),
+        "mutation_base_seed_sha256": hashlib.sha256(base_seed).hexdigest(),
+        "mutation_base_seed_size_bytes": len(base_seed),
+        "mutation_max_changed_ratio": max_changed_ratio,
+        "mutation_candidate_count": len(files),
+        "mutation_retained_count": len(accepted_records),
+        "mutation_rejected_count": len(rejected_records),
+        "mutation_rejected_dir": str(rejected_dir) if rejected_records else "",
+        "mutation_retained_records": accepted_records,
+        "mutation_rejected_records": rejected_records,
+    }
+
+
 def _render_validation_output(base_output: str, scan_metadata: dict) -> str:
     lines: list[str] = []
     if base_output:
@@ -702,6 +877,13 @@ def _render_validation_output(base_output: str, scan_metadata: dict) -> str:
     rejected_dir = str(scan_metadata.get("oversized_rejected_dir") or "")
     if rejected_dir:
         lines.append(f"Oversized seeds moved to: {rejected_dir}")
+    if "mutation_candidate_count" in scan_metadata:
+        lines.append(
+            "Mutation validation: "
+            f"retained={scan_metadata.get('mutation_retained_count', 0)}, "
+            f"rejected={scan_metadata.get('mutation_rejected_count', 0)}, "
+            f"base={scan_metadata.get('mutation_base_seed_sha256', '')[:12]}"
+        )
     return "\n".join(lines).strip()
 
 
@@ -712,7 +894,17 @@ def validate_generator(
     *,
     timeout_seconds: int | float = DEFAULT_GENERATOR_TIMEOUT_SEC,
     max_seed_size_bytes: int = MAX_SEED_SIZE_BYTES,
+    base_seed_path: Path | None = None,
+    require_mutation: bool = False,
 ) -> dict:
+    if require_mutation and (base_seed_path is None or not base_seed_path.is_file()):
+        return {
+            "ok": False,
+            "error_kind": "mutation_base_seed_missing",
+            "output": "Mutation-mode validation requires a readable base seed.",
+            "generated_dir": output_dir / materialized_dir_name,
+        }
+
     validation_started_at = time.monotonic()
     compile_started_at = time.monotonic()
     py_compile = subprocess.run(
@@ -739,9 +931,12 @@ def validate_generator(
     generator_started_at = time.monotonic()
     generator_timed_out = False
     timeout_output = ""
+    generator_command = [sys.executable, str(generator_path), "--output-dir", str(generated_dir)]
+    if base_seed_path is not None:
+        generator_command.extend(["--base-seed", str(base_seed_path)])
     try:
         run_result = subprocess.run(
-            [sys.executable, str(generator_path), "--output-dir", str(generated_dir)],
+            generator_command,
             capture_output=True,
             text=True,
             check=False,
@@ -763,6 +958,10 @@ def validate_generator(
         generated_dir,
         max_seed_size_bytes=max_seed_size_bytes,
     )
+    if require_mutation and base_seed_path is not None:
+        mutation_metadata = filter_mutation_outputs(generated_dir, base_seed_path)
+        scan_metadata.update(mutation_metadata)
+        scan_metadata["valid_seed_count"] = int(mutation_metadata["mutation_retained_count"])
     common_metadata = {
         **scan_metadata,
         "generated_dir": generated_dir,
@@ -807,6 +1006,16 @@ def validate_generator(
             **common_metadata,
         }
     if generated_seed_count <= 0:
+        if require_mutation and int(scan_metadata.get("mutation_candidate_count", 0)) > 0:
+            return {
+                "ok": False,
+                "error_kind": "no_valid_mutation_output",
+                "output": _render_validation_output(
+                    run_result.stdout.strip() or "Generator did not produce a bounded mutation of the base seed.",
+                    scan_metadata,
+                ),
+                **common_metadata,
+            }
         return {
             "ok": False,
             "error_kind": "no_output",
@@ -965,6 +1174,63 @@ def materialize_triggering_input(
     materialized_seed = dest_dir / f"triggering_input{suffix}"
     materialized_seed.write_bytes(seed_bytes)
     return materialized_seed
+
+
+def prepare_mutation_base_seed(
+    triggering_input: str,
+    format_info: FormatInfo,
+    output_dir: Path,
+) -> tuple[Path | None, str]:
+    """Materialize a non-empty trigger seed for a mutation-mode generator."""
+    if not triggering_input:
+        return None, "No triggering input was provided."
+
+    try:
+        base_seed = materialize_triggering_input(
+            triggering_input,
+            format_info,
+            output_dir / "mutation_base_seed",
+        )
+    except (OSError, ValueError) as exc:
+        return None, f"Triggering input could not be materialized: {exc}"
+
+    try:
+        if base_seed.stat().st_size <= 0:
+            return None, "Triggering input is empty and cannot support local mutation."
+    except OSError as exc:
+        return None, f"Materialized triggering input is unavailable: {exc}"
+
+    return base_seed, "A replayable triggering input is available."
+
+
+def resolve_generation_mode(
+    requested_mode: str,
+    triggering_input: str,
+    format_info: FormatInfo,
+    output_dir: Path,
+) -> tuple[str, Path | None, str]:
+    """Decide fresh vs mutation for this run.
+
+    The mode is an explicit experiment variable, not something to infer: nearly every
+    real blocker ships with a replayable trigger, so auto-selection would silently put
+    every run in mutation mode and make fresh/mutation arms incomparable.
+    """
+    if requested_mode not in SEED_GENERATION_MODES:
+        raise ValueError(
+            f"Unsupported seed generation mode: {requested_mode!r} "
+            f"(expected one of {sorted(SEED_GENERATION_MODES)})"
+        )
+
+    if requested_mode == "fresh":
+        return "fresh", None, "Fresh mode was requested explicitly."
+
+    base_seed, reason = prepare_mutation_base_seed(triggering_input, format_info, output_dir)
+    if base_seed is not None:
+        return "mutation", base_seed, reason
+
+    if requested_mode == "mutation":
+        raise ValueError(f"Mutation mode was requested but no usable base seed exists: {reason}")
+    return "fresh", None, f"Auto-selected fresh mode: {reason}"
 
 
 def build_seed_records(seed_paths: list[Path], source_kind: str) -> list[dict]:
@@ -1129,6 +1395,26 @@ def evaluate_iteration_with_coverage(
         "blocked_side_hit_count": blocked_hits,
         "branch_line_reached": branch_hits > 0,
         "blocked_side_line_reached": blocked_hits > 0,
+    }
+
+
+def empty_baseline_evaluation() -> dict:
+    """Baseline for an iteration that has no trigger seed to replay.
+
+    ``evaluate_iteration_with_coverage`` shells out to libFuzzer and exits non-zero on an
+    empty corpus, which would sink the whole focused evaluation into its ``except`` handler
+    and leave the iteration with no coverage signal at all. An empty corpus covers nothing,
+    so state that directly and let the delta credit the generated seeds with everything.
+    """
+    return {
+        "success": True,
+        "synthesized_empty_baseline": True,
+        "branch_hit_count_raw": "0",
+        "blocked_side_hit_count_raw": "0",
+        "branch_hit_count": 0,
+        "blocked_side_hit_count": 0,
+        "branch_line_reached": False,
+        "blocked_side_line_reached": False,
     }
 
 
@@ -1577,10 +1863,70 @@ def select_best_symcc_candidates(
     }
 
 
+def deterministic_stratified_seed_sample(paths: list[str], limit: int) -> list[str]:
+    """Spread the sample across the whole list rather than taking a prefix.
+
+    Generated seeds are named by family, so a prefix would come from one or two families
+    and hand SymCC a set of near-identical starting points.
+    """
+    if limit <= 0 or not paths:
+        return []
+    if len(paths) <= limit:
+        return list(paths)
+    step = (len(paths) - 1) / (limit - 1) if limit > 1 else 0
+    return [paths[round(index * step)] for index in range(limit)]
+
+
+def select_diverse_handoff_records(records: list[dict], limit: int) -> list[dict]:
+    """Pick starting points that differ from each other, not just the highest-scoring ones.
+
+    SymCC explores outward from whatever it is given, so N near-identical seeds buy roughly
+    one seed's worth of exploration. Taking the top-N by branch hit count tends to do exactly
+    that, because the highest counts usually come from one family hammering a loop -- zlib
+    fill_window reached the branch 2.68M times without ever crossing the predicate. So take
+    the strongest seed first, then prefer seeds from unseen families and unseen size buckets.
+    """
+    if limit <= 0 or not records:
+        return []
+
+    def size_bucket(record: dict) -> int:
+        size = int(record.get("seed_size_bytes", 0) or 0)
+        return size.bit_length()
+
+    ranked = sorted(
+        records,
+        key=lambda item: (int(item.get("branch_hit_count", 0) or 0), -int(item.get("seed_size_bytes", 1 << 30) or (1 << 30))),
+        reverse=True,
+    )
+
+    selected: list[dict] = []
+    seen_families: set[str] = set()
+    seen_buckets: set[int] = set()
+    for record in ranked:
+        if len(selected) >= limit:
+            break
+        family = str(record.get("family") or "")
+        bucket = size_bucket(record)
+        if selected and family in seen_families and bucket in seen_buckets:
+            continue
+        selected.append(record)
+        seen_families.add(family)
+        seen_buckets.add(bucket)
+
+    # Backfill with the remaining strongest seeds when diversity ran out before the budget.
+    for record in ranked:
+        if len(selected) >= limit:
+            break
+        if record not in selected:
+            selected.append(record)
+    return selected
+
+
 def select_recommended_symcc_generator_seeds(
     generator_terminal_reason: str,
     symcc_candidate_bundle: dict,
     triggering_input_evaluation: dict | None,
+    unmeasured_seed_paths: list[str] | None = None,
 ) -> dict:
     if generator_terminal_reason in {
         "no_branch_signal",
@@ -1592,6 +1938,23 @@ def select_recommended_symcc_generator_seeds(
             "recommended_generator_seed_paths": [],
             "recommended_generator_seed_records": [],
             "selection_reason": f"Generator terminal reason {generator_terminal_reason} does not justify generator-seed handoff.",
+        }
+
+    if generator_terminal_reason == "evaluation_failed":
+        # The generator ran and produced seeds; only the coverage oracle failed. Withholding
+        # them would turn a measurement outage into a lost SymCC stage, so hand over a
+        # bounded sample and let SymCC's own oracle judge them.
+        sample = [path for path in (unmeasured_seed_paths or []) if Path(path).is_file()]
+        sample = deterministic_stratified_seed_sample(sample, EVALUATION_FAILED_HANDOFF_SEEDS)
+        return {
+            "recommended_generator_seed_paths": sample,
+            "recommended_generator_seed_records": [
+                {"seed_path": path, "coverage_measured": False} for path in sample
+            ],
+            "selection_reason": (
+                "Coverage evaluation failed for every iteration, so seeds are handed off "
+                f"without branch evidence ({len(sample)} of {len(unmeasured_seed_paths or [])} generated seeds)."
+            ),
         }
 
     candidate_records = list(symcc_candidate_bundle.get("candidate_seed_records", []) or [])
@@ -1608,30 +1971,15 @@ def select_recommended_symcc_generator_seeds(
         baseline_branch = int(triggering_input_evaluation.get("branch_hit_count", 0) or 0)
         baseline_size = int(triggering_input_evaluation.get("seed_size_bytes", 1 << 30) or (1 << 30))
 
-    qualified_records: list[dict] = []
-    if generator_terminal_reason == "stalled_at_branch":
-        # For stalled_at_branch, the goal is to give SymCC diverse starting points.
-        # Seeds from select_best_symcc_candidates() already have branch_reached=True,
-        # meaning they've already passed all input-gates. Accept them all regardless of
-        # baseline comparison — hitting branch more times than the original is not the goal.
-        qualified_records = [
-            item for item in candidate_records
-            if int(item.get("branch_hit_count", 0) or 0) > 0
-        ]
-    else:
-        for item in candidate_records:
-            branch_hits = int(item.get("branch_hit_count", 0) or 0)
-            seed_size = int(item.get("seed_size_bytes", 1 << 30) or (1 << 30))
-            if branch_hits <= 0:
-                continue
-            if baseline_branch < 0:
-                qualified_records.append(item)
-                continue
-            if branch_hits > baseline_branch:
-                qualified_records.append(item)
-                continue
-            if branch_hits == baseline_branch and seed_size < baseline_size:
-                qualified_records.append(item)
+    # SymCC needs *different* valid starting points, not seeds that beat the trigger. The
+    # old gate demanded branch_hits > baseline, or an equal count in a smaller seed; for
+    # zlib gz_avail that meant "beat 3 hits" or "be under 13 bytes", so every generated
+    # gzip stream failed both and 61 of 62 archived runs handed SymCC nothing at all.
+    # Reaching the branch at all is the real qualification.
+    qualified_records = [
+        item for item in candidate_records
+        if int(item.get("branch_hit_count", 0) or 0) > 0
+    ]
 
     max_generator_seed_count = 0
     if generator_terminal_reason == "stalled_at_branch":
@@ -1644,25 +1992,20 @@ def select_recommended_symcc_generator_seeds(
     recommended_records = qualified_records[:max_generator_seed_count]
     recommended_paths = [str(item.get("seed_path", "")).strip() for item in recommended_records if item.get("seed_path")]
 
-    if generator_terminal_reason == "stalled_at_branch":
-        baseline_note = (
-            "Baseline comparison skipped for stalled_at_branch: all branch-reaching generator seeds "
-            "accepted to maximise SymCC starting-point diversity."
-        )
-    elif baseline_branch < 0:
-        baseline_note = "Triggering-input branch coverage was unavailable, so branch-reaching generator seeds were accepted without baseline comparison."
-    else:
-        baseline_note = (
-            f"Compared against triggering input baseline (branch_hit_count={baseline_branch}, "
-            f"seed_size_bytes={baseline_size})."
-        )
+    baseline_note = (
+        f"Triggering input reached the branch {baseline_branch} time(s) at {baseline_size} bytes; "
+        "generator seeds are selected for starting-point diversity rather than compared against it."
+        if baseline_branch >= 0
+        else "Triggering-input branch coverage was unavailable."
+    )
 
     return {
         "recommended_generator_seed_paths": recommended_paths,
         "recommended_generator_seed_records": recommended_records,
         "selection_reason": (
-            f"{baseline_note} Terminal reason {generator_terminal_reason} allows up to {max_generator_seed_count} "
-            "generator seeds for SymCC handoff."
+            f"{baseline_note} Terminal reason {generator_terminal_reason} allows up to "
+            f"{max_generator_seed_count} generator seeds; {len(qualified_records)} branch-reaching "
+            f"candidate(s) qualified and {len(recommended_records)} were handed off."
         ),
     }
 
@@ -1729,9 +2072,17 @@ def classify_iteration_status(
         return "coverage_progress", "Branch-line hit count increased."
     if family_progress:
         return "family_progress", f"Best family {best_family} improved blocker-oriented reachability without changing coverage."
-    if not post_merge_evaluation.get("branch_line_reached") and not family_summary.get("stable_branch_families"):
-        return "no_branch_signal", "No representative family or aggregate corpus can currently reach the branch line."
-    if post_merge_evaluation.get("branch_line_reached") and not post_merge_evaluation.get("blocked_side_line_reached"):
+    # Whether *our* seeds reach the branch has to be read off the isolated per-family
+    # measurement, never off post-merge. The post-merge corpus is the triggering seed plus
+    # the generated seeds, so once the trigger reaches the branch -- which is the normal case
+    # for an input-dependent blocker -- post_merge.branch_line_reached is true no matter how
+    # bad the generated seeds are. That made `stalled_at_branch` unfalsifiable and
+    # `no_branch_signal` unreachable, and 31 archived blockers were reported as "at the branch,
+    # condition unsatisfied" while every generated representative measured branch_hit_count 0.
+    generated_branch_reached = bool(family_summary.get("generated_family_reached_branch"))
+    if not generated_branch_reached:
+        return "no_branch_signal", "No generated representative family can currently reach the branch line."
+    if not family_summary.get("generated_family_reached_blocked_side"):
         return "stalled_at_branch", f"Best family {best_family} still reaches only the blocker branch path."
     return "no_progress", "No useful blocker-oriented signal was observed from generated seeds."
 
@@ -1752,8 +2103,11 @@ def diagnose_iteration(
     skipped_duplicate_seed_count = int(staging_metadata.get("skipped_duplicate_seed_count", 0) or 0)
     generated_family_reached_branch = bool(family_summary.get("generated_family_reached_branch"))
     generated_family_reached_blocked_side = bool(family_summary.get("generated_family_reached_blocked_side"))
-    branch_reached = bool(post_merge_evaluation.get("branch_line_reached")) or generated_family_reached_branch
-    blocked_reached = bool(post_merge_evaluation.get("blocked_side_line_reached")) or generated_family_reached_blocked_side
+    # Same contamination as in classify_iteration_status: post-merge includes the triggering
+    # seed, so OR-ing it in let the trigger's own reach masquerade as the generated seeds'.
+    # A positive delta is admissible because it can only come from the generated seeds.
+    branch_reached = generated_family_reached_branch or branch_delta > 0
+    blocked_reached = generated_family_reached_blocked_side or blocked_delta > 0
     baseline_blocked_reached = bool(baseline_evaluation.get("blocked_side_line_reached"))
     newly_blocked_reached = bool(coverage_delta.get("newly_reached_blocked_side_line"))
     coverage_novelty_success = bool(coverage_delta.get("coverage_novelty_success")) or (
@@ -1916,7 +2270,6 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     from llm_interface.llm_client import LLMClient, new_thread_id
 
     setup_file_logging(args.function_name, getattr(args, "log_dir", None))
-    base_prompt = build_prompt(args)
     triggering_input_path, triggering_input_preview = resolve_triggering_input(args.triggering_input)
     format_info = infer_input_format(
         project_name=args.project_name,
@@ -1932,6 +2285,18 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
     output_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
+    generation_mode, mutation_base_seed, generation_mode_reason = resolve_generation_mode(
+        str(getattr(args, "seed_generation_mode", DEFAULT_SEED_GENERATION_MODE) or DEFAULT_SEED_GENERATION_MODE),
+        args.triggering_input,
+        format_info,
+        output_dir,
+    )
+    base_prompt = build_prompt(args, generation_mode=generation_mode)
+    logging.info(
+        "Seed generator mode=%s: %s",
+        generation_mode,
+        generation_mode_reason,
+    )
     oss_fuzz = OSSFuzz()
     fuzzer_name = Path(args.fuzz_file).stem
 
@@ -1962,6 +2327,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             base_prompt=base_prompt,
             iteration_index=iteration_index,
             max_iterations=effective_max_iterations,
+            generation_mode=generation_mode,
             previous_generator_code=previous_generator_code,
             previous_rationale=previous_rationale,
             previous_analysis_summary=previous_analysis_summary,
@@ -2029,6 +2395,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                     previous_rationale=rationale,
                     fix_attempt_index=fix_attempt_index,
                     max_fix_attempts=max_fix_attempts,
+                    generation_mode=generation_mode,
                 )
                 (iteration_dir / f"fix_prompt_{fix_attempt_index:02d}.txt").write_text(fix_prompt, encoding="utf-8")
                 candidate_response_text = llm.generate(fix_prompt, thread_id=llm_thread_id)
@@ -2081,6 +2448,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 ),
                 timeout_seconds=float(getattr(args, "generator_timeout_sec", DEFAULT_GENERATOR_TIMEOUT_SEC)),
                 max_seed_size_bytes=int(getattr(args, "max_seed_size_bytes", MAX_SEED_SIZE_BYTES)),
+                base_seed_path=mutation_base_seed,
+                require_mutation=generation_mode == "mutation",
             )
             if validation_result.get("ok"):
                 current_response_text = candidate_response_text
@@ -2090,6 +2459,87 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 current_response_text = candidate_response_text
                 current_parsed = candidate_parsed
                 break
+
+        iteration_generation_mode = generation_mode
+        iteration_generation_mode_reason = generation_mode_reason
+        if (
+            generation_mode == "mutation"
+            and str(validation_result.get("error_kind", "")) == "no_valid_mutation_output"
+        ):
+            # The mutator ran but nothing it produced was a bounded derivative of the base seed.
+            # Repairing that is a strategy problem, not a syntax problem, so spend the rest of
+            # this iteration on a fresh generator instead of writing the whole iteration off.
+            logging.info(
+                "Iteration %d: every mutation candidate failed the gate; falling back to fresh mode.",
+                iteration_index,
+            )
+            fallback_prompt = build_iteration_prompt(
+                base_prompt=build_prompt(args, generation_mode="fresh"),
+                iteration_index=iteration_index,
+                max_iterations=effective_max_iterations,
+                generation_mode="fresh",
+                previous_generator_code=previous_generator_code,
+                previous_rationale=previous_rationale,
+                previous_analysis_summary=previous_analysis_summary,
+                evaluation_summary=previous_evaluation_summary,
+                generated_seed_preview=previous_seed_preview,
+                family_summary_text=previous_family_summary_text,
+                format_hint=previous_format_hint,
+            )
+            (iteration_dir / "fresh_fallback_prompt.txt").write_text(fallback_prompt, encoding="utf-8")
+            fallback_response_text = llm.generate(fallback_prompt, thread_id=llm_thread_id)
+            if not fallback_response_text:
+                raise RuntimeError(
+                    f"Empty LLM response on iteration {iteration_index} fresh-mode fallback."
+                )
+            fallback_parsed = enrich_parsed_response(
+                fallback_response_text, extract_json(fallback_response_text)
+            )
+            fallback_generator_code = fallback_parsed.get("generator_code", "")
+            if not fallback_generator_code:
+                raise RuntimeError(
+                    f"Fresh-mode fallback on iteration {iteration_index} returned no generator_code."
+                )
+
+            analysis_summary = fallback_parsed.get("analysis_summary", [])
+            failure_analysis = fallback_parsed.get("failure_analysis", [])
+            family_decisions = fallback_parsed.get("family_decisions", [])
+            revision_plan = fallback_parsed.get("revision_plan", [])
+            rationale = fallback_parsed.get("generator_design_rationale", "")
+            generator_code = fallback_generator_code
+            generator_filename = fallback_parsed.get("generator_filename", "seed_generator.py")
+            sample_seeds = fallback_parsed.get("sample_seeds", [])
+
+            (iteration_dir / "fresh_fallback_response.txt").write_text(
+                fallback_response_text, encoding="utf-8"
+            )
+            (iteration_dir / "fresh_fallback_parsed.json").write_text(
+                json.dumps(fallback_parsed, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            generator_path = write_generator(
+                iteration_dir, generator_code, f"fresh_fallback_{generator_filename}"
+            )
+            if isinstance(sample_seeds, list):
+                try:
+                    saved_seed_paths = save_sample_seeds(iteration_dir, sample_seeds, format_info)
+                except Exception as exc:
+                    logging.warning(
+                        "Failed to persist fallback sample seeds on iteration %d: %s", iteration_index, exc
+                    )
+            validation_result = validate_generator(
+                generator_path,
+                iteration_dir,
+                materialized_dir_name="materialized_by_generator_fresh_fallback",
+                timeout_seconds=float(getattr(args, "generator_timeout_sec", DEFAULT_GENERATOR_TIMEOUT_SEC)),
+                max_seed_size_bytes=int(getattr(args, "max_seed_size_bytes", MAX_SEED_SIZE_BYTES)),
+            )
+            current_response_text = fallback_response_text
+            current_parsed = fallback_parsed
+            iteration_generation_mode = "fresh_fallback"
+            iteration_generation_mode_reason = (
+                "Every mutation candidate failed the local-derivative gate, so this iteration "
+                "regenerated seeds from scratch."
+            )
 
         validation_ok = bool(validation_result.get("ok"))
         validation_output = str(validation_result.get("output", ""))
@@ -2107,6 +2557,16 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 "largest_seed_size_bytes",
                 "oversized_rejected_dir",
                 "oversized_seed_records",
+                "mutation_base_seed_path",
+                "mutation_base_seed_sha256",
+                "mutation_base_seed_size_bytes",
+                "mutation_max_changed_ratio",
+                "mutation_candidate_count",
+                "mutation_retained_count",
+                "mutation_rejected_count",
+                "mutation_rejected_dir",
+                "mutation_retained_records",
+                "mutation_rejected_records",
                 "py_compile_elapsed_seconds",
                 "generator_elapsed_seconds",
                 "validation_elapsed_seconds",
@@ -2161,12 +2621,26 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                 )
 
             try:
-                triggering_seed = materialize_triggering_input(
-                    args.triggering_input,
-                    format_info,
-                    iteration_dir / "triggering_input_materialized",
+                if mutation_base_seed is not None:
+                    # Bind the coverage baseline to the exact bytes handed to the mutator through
+                    # --base-seed, so the delta measures the derivatives against their own scaffold.
+                    triggering_seed = mutation_base_seed
+                elif args.triggering_input:
+                    triggering_seed = materialize_triggering_input(
+                        args.triggering_input,
+                        format_info,
+                        iteration_dir / "triggering_input_materialized",
+                    )
+                else:
+                    # No trigger exists, so the baseline is an empty corpus and every hit the
+                    # generated seeds produce is novel. Without this the whole focused evaluation
+                    # raised and each iteration reported evaluation_failed with no coverage signal.
+                    triggering_seed = None
+                triggering_records = (
+                    build_seed_records([triggering_seed], source_kind="triggering")
+                    if triggering_seed is not None
+                    else []
                 )
-                triggering_records = build_seed_records([triggering_seed], source_kind="triggering")
                 generated_paths = sorted(p for p in generated_dir.rglob("*") if p.is_file())
                 generated_records = build_seed_records(generated_paths, source_kind="generated")
 
@@ -2174,21 +2648,26 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
                     baseline_snapshot_dir,
                     triggering_records,
                 )
-                baseline_evaluation = evaluate_iteration_with_coverage(
-                    oss_fuzz=oss_fuzz,
-                    project_name=args.project_name,
-                    fuzzer_name=fuzzer_name,
-                    function_name=args.function_name,
-                    source_file=args.source_file,
-                    source_api_file=args.source_api_file,
-                    branch_line=int(args.branch_line_number),
-                    blocked_side_line=int(args.blocked_side_line_number),
-                    fuzz_seconds=args.fuzz_seconds,
-                    output_dir=iteration_dir,
-                    report_basename="baseline",
-                    corpus_subdir_name=baseline_snapshot_name,
-                )
-                if not triggering_input_evaluation.get("success"):
+                if triggering_records:
+                    baseline_evaluation = evaluate_iteration_with_coverage(
+                        oss_fuzz=oss_fuzz,
+                        project_name=args.project_name,
+                        fuzzer_name=fuzzer_name,
+                        function_name=args.function_name,
+                        source_file=args.source_file,
+                        source_api_file=args.source_api_file,
+                        branch_line=int(args.branch_line_number),
+                        blocked_side_line=int(args.blocked_side_line_number),
+                        fuzz_seconds=args.fuzz_seconds,
+                        output_dir=iteration_dir,
+                        report_basename="baseline",
+                        corpus_subdir_name=baseline_snapshot_name,
+                    )
+                else:
+                    # Replaying an empty corpus exits non-zero, so synthesize the baseline it
+                    # would represent: nothing ran, nothing was covered.
+                    baseline_evaluation = empty_baseline_evaluation()
+                if triggering_seed is not None and not triggering_input_evaluation.get("success"):
                     triggering_input_evaluation = {
                         **baseline_evaluation,
                         "seed_path": str(triggering_seed.resolve()),
@@ -2367,6 +2846,8 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
 
         iteration_record = {
             "iteration": iteration_index,
+            "generation_mode": iteration_generation_mode,
+            "generation_mode_reason": iteration_generation_mode_reason,
             "prompt_path": str(iteration_dir / "prompt.txt"),
             "response_path": str(iteration_dir / "response.txt"),
             "parsed_path": str(iteration_dir / "parsed.json"),
@@ -2378,6 +2859,7 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
             "validation_metadata": validation_metadata,
             "fix_attempts_used": fix_attempts_used,
             "generated_seed_count": generated_seed_count,
+            "generated_dir": str(generated_dir),
             "staging_metadata": staging_metadata,
             "seed_preview": seed_preview,
             "family_counts": family_counts,
@@ -2477,8 +2959,13 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
     stalled_iteration_count = sum(1 for item in iterations if item.get("iteration_status") == "stalled_at_branch")
     no_branch_signal_count = sum(1 for item in iterations if item.get("iteration_status") == "no_branch_signal")
     already_covered_count = sum(1 for item in iterations if item.get("iteration_status") == "already_covered_in_baseline")
+    # "The generator is broken" and "coverage measurement broke" are different failures:
+    # the latter leaves perfectly good seeds behind that should still reach SymCC.
     invalid_iteration_count = sum(
-        1 for item in iterations if item.get("iteration_status") in {"invalid_generator", "evaluation_failed"}
+        1 for item in iterations if item.get("iteration_status") == "invalid_generator"
+    )
+    evaluation_failed_iteration_count = sum(
+        1 for item in iterations if item.get("iteration_status") == "evaluation_failed"
     )
     seed_budget_exceeded_iteration_count = sum(
         1 for item in iterations if item.get("validation_error_kind") in SEED_BUDGET_ERROR_KINDS
@@ -2537,17 +3024,41 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         generator_terminal_reason = "no_branch_signal"
     elif invalid_iteration_count == len(iterations) and iterations:
         generator_terminal_reason = "invalid_generator"
+    elif (
+        iterations
+        and evaluation_failed_iteration_count > 0
+        and invalid_iteration_count + evaluation_failed_iteration_count == len(iterations)
+    ):
+        # Every iteration produced seeds but none could be measured. There is no coverage
+        # evidence either way, so report that honestly instead of blaming the generator.
+        generator_terminal_reason = "evaluation_failed"
     else:
         generator_terminal_reason = "no_useful_signal"
+
+    unmeasured_seed_paths: list[str] = []
+    if generator_terminal_reason == "evaluation_failed":
+        for item in reversed(iterations):
+            generated_dir = Path(str(item.get("generated_dir", "")))
+            if not generated_dir.is_dir():
+                continue
+            unmeasured_seed_paths = [
+                str(path) for path in sorted(generated_dir.rglob("*")) if path.is_file()
+            ]
+            if unmeasured_seed_paths:
+                break
 
     symcc_handoff_bundle = select_recommended_symcc_generator_seeds(
         generator_terminal_reason=generator_terminal_reason,
         symcc_candidate_bundle=best_symcc_bundle,
         triggering_input_evaluation=triggering_input_evaluation,
+        unmeasured_seed_paths=unmeasured_seed_paths,
     )
 
     return {
         "output_dir": str(output_dir),
+        "generation_mode": generation_mode,
+        "generation_mode_reason": generation_mode_reason,
+        "mutation_base_seed_path": str(mutation_base_seed) if mutation_base_seed else "",
         "success": success,
         "final_status": final_status,
         "generator_terminal_reason": generator_terminal_reason,
@@ -2613,6 +3124,14 @@ def main() -> None:
     parser.add_argument("--blocker-call-sites", default=None)
     parser.add_argument("--blocker-call-sites-file", default=None)
     parser.add_argument("--triggering-input", default="")
+    parser.add_argument(
+        "--seed-generation-mode",
+        choices=list(SEED_GENERATION_MODES),
+        default=DEFAULT_SEED_GENERATION_MODE,
+        help="fresh: synthesise seeds from scratch (default, matches the original pipeline). "
+             "mutation: derive bounded local edits of the triggering input. "
+             "auto: use mutation when a usable base seed exists, otherwise fresh.",
+    )
     parser.add_argument("--max-iterations", type=int, default=config.BLOCKER_MAX_ITERATIONS)
     parser.add_argument("--fuzz-seconds", type=int, default=15)
     parser.add_argument("--generator-timeout-sec", type=float, default=DEFAULT_GENERATOR_TIMEOUT_SEC)

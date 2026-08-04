@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0727004709_crash-7d594e62c5688c5b4774dcd77c3ef79bb066e92f",
+  "artifact_sha1": "7d594e62c5688c5b4774dcd77c3ef79bb066e92f",
+  "fuzzer": "llm_fuzzgen0727004709",
+  "project": "tinyxml2",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/tinyxml2/run_fuzzer/20260804_035111_817448_llm_fuzzgen0727004709_01c03f94.log",
+  "saved_log_path": "experiments/20260804_034935_run_all_fuzzer/crash_seeds/tinyxml2/llm_fuzzgen0727004709/llm_fuzzgen0727004709_crash-7d594e62c5688c5b4774dcd77c3ef79bb066e92f.log",
+  "seed_path": "experiments/20260804_034935_run_all_fuzzer/crash_seeds/tinyxml2/llm_fuzzgen0727004709/llm_fuzzgen0727004709_crash-7d594e62c5688c5b4774dcd77c3ef79bb066e92f",
+  "seed_saved": true,
+  "seed_sha1": "7d594e62c5688c5b4774dcd77c3ef79bb066e92f",
+  "seed_size": 161,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/llm_fuzzgen0727004709_crash-7d594e62c5688c5b4774dcd77c3ef79bb066e92f",
+  "summary": {
+    "dedup_tokens": [
+      "ToElementWithName--tinyxml2::XMLNode::NextSiblingElement(char const*) const--NextSiblingElement"
+    ],
+    "sanitizer_error": "==11==ERROR: AddressSanitizer: SEGV on unknown address (pc 0x55ebbdb74141 bp 0x7ffe4ca30850 sp 0x7ffe4ca30820 T0)",
+    "summary": "SUMMARY: AddressSanitizer: SEGV /src/tinyxml2/tinyxml2.cpp:1225:39 in ToElementWithName"
+  }
+}

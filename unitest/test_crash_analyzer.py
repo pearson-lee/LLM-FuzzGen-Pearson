@@ -1,4 +1,6 @@
+import json
 import unittest
+from unittest.mock import Mock
 
 from crash_analyzer.crash_analyzer import CrashAnalyzer, CrashHeuristicTriage
 
@@ -78,6 +80,26 @@ class CrashAnalysisSchemaTest(unittest.TestCase):
             frame_classification="library",
         )
 
+    def _analysis_with_passing_gates(self) -> dict:
+        analysis = self._base_analysis()
+        analysis.update(
+            {
+                "api_contract_violation": "",
+                "missing_evidence": [],
+                "minimized_poc": "",
+                "reproduce_result": {"succeeded": True},
+                "rubric_scores": {
+                    "top_frame_ownership": {"score": 2, "evidence": "library frame"},
+                    "api_contract": {"score": 2, "evidence": "valid API arguments"},
+                    "normal_caller_feasibility": {"score": 2, "evidence": "normal caller"},
+                    "sanitizer_signal": {"score": 1, "evidence": "memory error"},
+                    "reproducibility": {"score": 1, "evidence": "reproduced"},
+                    "total": 8,
+                },
+            }
+        )
+        return analysis
+
     def test_valid_rubric_scores_are_kept_and_total_is_recomputed(self) -> None:
         analysis = self._base_analysis()
         analysis["rubric_scores"] = {
@@ -145,6 +167,99 @@ class CrashAnalysisSchemaTest(unittest.TestCase):
         self.assertIn("validation_warnings", validated)
         self.assertIn("reproducibility", validated["validation_warnings"][0])
         self.assertTrue(CrashAnalyzer._needs_audit(validated, self._triage()))
+
+    def test_api_contract_violation_blocks_real_crash_status(self) -> None:
+        analysis = self._analysis_with_passing_gates()
+        analysis["api_contract_violation"] = "row_mt must be 0 or 1"
+        analysis["rubric_scores"]["api_contract"]["score"] = 0
+
+        CrashAnalyzer._apply_final_status(analysis)
+
+        self.assertEqual(analysis["final_status"], "FP")
+        self.assertIn("API contract", analysis["final_status_reason"])
+
+    def test_null_pc_without_minimized_valid_poc_is_tbd(self) -> None:
+        analysis = self._analysis_with_passing_gates()
+        trace = "AddressSanitizer: SEGV\n#0 0x0  (<unknown module>)"
+
+        CrashAnalyzer._apply_final_status(analysis, trace)
+
+        self.assertEqual(analysis["final_status"], "TBD")
+        self.assertIn("independent valid-PoC replay", analysis["final_status_reason"])
+        self.assertTrue(CrashAnalyzer._needs_audit(analysis, self._triage(), trace))
+
+    def test_real_crash_passes_only_after_all_hard_gates(self) -> None:
+        analysis = self._analysis_with_passing_gates()
+
+        CrashAnalyzer._apply_final_status(
+            analysis,
+            "#0 0x123 in parse_input /src/project/parser.c:10:3",
+        )
+
+        self.assertEqual(analysis["final_status"], "TP")
+
+    def test_audit_can_demote_a_confidence_one_real_crash(self) -> None:
+        self.assertTrue(
+            CrashAnalyzer._should_adopt_audit_revision(
+                "Real Crash",
+                "Fuzzer Logic Error",
+                1.0,
+                0.9,
+            )
+        )
+
+    def test_audit_requires_stronger_evidence_to_promote_to_real_crash(self) -> None:
+        self.assertFalse(
+            CrashAnalyzer._should_adopt_audit_revision(
+                "Fuzzer Logic Error",
+                "Real Crash",
+                0.8,
+                0.9,
+            )
+        )
+
+    def test_audit_demotion_changes_final_status_to_fp(self) -> None:
+        analyzer = CrashAnalyzer.__new__(CrashAnalyzer)
+        analyzer.oss_fuzz = Mock()
+        analyzer.oss_fuzz.proj_lang.return_value = "c++"
+        initial = self._analysis_with_passing_gates()
+        initial["confidence"] = 1.0
+        audit = {
+            "audit_answers": {
+                "Q1": "row_mt=1254310399",
+                "Q2": "vp8dx.h restricts row_mt to 0 or 1",
+                "Q3": "the fuzzer ignores the failed control call",
+                "Q4": "the original explanation contradicts source order",
+                "Q5": "not found in /src/",
+                "Q6": "not found",
+                "Q7": "",
+            },
+            "revised_finding": "Fuzzer Logic Error",
+            "revised_confidence": 0.9,
+            "revision_rationale": "The seed violates the row_mt API contract.",
+            "missing_evidence": [],
+        }
+        analyzer.llm_client = Mock()
+        analyzer.llm_client.generate.side_effect = [json.dumps(initial), json.dumps(audit)]
+        trace = (
+            "AddressSanitizer: SEGV on unknown address 0x000000000000\n"
+            "#0 0x0 (<unknown module>)\n"
+            "#1 0x123 in decode_one /src/libvpx/vp9/vp9_dx_iface.c:328:7"
+        )
+
+        result = analyzer._get_llm_analysis(
+            "libvpx",
+            "int LLVMFuzzerTestOneInput(const unsigned char*, unsigned long);",
+            b"seed",
+            trace,
+            self._triage(),
+            reproduce_summary={"succeeded": True, "evidence": "reproduced"},
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["finding"], "Fuzzer Logic Error")
+        CrashAnalyzer._apply_final_status(result, trace)
+        self.assertEqual(result["final_status"], "FP")
 
 
 if __name__ == "__main__":

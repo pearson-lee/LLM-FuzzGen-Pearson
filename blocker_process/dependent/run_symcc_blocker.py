@@ -17,6 +17,7 @@ from pathlib import Path
 MODULE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = MODULE_ROOT.parent.parent
 SYMCC_SOLVER = MODULE_ROOT / "symcc_blocker_solver.py"
+DEFAULT_MAX_CANDIDATE_EVALUATIONS = 200
 DEFAULT_LLVM18_ROOT = Path.home() / "tools" / "llvm-18.1.8" / "bin"
 DEFAULT_LLVM_PROFDATA = str(DEFAULT_LLVM18_ROOT / "llvm-profdata")
 DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
@@ -94,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--branch-line", default=None, type=int)
     parser.add_argument("--blocked-side-line", default=None, type=int)
     parser.add_argument("--seed", action="append", default=[])
-    parser.add_argument("--fidelity-seed", default=None)
+    parser.add_argument("--fidelity-seed", action="append", default=[])
     parser.add_argument(
         "--fidelity-only",
         action="store_true",
@@ -108,10 +109,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--json-output-file", default=None, help="Optional path to write the final JSON summary.")
     parser.add_argument("--max-generations", type=int, default=3)
     parser.add_argument("--max-total-seeds", type=int, default=60)
-    parser.add_argument("--max-candidate-evaluations", type=int, default=200)
+    parser.add_argument(
+        "--max-candidate-evaluations",
+        type=int,
+        default=DEFAULT_MAX_CANDIDATE_EVALUATIONS,
+        help="Cap on coverage replays of SymCC candidates. The wall-clock budget is the "
+             "intended limiter; this only guards against a pathological candidate flood.",
+    )
     parser.add_argument("--max-retained-seeds", type=int, default=None)
     parser.add_argument("--initial-frontier-cap", type=int, default=30)
     parser.add_argument("--timeout-sec", type=int, default=30)
+    parser.add_argument(
+        "--extended-timeout-sec",
+        type=int,
+        default=0,
+        help="Optional longer per-seed SymCC timeout. Default 0 preserves the campaign timeout.",
+    )
     parser.add_argument("--wall-clock-budget-sec", type=int, default=300, help="Total wall-clock budget for SymCC exploration and online coverage replay. 0 means no limit.")
     parser.add_argument("--symcc", default=str(REPO_ROOT / "symcc" / "build" / "symcc"))
     parser.add_argument("--sympp", default=str(REPO_ROOT / "symcc" / "build" / "sym++"))
@@ -173,6 +186,31 @@ def _resolve_config_path(raw_path: str, project_name: str | None) -> Path:
     if path.is_absolute():
         return path
     return REPO_ROOT / path
+
+
+# Every OSS-Fuzz build.sh in this repo compiles targets with
+# ``-D_FUZZ_TARGET_NAME="\"$target_basename\""`` so a harness can name its own scratch file,
+# and libFuzzer's headers ship outside the project source tree. The SymCC build reconstructs
+# the compile itself, so it has to reproduce both -- 11 archived libtiff blockers never
+# reached SymCC because it did not (7 undeclared _FUZZ_TARGET_NAME, 4 missing
+# FuzzedDataProvider.h).
+FUZZER_INCLUDE_DIR = REPO_ROOT / "llvm-project-14" / "compiler-rt" / "include" / "fuzzer"
+
+
+def apply_oss_fuzz_build_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    """Reproduce the parts of the OSS-Fuzz compile that every project's build.sh supplies."""
+    target_name = getattr(args, "target_name", None)
+    if target_name:
+        define = f'_FUZZ_TARGET_NAME="{target_name}"'
+        if not any(item.startswith("_FUZZ_TARGET_NAME=") for item in args.define):
+            args.define.append(define)
+
+    if FUZZER_INCLUDE_DIR.is_dir():
+        resolved = str(FUZZER_INCLUDE_DIR)
+        if resolved not in args.include_dir:
+            args.include_dir.append(resolved)
+
+    return args
 
 
 def apply_project_config_overrides(args: argparse.Namespace, project_config: dict) -> argparse.Namespace:
@@ -416,6 +454,8 @@ def symcc_cmd(
         str(args.initial_frontier_cap),
         "--timeout-sec",
         str(args.timeout_sec),
+        "--extended-timeout-sec",
+        str(args.extended_timeout_sec),
         "--wall-clock-budget-sec",
         str(getattr(args, "wall_clock_budget_sec", 0) or 0),
         "--symcc",
@@ -444,8 +484,8 @@ def symcc_cmd(
         cmd.extend(["--define", define])
     for seed in args.seed:
         cmd.extend(["--seed", str(repo_path(seed))])
-    if args.fidelity_seed:
-        cmd.extend(["--fidelity-seed", str(repo_path(args.fidelity_seed))])
+    for fidelity_seed in args.fidelity_seed:
+        cmd.extend(["--fidelity-seed", str(repo_path(fidelity_seed))])
     if args.fidelity_only:
         cmd.append("--fidelity-only")
     if args.seed_dir:
@@ -473,6 +513,7 @@ def main() -> int:
     args = apply_blocker_payload(parse_args())
     args = maybe_auto_resolve_fuzz_target(args)
     project_config = load_project_config(args.project_name) if args.project_name else {}
+    args = apply_oss_fuzz_build_defaults(args)
     args = apply_project_config_overrides(args, project_config)
 
     missing = []
@@ -755,7 +796,8 @@ def main() -> int:
         summary["harness_fidelity"] = {
             "status": "unknown",
             "coverage_success": False,
-            "seed_path": args.fidelity_seed,
+            "seed_path": args.fidelity_seed[0] if args.fidelity_seed else "",
+            "seeds_available": len(args.fidelity_seed),
             "errors": [coverage_prepare_info.get("error") or "Coverage replay binary is unavailable."],
         }
         emit_summary(args, summary)

@@ -199,6 +199,8 @@ def crash_audit_prompt(
     top_app_frame_source: str,
     stack_trace: str,
     fuzzer_source_code: str,
+    crash_input_hex: str,
+    initial_evidence: str,
 ) -> str:
     """Generates a prompt for the evidence audit pass on a crash analysis."""
     return _load_and_format_template(
@@ -211,6 +213,8 @@ def crash_audit_prompt(
             "top_app_frame_source",
             "stack_trace",
             "fuzzer_source_code",
+            "crash_input_hex",
+            "initial_evidence",
         ],
         finding=finding,
         confidence=confidence,
@@ -219,6 +223,8 @@ def crash_audit_prompt(
         top_app_frame_source=top_app_frame_source,
         stack_trace=stack_trace,
         fuzzer_source_code=fuzzer_source_code,
+        crash_input_hex=crash_input_hex,
+        initial_evidence=initial_evidence,
     )
 
 

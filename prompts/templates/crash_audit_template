@@ -9,6 +9,11 @@ The heuristic frame classifier found:
 - Top application frame classification: {frame_classification}
 - Top application frame source: {top_app_frame_source}
 
+The initial pass used this contract/rubric evidence:
+```json
+{initial_evidence}
+```
+
 Your task is to answer specific evidence-gathering questions about this crash.
 Do NOT re-argue the original conclusion in general terms.
 Instead, find concrete source-level evidence for the specific questions below.
@@ -25,36 +30,41 @@ Instead, find concrete source-level evidence for the specific questions below.
 {fuzzer_source_code}
 ---
 
+# Crashing Input (Hex)
+
+{crash_input_hex}
+
 ---
 
 # Questions
 
-Answer the questions that apply to the current finding.
-For each question, provide either a direct quote/citation or state "not found" or "unknown".
+Answer every question. Provide a direct source citation and concrete value where possible;
+otherwise state `not found` or `unknown`.
 
-## If finding is "Fuzzer Logic Error"
+**Q1**: Which fuzz-derived arguments influence initialization, control/configuration, or the
+crashing call? Decode their concrete values from the input when possible, including enum IDs and
+range-constrained integers.
 
-**Q1**: Which exact line in the fuzz target source constructs an invalid or impossible state?
-Quote the line and explain why it violates the API's precondition.
-(If not found: say "not found — no clear API misuse visible in fuzz target source")
+**Q2**: What exact API declaration, header comment, validation macro, or implementation check
+defines the contract for those arguments? State whether the concrete values pass, fail, or remain
+unknown.
 
-**Q2**: Does the API header, documentation, or source comment explicitly forbid this usage?
-Quote or cite the relevant declaration, comment, or documented precondition.
-(If unknown: say "unknown — no accessible documentation for this constraint")
+**Q3**: Does any initialization, control/configuration, decode, or parse call return an error that
+the fuzz target ignores before continuing? Cite the fuzzer call sequence and library return path.
 
-## If finding is "Real Crash"
+**Q4**: Is the original causal explanation consistent with source execution order? Verify that
+each claimed state-changing operation occurs before the crashing statement. Cite line numbers.
 
-**Q3**: Is there a real caller in the project's own tests, examples, or main source
-that could reach the same crashing function with similar arguments?
-Cite one concrete example (file path + function name), OR say "not found in /src/".
+**Q5**: Is there a real caller in the project's tests, examples, or main source that reaches a
+similar state using contract-valid arguments and error handling? Cite one concrete caller or say
+`not found in /src/`.
 
-**Q4**: Would a correct, well-written fuzz target also be able to trigger this crash?
-Explain specifically why or why not, with reference to the crash path.
+**Q6**: For a null-PC or unknown-module crash, is there independent replay evidence for a
+minimized reproducer that still crashes after restricting all arguments to valid ranges and
+stopping on API errors? Quote the replay evidence, or state `not found`. LLM-generated PoC text
+alone is not replay evidence.
 
-## If finding is "Ambiguous"
-
-**Q5**: What single piece of missing evidence would most directly resolve the ambiguity?
-Be specific: name the function, header file, or test case you would need to inspect.
+**Q7**: What specific missing evidence, if any, prevents a definitive classification?
 
 ---
 
@@ -69,7 +79,9 @@ Return exactly one JSON object. Do not add prose before or after the JSON.
     "Q2": "...",
     "Q3": "...",
     "Q4": "...",
-    "Q5": "..."
+    "Q5": "...",
+    "Q6": "...",
+    "Q7": "..."
   }},
   "revised_finding": "Real Crash | Fuzzer Logic Error | Ambiguous",
   "revised_confidence": 0.0,
@@ -80,8 +92,14 @@ Return exactly one JSON object. Do not add prose before or after the JSON.
 
 # Rules
 
-- Only fill the Q fields that apply to the current finding. Leave others as empty strings.
-- If your answers reveal that evidence is insufficient, set `revised_finding` to `Ambiguous`
-  and list what is missing in `missing_evidence`. Do not force a verdict.
+- If Q2 proves an API contract violation, or Q3 proves the crash depends on continuing after a
+  failed API call, set `revised_finding` to `Fuzzer Logic Error` even if the stack is in library
+  code.
+- `Real Crash` is allowed only when Q2 proves contract-valid arguments, Q3 finds no dependent
+  ignored error, Q4 confirms source order, and Q5 identifies a contract-valid normal path.
+- For a null-PC or unknown-module crash, `Real Crash` also requires independent replay evidence
+  for the minimized valid reproducer in Q6. Without it, use `Ambiguous`.
+- If any required hard-gate answer is unknown, set `revised_finding` to `Ambiguous` and list the
+  exact missing evidence. Do not force a verdict.
 - `revised_confidence` must be between 0.0 and 1.0.
 - `revision_rationale` must reference concrete evidence from your answers, not generic reasoning.

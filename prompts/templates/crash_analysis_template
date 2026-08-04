@@ -35,6 +35,30 @@ Do not trust the heuristic blindly. Use it as a starting hypothesis only.
 
 # Required Workflow
 
+## Step 0: Apply Classification Hard Gates
+
+Complete these checks before adding rubric scores. A high rubric total cannot override a
+failed or unknown hard gate.
+
+1. **Reproduction gate**: if replay did not produce a sanitizer crash, the finding must be
+   `Ambiguous`.
+2. **API contract gate**: trace every fuzz-derived enum, control ID, flag, size, pointer,
+   ownership value, and range-constrained integer used on the crashing path. Compare the
+   concrete value from the seed with the declaration, header comment, validation macro, or
+   implementation check. If the fuzz target violates a precondition, the finding must be
+   `Fuzzer Logic Error`, even when the final stack frame is in library code.
+3. **Ignored-error gate**: inspect return values from initialization, control/configuration,
+   and decode/parse calls. If the crash depends on the fuzz target continuing after a failed
+   call without reset or cleanup, the finding must be `Fuzzer Logic Error`.
+4. **Source-order gate**: verify that every claimed causal operation executes before the crash
+   site. A function call located after the crashing statement cannot explain the crash. If the
+   order cannot be established, use `Ambiguous` and list the missing evidence.
+5. **TP evidence gate**: `Real Crash` requires api_contract=2,
+   normal_caller_feasibility=2, successful reproduction, and no unresolved evidence about the
+   API-valid path. A null-PC or unknown-module crash additionally requires an independently
+   replayed minimized PoC that uses only contract-valid calls. Text generated in `minimized_poc`
+   is not replay evidence. Without external replay evidence, use `Ambiguous`.
+
 ## Step 1: Fill the Evidence Rubric (mandatory before concluding)
 
 Fill all 5 fields. Each score MUST include a concrete evidence quote from the stack trace or
@@ -65,6 +89,11 @@ Score:
 - 2 = fuzz target correctly follows the API as declared in headers/docs
 
 Evidence: [quote the fuzz target line + the relevant API declaration or header comment]
+
+For score 2, include the concrete fuzz-derived argument value when the API constrains that
+argument. Generic statements such as "the decoder was initialized" do not prove later control
+or decode calls are contract-valid. If the value cannot be derived from the supplied seed, the
+maximum score is 1.
 
 ---
 
@@ -103,12 +132,14 @@ Evidence: [copy the exact `evidence` value from Reproduce Result]
 
 **Rubric Total** = sum of the 5 scores above (range 0–8)
 
-Mapping (initial guide — override with evidence if scores and evidence clearly conflict):
-- 0–2 → Fuzzer Logic Error (strong signal)
-- 3   → Fuzzer Logic Error (lean)
-- 4   → Ambiguous
-- 5   → Real Crash (lean)
-- 6–8 → Real Crash (strong signal)
+Apply the hard gates first. Only when every TP evidence gate passes, use this total mapping:
+- 0–3 → Fuzzer Logic Error
+- 4–5 → Ambiguous
+- 6–8 → Real Crash
+
+If api_contract=0 or the crash depends on an ignored API error, classify it as
+`Fuzzer Logic Error` regardless of the total. If api_contract or normal-caller feasibility is
+unknown, classify it as `Ambiguous`, not `Real Crash`.
 
 ## Step 2: Final Judgment
 
@@ -157,6 +188,10 @@ Return exactly one JSON object. Do not add prose before or after the JSON.
 - `rubric_scores.reproducibility.score` must match Reproduce Result exactly.
 - `missing_evidence`: list specific items you could not verify (e.g. "API header for pcap_compile_nopcap not accessible").
 - If you cannot verify enough evidence, set `finding` to `Ambiguous`.
+- Never use a library stack frame by itself as proof of a real library bug. Invalid API state
+  can fail later inside the library.
+- Validate causal claims against source line order. Put a contradicted claim in
+  `missing_evidence` and do not return `Real Crash`.
 - Use `cwe` only for real library bugs. Otherwise use an empty string.
 - For `Fuzzer Logic Error`, `suggested_fix` should describe how to fix the fuzz target misuse.
 - For `Real Crash`, `suggested_fix` should be a minimal library patch or a precise remediation direction.

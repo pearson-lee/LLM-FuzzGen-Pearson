@@ -90,6 +90,7 @@ class SymCCExplorationResult:
     stop_reason: str
     generations_completed: int
     symcc_executions: int
+    symcc_timeouts: int
     outputs_discovered: int
     candidate_evaluations: int
     retained_seed_count: int
@@ -120,6 +121,9 @@ class SymCCExplorationResult:
             "stop_reason": self.stop_reason,
             "generations_completed": self.generations_completed,
             "symcc_executions": self.symcc_executions,
+            # A high timeout share means the per-execution budget, not the search, is
+            # what limited this run.
+            "symcc_timeouts": self.symcc_timeouts,
             "outputs_discovered": self.outputs_discovered,
             "candidate_evaluations": self.candidate_evaluations,
             "retained_seed_count": self.retained_seed_count,
@@ -191,8 +195,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--fidelity-seed",
-        default=None,
-        help="Previously branch-reaching seed used to verify a generated harness preserves the blocker path.",
+        action="append",
+        default=[],
+        help="Previously branch-reaching seed used to verify a generated harness preserves "
+             "the blocker path. Repeat to offer alternatives: a generated harness may consume "
+             "bytes differently, so one seed missing does not mean the harness is wrong.",
     )
     parser.add_argument(
         "--fidelity-only",
@@ -238,6 +245,13 @@ def parse_args() -> argparse.Namespace:
         help="Maximum number of initial seeds used as the first SymCC frontier.",
     )
     parser.add_argument("--timeout-sec", type=int, default=30, help="Timeout for each target execution.")
+    parser.add_argument(
+        "--extended-timeout-sec",
+        type=int,
+        default=0,
+        help="Optional longer per-execution budget for SymCC frontier seeds. "
+             "Default 0 preserves the configured --timeout-sec campaign budget.",
+    )
     parser.add_argument("--wall-clock-budget-sec", type=int, default=300, help="Total wall-clock budget for SymCC exploration and online coverage replay. 0 means no limit.")
     parser.add_argument("--ossfuzz-supplement-corpus-dir", default=None, help="OSS-Fuzz corpus dir to scan for branch-reaching binary seeds when initial corpus is sparse (<4 seeds).")
     parser.add_argument("--export-solved-seed-dir", default=None, help="Directory to receive the best blocked-side-reaching seed after a successful original-target solve.")
@@ -949,11 +963,11 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
     if symcc_runtime_dir.is_dir():
         symcc_env["SYMCC_RUNTIME_DIR"] = str(symcc_runtime_dir)
     if use_cxx:
-        libcxx_install = REPO_ROOT / "libcxx_symcc_install"
-        if libcxx_install.is_dir():
-            symcc_env["SYMCC_LIBCXX_PATH"] = str(libcxx_install)
-        else:
-            symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
+        # The checked-in libcxx_symcc_install may come from a different LLVM
+        # release and an existing directory is not proof that its headers are
+        # usable.  OSS-Fuzz SymCC library builds use the system C++ runtime too,
+        # so keep the host replay on the same ABI/toolchain path.
+        symcc_env["SYMCC_REGULAR_LIBCXX"] = "yes"
 
     symcc_obj_dir = work_dir / "build" / "symcc" / "obj"
     symcc_bin = work_dir / "build" / "symcc" / "replay_symcc"
@@ -1080,6 +1094,55 @@ def _candidate_rank(candidate: CandidateEvaluation) -> int:
     return 3
 
 
+def select_diverse_frontier(
+    candidates: list[CandidateEvaluation],
+    limit: int,
+) -> list[CandidateEvaluation]:
+    """Choose the next frontier for coverage *and* diversity.
+
+    Ranking on branch hit count alone is unreliable here: the count is dominated by loop
+    iterations, not by proximity to the blocked side -- zlib fill_window reached the branch
+    2.68M times without ever crossing it. And SymCC explores outward from what it is given,
+    so a frontier of near-identical seeds explores one neighbourhood N times. Take the best
+    of each rank bucket first, then spread the rest across seed-size buckets.
+    """
+    if limit <= 0 or not candidates:
+        return []
+
+    def size_bucket(candidate: CandidateEvaluation) -> int:
+        try:
+            return candidate.seed.stat().st_size.bit_length()
+        except OSError:
+            return -1
+
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            _candidate_rank(candidate),
+            -(candidate.coverage.branch_hit_count if candidate.coverage else 0),
+            candidate.seed.name,
+        ),
+    )
+
+    selected: list[CandidateEvaluation] = []
+    seen_buckets: set[int] = set()
+    for candidate in ranked:
+        if len(selected) >= limit:
+            break
+        bucket = size_bucket(candidate)
+        if selected and bucket in seen_buckets:
+            continue
+        selected.append(candidate)
+        seen_buckets.add(bucket)
+
+    for candidate in ranked:
+        if len(selected) >= limit:
+            break
+        if candidate not in selected:
+            selected.append(candidate)
+    return selected
+
+
 def explore_with_symcc(
     args: argparse.Namespace,
     symcc_bin: Path,
@@ -1115,6 +1178,7 @@ def explore_with_symcc(
     stop_reason = "frontier_exhausted"
     generations_completed = 0
     symcc_executions = 0
+    symcc_timeouts = 0
     outputs_discovered = 0
     retained_seed_count = 0
 
@@ -1160,7 +1224,14 @@ def explore_with_symcc(
             if remaining_eval_budget <= 0:
                 stop_reason = "candidate_eval_budget_exhausted"
                 break
-            symcc_timeout = bounded_timeout(float(args.timeout_sec))
+            # Keep the campaign timeout by default. An explicit extended timeout is an
+            # opt-in solver-tuning experiment; bounded_timeout still clamps it to the
+            # remaining wall clock.
+            seed_timeout_budget = max(
+                float(args.timeout_sec),
+                float(getattr(args, "extended_timeout_sec", 0) or 0),
+            )
+            symcc_timeout = bounded_timeout(seed_timeout_budget)
             if symcc_timeout is None:
                 stop_reason = "deadline_exhausted"
                 break
@@ -1171,12 +1242,10 @@ def explore_with_symcc(
             symcc_env["SYMCC_OUTPUT_DIR"] = str(symcc_out)
             symcc_env["SYMCC_ENABLE_LINEARIZATION"] = "1"
             if use_cxx:
-                libcxx_install = REPO_ROOT / "libcxx_symcc_install"
-                if libcxx_install.is_dir():
-                    symcc_env["SYMCC_LIBCXX_PATH"] = str(libcxx_install)
-                else:
-                    symcc_env.setdefault("SYMCC_REGULAR_LIBCXX", "yes")
+                symcc_env["SYMCC_REGULAR_LIBCXX"] = "yes"
 
+            result = None
+            timed_out = False
             try:
                 result = run_single_seed(
                     binary=symcc_bin,
@@ -1187,18 +1256,30 @@ def explore_with_symcc(
                     env=symcc_env,
                 )
             except subprocess.TimeoutExpired:
-                log(f"[warn] SymCC timeout on {seed_path.name}")
-                symcc_executions += 1
-                continue
+                # SymCC writes each solved input to SYMCC_OUTPUT_DIR as it goes, so a
+                # timeout still leaves usable candidates behind. Skipping the collection
+                # below would discard them -- and the next seed's rmtree would delete
+                # them -- making the run report zero outputs when it in fact had many.
+                symcc_timeouts += 1
+                timed_out = True
+                partial = len(list(symcc_out.iterdir())) if symcc_out.is_dir() else 0
+                log(
+                    f"[warn] SymCC timeout on {seed_path.name} "
+                    f"after {symcc_timeout:.0f}s; keeping {partial} partial output(s)"
+                )
 
             symcc_executions += 1
-            if result.returncode not in (0, 1):
+            if result is not None and result.returncode not in (0, 1):
                 log(f"[info] seed {seed_path.name} exited with code {result.returncode}")
 
-            materialized_simple_outputs = materialize_symcc_simple_backend_outputs(
-                seed_path=seed_path,
-                result=result,
-                output_dir=symcc_out,
+            materialized_simple_outputs = (
+                materialize_symcc_simple_backend_outputs(
+                    seed_path=seed_path,
+                    result=result,
+                    output_dir=symcc_out,
+                )
+                if result is not None
+                else 0
             )
             if materialized_simple_outputs:
                 log(
@@ -1226,6 +1307,7 @@ def explore_with_symcc(
                 f"replaying {len(sampled_outputs)} with fair quota {fair_quota}"
             )
 
+            generation_branch_reaching = 0
             for output_seed, output_hash in sampled_outputs:
                 candidate_path = evaluated_dir / seed_name(output_hash, output_seed)
                 if not candidate_path.exists():
@@ -1262,6 +1344,8 @@ def explore_with_symcc(
 
                 evaluations.append(candidate)
                 generation_candidates.append(candidate)
+                if candidate.coverage and candidate.coverage.branch_hit_count > 0:
+                    generation_branch_reaching += 1
                 if candidate.coverage and candidate.coverage.blocked_side_line_reached:
                     solved = candidate.coverage
                     stop_reason = "blocked_side_reached"
@@ -1310,6 +1394,7 @@ def explore_with_symcc(
         stop_reason=stop_reason,
         generations_completed=generations_completed,
         symcc_executions=symcc_executions,
+        symcc_timeouts=symcc_timeouts,
         outputs_discovered=outputs_discovered,
         candidate_evaluations=len(evaluations),
         retained_seed_count=retained_seed_count,
@@ -1323,6 +1408,54 @@ def explore_with_symcc(
 
 
 def evaluate_seed_with_coverage(
+    *,
+    coverage_bin: Path,
+    branch_source: Path,
+    coverage_source: str | None,
+    branch_line: int,
+    blocked_side_line: int,
+    seed_path: Path,
+    target_args: str,
+    input_mode: str,
+    timeout_sec: int,
+    coverage_dir: Path,
+    keep_report: bool,
+    llvm_profdata: str,
+    llvm_cov: str,
+) -> CoverageResult:
+    """Measure one seed's branch/blocked-side coverage, then drop the profiles.
+
+    ``.profraw``/``.profdata`` are one-shot inputs to llvm-profdata/llvm-cov; nothing
+    downstream reads them back -- only the hit counts in ``CoverageResult`` are used.
+    Keeping them costs roughly 180 KB per evaluated candidate, which is what makes the
+    candidate-evaluation budget scale linearly in disk. Cleanup runs in ``finally`` so
+    the failure paths, where junk accumulates fastest, are covered too.
+    """
+    raw_profile = coverage_dir / f"{seed_path.name}.profraw"
+    profdata = coverage_dir / f"{seed_path.name}.profdata"
+    try:
+        return _measure_seed_coverage(
+            coverage_bin=coverage_bin,
+            branch_source=branch_source,
+            coverage_source=coverage_source,
+            branch_line=branch_line,
+            blocked_side_line=blocked_side_line,
+            seed_path=seed_path,
+            target_args=target_args,
+            input_mode=input_mode,
+            timeout_sec=timeout_sec,
+            coverage_dir=coverage_dir,
+            keep_report=keep_report,
+            llvm_profdata=llvm_profdata,
+            llvm_cov=llvm_cov,
+        )
+    finally:
+        if not keep_report:
+            for profile in (raw_profile, profdata):
+                profile.unlink(missing_ok=True)
+
+
+def _measure_seed_coverage(
     *,
     coverage_bin: Path,
     branch_source: Path,
@@ -1488,7 +1621,7 @@ def evaluate_generated_harness_fidelity(
     coverage_source: str | None,
     branch_line: int,
     blocked_side_line: int,
-    fidelity_seed: Path,
+    fidelity_seeds: list[Path],
     target_args: str,
     input_mode: str,
     timeout_sec: int,
@@ -1498,46 +1631,94 @@ def evaluate_generated_harness_fidelity(
     llvm_cov: str,
     max_attempts: int = 2,
 ) -> dict:
-    errors: list[str] = []
-    for attempt in range(1, max(1, int(max_attempts)) + 1):
-        try:
-            result = evaluate_seed_with_coverage(
-                coverage_bin=coverage_bin,
-                branch_source=branch_source,
-                coverage_source=coverage_source,
-                branch_line=branch_line,
-                blocked_side_line=blocked_side_line,
-                seed_path=fidelity_seed,
-                target_args=target_args,
-                input_mode=input_mode,
-                timeout_sec=timeout_sec,
-                coverage_dir=coverage_dir / f"attempt_{attempt:02d}",
-                keep_report=keep_report,
-                llvm_profdata=llvm_profdata,
-                llvm_cov=llvm_cov,
-            )
-        except (OSError, RuntimeError) as exc:
-            errors.append(str(exc))
-            log(f"[warn] generated-harness fidelity coverage attempt {attempt} failed: {exc}")
-            continue
+    """Decide whether a generated harness still reaches the blocker branch.
 
+    Every seed handed in already reached the branch under the *original* fuzz target, but a
+    freshly written harness may consume bytes differently, so a given seed can miss. Judging
+    the harness on one seed conflates "this harness is wrong" with "this seed does not fit
+    this harness" -- and that conflation ended 30 of 66 archived attempts before SymCC ran
+    at all. Any seed reaching the branch proves the harness preserves the path, so the
+    search stops at the first hit and only reports incompatible once every seed has missed.
+    """
+    errors: list[str] = []
+    seeds = [seed for seed in fidelity_seeds if seed.is_file()]
+    if not seeds:
         return {
-            "status": "compatible" if result.branch_hit_count > 0 else "incompatible",
-            "coverage_success": True,
-            "attempt_count": attempt,
-            "seed_path": str(fidelity_seed),
-            "branch_hit_count": result.branch_hit_count,
-            "branch_hit_count_raw": result.branch_hit_count_raw,
-            "blocked_side_hit_count": result.blocked_side_hit_count,
-            "blocked_side_hit_count_raw": result.blocked_side_hit_count_raw,
-            "errors": errors,
+            "status": "unknown",
+            "coverage_success": False,
+            "attempt_count": 0,
+            "seeds_tried": 0,
+            "seeds_available": len(fidelity_seeds),
+            "seed_path": str(fidelity_seeds[0]) if fidelity_seeds else "",
+            "branch_hit_count": None,
+            "blocked_side_hit_count": None,
+            "errors": ["No fidelity seed file exists."],
         }
+
+    measured: list[dict] = []
+    for index, fidelity_seed in enumerate(seeds, start=1):
+        for attempt in range(1, max(1, int(max_attempts)) + 1):
+            try:
+                result = evaluate_seed_with_coverage(
+                    coverage_bin=coverage_bin,
+                    branch_source=branch_source,
+                    coverage_source=coverage_source,
+                    branch_line=branch_line,
+                    blocked_side_line=blocked_side_line,
+                    seed_path=fidelity_seed,
+                    target_args=target_args,
+                    input_mode=input_mode,
+                    timeout_sec=timeout_sec,
+                    coverage_dir=coverage_dir / f"seed_{index:02d}_attempt_{attempt:02d}",
+                    keep_report=keep_report,
+                    llvm_profdata=llvm_profdata,
+                    llvm_cov=llvm_cov,
+                )
+            except (OSError, RuntimeError) as exc:
+                errors.append(f"{fidelity_seed.name}: {exc}")
+                log(
+                    f"[warn] fidelity coverage for {fidelity_seed.name} "
+                    f"attempt {attempt} failed: {exc}"
+                )
+                continue
+
+            record = {
+                "coverage_success": True,
+                "attempt_count": attempt,
+                "seeds_tried": index,
+                "seeds_available": len(seeds),
+                "seed_path": str(fidelity_seed),
+                "branch_hit_count": result.branch_hit_count,
+                "branch_hit_count_raw": result.branch_hit_count_raw,
+                "blocked_side_hit_count": result.blocked_side_hit_count,
+                "blocked_side_hit_count_raw": result.blocked_side_hit_count_raw,
+                "errors": errors,
+            }
+            if result.branch_hit_count > 0:
+                log(
+                    f"[info] generated harness preserved the branch with {fidelity_seed.name} "
+                    f"({index}/{len(seeds)} seed(s) tried)"
+                )
+                return {"status": "compatible", **record}
+            measured.append(record)
+            break
+
+    if measured:
+        log(
+            f"[info] generated harness missed the branch on all {len(measured)} "
+            f"measurable seed(s) of {len(seeds)}"
+        )
+        # Report the last measurable seed so the LLM repair prompt still gets a concrete
+        # branch_hit_count, while seeds_tried records how wide the search actually was.
+        return {"status": "incompatible", **measured[-1], "seeds_tried": len(measured)}
 
     return {
         "status": "unknown",
         "coverage_success": False,
         "attempt_count": max(1, int(max_attempts)),
-        "seed_path": str(fidelity_seed),
+        "seeds_tried": len(seeds),
+        "seeds_available": len(seeds),
+        "seed_path": str(seeds[0]),
         "branch_hit_count": None,
         "blocked_side_hit_count": None,
         "errors": errors,
@@ -1689,33 +1870,22 @@ def main() -> int:
 
     generated_harness_mode = bool(loaded_context and loaded_context.mode == "generated_harness")
     if generated_harness_mode and args.fidelity_seed:
-        fidelity_seed = Path(args.fidelity_seed).resolve()
-        if not fidelity_seed.is_file():
-            fidelity_result = {
-                "status": "unknown",
-                "coverage_success": False,
-                "attempt_count": 0,
-                "seed_path": str(fidelity_seed),
-                "branch_hit_count": None,
-                "blocked_side_hit_count": None,
-                "errors": ["Fidelity seed file does not exist."],
-            }
-        else:
-            fidelity_result = evaluate_generated_harness_fidelity(
-                coverage_bin=coverage_bin,
-                branch_source=branch_source,
-                coverage_source=coverage_source,
-                branch_line=args.branch_line,
-                blocked_side_line=args.blocked_side_line,
-                fidelity_seed=fidelity_seed,
-                target_args=args.target_args,
-                input_mode=args.input_mode,
-                timeout_sec=args.timeout_sec,
-                coverage_dir=work_dir / "coverage" / "harness_fidelity",
-                keep_report=args.keep_coverage_reports,
-                llvm_profdata=llvm_profdata,
-                llvm_cov=llvm_cov,
-            )
+        fidelity_seeds = [Path(seed).resolve() for seed in args.fidelity_seed]
+        fidelity_result = evaluate_generated_harness_fidelity(
+            coverage_bin=coverage_bin,
+            branch_source=branch_source,
+            coverage_source=coverage_source,
+            branch_line=args.branch_line,
+            blocked_side_line=args.blocked_side_line,
+            fidelity_seeds=fidelity_seeds,
+            target_args=args.target_args,
+            input_mode=args.input_mode,
+            timeout_sec=args.timeout_sec,
+            coverage_dir=work_dir / "coverage" / "harness_fidelity",
+            keep_report=args.keep_coverage_reports,
+            llvm_profdata=llvm_profdata,
+            llvm_cov=llvm_cov,
+        )
 
         log("HARNESS_FIDELITY_JSON=" + json.dumps(fidelity_result, ensure_ascii=False))
         if fidelity_result["status"] == "unknown":
@@ -1824,6 +1994,7 @@ def main() -> int:
             stop_reason=("baseline_already_reached" if baseline_reached else "supplement_already_reached"),
             generations_completed=0,
             symcc_executions=0,
+            symcc_timeouts=0,
             outputs_discovered=0,
             candidate_evaluations=0,
             retained_seed_count=0,

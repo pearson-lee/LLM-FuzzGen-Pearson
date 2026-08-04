@@ -27,6 +27,16 @@ FINDING_TO_STATUS = {
     "Fuzzer Logic Error": "FP",
     "Ambiguous": "TBD",
 }
+VALID_FINAL_STATUSES = {"TP", "FP", "TBD"}
+
+
+def _status_from_analysis(analysis: dict[str, Any]) -> str:
+    """Prefer the analyzer's hard-gated status, with legacy finding fallback."""
+    final_status = analysis.get("final_status")
+    if isinstance(final_status, str) and final_status in VALID_FINAL_STATUSES:
+        return final_status
+    finding = str(analysis.get("finding", "Ambiguous"))
+    return FINDING_TO_STATUS.get(finding, "TBD")
 
 
 @dataclass(frozen=True)
@@ -181,6 +191,7 @@ def _record(
     finding: str = "",
     confidence: float | None = None,
     artifact_dir: Path | None = None,
+    status_reason: str = "",
     error: str = "",
 ) -> dict[str, Any]:
     return {
@@ -195,6 +206,7 @@ def _record(
         "finding": finding,
         "confidence": confidence,
         "artifact_dir": str(artifact_dir or ""),
+        "status_reason": status_reason,
         "error": error,
     }
 
@@ -230,6 +242,7 @@ def _write_results(output_dir: Path, summary: dict[str, Any]) -> None:
         "metadata_path",
         "seed_path",
         "artifact_dir",
+        "status_reason",
         "error",
     ]
     with (output_dir / "results.csv").open("w", newline="", encoding="utf-8") as csv_file:
@@ -439,7 +452,8 @@ def run(args: argparse.Namespace) -> int:
                     raise RuntimeError("CrashAnalyzer did not produce an analysis artifact")
                 analysis = json.loads((artifact_dir / "analysis.json").read_text(encoding="utf-8"))
                 finding = str(analysis.get("finding", "Ambiguous"))
-                status = FINDING_TO_STATUS.get(finding, "TBD")
+                status = _status_from_analysis(analysis)
+                status_reason = str(analysis.get("final_status_reason", ""))
                 confidence_value = analysis.get("confidence")
                 confidence = float(confidence_value) if isinstance(confidence_value, (int, float)) else None
                 records.append(
@@ -450,6 +464,7 @@ def run(args: argparse.Namespace) -> int:
                         finding=finding,
                         confidence=confidence,
                         artifact_dir=artifact_dir,
+                        status_reason=status_reason,
                     )
                 )
                 logger.info(

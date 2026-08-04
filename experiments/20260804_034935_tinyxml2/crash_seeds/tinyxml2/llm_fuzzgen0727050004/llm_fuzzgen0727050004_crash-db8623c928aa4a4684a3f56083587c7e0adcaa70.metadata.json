@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0727050004_crash-db8623c928aa4a4684a3f56083587c7e0adcaa70",
+  "artifact_sha1": "db8623c928aa4a4684a3f56083587c7e0adcaa70",
+  "fuzzer": "llm_fuzzgen0727050004",
+  "project": "tinyxml2",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/tinyxml2/run_fuzzer/20260804_035217_954080_llm_fuzzgen0727050004_021f7457.log",
+  "saved_log_path": "experiments/20260804_034935_run_all_fuzzer/crash_seeds/tinyxml2/llm_fuzzgen0727050004/llm_fuzzgen0727050004_crash-db8623c928aa4a4684a3f56083587c7e0adcaa70.log",
+  "seed_path": "experiments/20260804_034935_run_all_fuzzer/crash_seeds/tinyxml2/llm_fuzzgen0727050004/llm_fuzzgen0727050004_crash-db8623c928aa4a4684a3f56083587c7e0adcaa70",
+  "seed_saved": true,
+  "seed_sha1": "db8623c928aa4a4684a3f56083587c7e0adcaa70",
+  "seed_size": 118,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tinyxml2/llm_fuzzgen0727050004_crash-db8623c928aa4a4684a3f56083587c7e0adcaa70",
+  "summary": {
+    "dedup_tokens": [
+      "___interceptor_strlen--SetStr"
+    ],
+    "sanitizer_error": "==11==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x7f7365eae915 bp 0x7ffe99af3a60 sp 0x7ffe99af3218 T0)",
+    "summary": "SUMMARY: AddressSanitizer: SEGV (/lib/x86_64-linux-gnu/libc.so.6+0x188915) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)"
+  }
+}

@@ -2,6 +2,8 @@ from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 
+import pytest
+
 import blocker_process.dependent.build_context as build_context_module
 import blocker_process.dependent.symcc_blocker_solver as symcc_solver
 from blocker_process.dependent.build_context import BuildContext
@@ -19,9 +21,12 @@ def coverage_result(seed: Path, branch_hits: int) -> symcc_solver.CoverageResult
     )
 
 
-def fidelity_args(tmp_path: Path) -> dict:
-    seed = tmp_path / "trigger.seed"
-    seed.write_bytes(b"trigger")
+def fidelity_args(tmp_path: Path, seed_count: int = 1) -> dict:
+    seeds = []
+    for index in range(seed_count):
+        seed = tmp_path / ("trigger.seed" if index == 0 else f"seed_{index}.bin")
+        seed.write_bytes(b"trigger" if index == 0 else f"seed{index}".encode())
+        seeds.append(seed)
     binary = tmp_path / "replay_cov"
     binary.write_bytes(b"binary")
     source = tmp_path / "source.c"
@@ -32,7 +37,7 @@ def fidelity_args(tmp_path: Path) -> dict:
         "coverage_source": str(source),
         "branch_line": 10,
         "blocked_side_line": 11,
-        "fidelity_seed": seed,
+        "fidelity_seeds": seeds,
         "target_args": "@@",
         "input_mode": "file",
         "timeout_sec": 1,
@@ -48,7 +53,7 @@ def test_fidelity_is_compatible_when_trigger_reaches_branch(tmp_path: Path, monk
     monkeypatch.setattr(
         symcc_solver,
         "evaluate_seed_with_coverage",
-        lambda **kwargs: coverage_result(args["fidelity_seed"], branch_hits=3),
+        lambda **kwargs: coverage_result(args["fidelity_seeds"][0], branch_hits=3),
     )
 
     result = symcc_solver.evaluate_generated_harness_fidelity(**args)
@@ -67,7 +72,7 @@ def test_fidelity_retries_coverage_then_reports_incompatible(tmp_path: Path, mon
         calls += 1
         if calls == 1:
             raise RuntimeError("missing profraw")
-        return coverage_result(args["fidelity_seed"], branch_hits=0)
+        return coverage_result(args["fidelity_seeds"][0], branch_hits=0)
 
     monkeypatch.setattr(symcc_solver, "evaluate_seed_with_coverage", evaluate)
 
@@ -76,7 +81,7 @@ def test_fidelity_retries_coverage_then_reports_incompatible(tmp_path: Path, mon
     assert result["status"] == "incompatible"
     assert result["coverage_success"] is True
     assert result["attempt_count"] == 2
-    assert result["errors"] == ["missing profraw"]
+    assert result["errors"] == ["trigger.seed: missing profraw"]
 
 
 def test_fidelity_is_unknown_only_after_coverage_retry_fails(tmp_path: Path, monkeypatch) -> None:
@@ -92,7 +97,98 @@ def test_fidelity_is_unknown_only_after_coverage_retry_fails(tmp_path: Path, mon
     assert result["status"] == "unknown"
     assert result["coverage_success"] is False
     assert result["attempt_count"] == 2
-    assert result["errors"] == ["llvm-profdata failed", "llvm-profdata failed"]
+    assert result["errors"] == [
+        "trigger.seed: llvm-profdata failed",
+        "trigger.seed: llvm-profdata failed",
+    ]
+
+
+def test_fidelity_tries_later_seeds_when_the_first_misses(tmp_path: Path, monkeypatch) -> None:
+    # A generated harness can consume bytes differently from the original target, so a seed
+    # that reached the branch there may miss here. Judging the harness on the first seed
+    # alone ended 30 of 66 archived attempts before SymCC ever ran.
+    args = fidelity_args(tmp_path, seed_count=3)
+    seen: list[str] = []
+
+    def evaluate(**kwargs):
+        seed_path = kwargs["seed_path"]
+        seen.append(seed_path.name)
+        hits = 5 if seed_path.name == "seed_2.bin" else 0
+        return coverage_result(seed_path, branch_hits=hits)
+
+    monkeypatch.setattr(symcc_solver, "evaluate_seed_with_coverage", evaluate)
+
+    result = symcc_solver.evaluate_generated_harness_fidelity(**args)
+
+    assert result["status"] == "compatible"
+    assert result["branch_hit_count"] == 5
+    assert result["seeds_tried"] == 3
+    assert seen == ["trigger.seed", "seed_1.bin", "seed_2.bin"]
+
+
+def test_fidelity_stops_at_the_first_reaching_seed(tmp_path: Path, monkeypatch) -> None:
+    # Each seed costs a coverage replay of the whole harness, so a hit must end the search.
+    args = fidelity_args(tmp_path, seed_count=4)
+    seen: list[str] = []
+
+    def evaluate(**kwargs):
+        seen.append(kwargs["seed_path"].name)
+        return coverage_result(kwargs["seed_path"], branch_hits=2)
+
+    monkeypatch.setattr(symcc_solver, "evaluate_seed_with_coverage", evaluate)
+
+    result = symcc_solver.evaluate_generated_harness_fidelity(**args)
+
+    assert result["status"] == "compatible"
+    assert seen == ["trigger.seed"]
+    assert result["seeds_tried"] == 1
+
+
+def test_fidelity_is_incompatible_only_after_every_seed_misses(tmp_path: Path, monkeypatch) -> None:
+    args = fidelity_args(tmp_path, seed_count=3)
+    monkeypatch.setattr(
+        symcc_solver,
+        "evaluate_seed_with_coverage",
+        lambda **kwargs: coverage_result(kwargs["seed_path"], branch_hits=0),
+    )
+
+    result = symcc_solver.evaluate_generated_harness_fidelity(**args)
+
+    assert result["status"] == "incompatible"
+    assert result["seeds_tried"] == 3
+    assert result["seeds_available"] == 3
+
+
+def test_fidelity_ignores_seeds_that_do_not_exist(tmp_path: Path, monkeypatch) -> None:
+    args = fidelity_args(tmp_path, seed_count=2)
+    args["fidelity_seeds"] = [tmp_path / "gone.bin", *args["fidelity_seeds"]]
+    seen: list[str] = []
+
+    def evaluate(**kwargs):
+        seen.append(kwargs["seed_path"].name)
+        return coverage_result(kwargs["seed_path"], branch_hits=0)
+
+    monkeypatch.setattr(symcc_solver, "evaluate_seed_with_coverage", evaluate)
+
+    result = symcc_solver.evaluate_generated_harness_fidelity(**args)
+
+    assert "gone.bin" not in seen
+    assert result["seeds_available"] == 2
+
+
+def test_fidelity_is_unknown_when_no_seed_file_exists(tmp_path: Path, monkeypatch) -> None:
+    args = fidelity_args(tmp_path)
+    args["fidelity_seeds"] = [tmp_path / "gone.bin"]
+    monkeypatch.setattr(
+        symcc_solver,
+        "evaluate_seed_with_coverage",
+        lambda **kwargs: pytest.fail("coverage must not run without a seed"),
+    )
+
+    result = symcc_solver.evaluate_generated_harness_fidelity(**args)
+
+    assert result["status"] == "unknown"
+    assert result["seeds_tried"] == 0
 
 
 def test_generated_harness_context_merges_project_link_flags(tmp_path: Path) -> None:
@@ -214,7 +310,7 @@ def test_missing_branch_line_retries_unfiltered_coverage_report(tmp_path: Path, 
     monkeypatch.setattr(symcc_solver, "run_cmd", run_command)
 
     evaluate_args = dict(args)
-    evaluate_args["seed_path"] = evaluate_args.pop("fidelity_seed")
+    evaluate_args["seed_path"] = evaluate_args.pop("fidelity_seeds")[0]
     result = symcc_solver.evaluate_seed_with_coverage(**evaluate_args)
 
     assert result.branch_hit_count == 7
@@ -450,3 +546,117 @@ def test_symcc_systemic_oracle_failure_is_retryable(tmp_path: Path, monkeypatch)
     assert result.stop_reason == "oracle_unavailable"
     assert result.candidate_evaluations == 1
     assert result.oracle_errors == {"llvm_cov_failed": 1}
+
+
+def test_libvpx_config_exposes_generated_config_header() -> None:
+    """libvpx's headers ``#include "./vpx_config.h"``, which configure generates outside the
+    source tree. Five archived blockers died on that one missing include path, so the config
+    must keep pointing at ``work/build`` for both the harness and native-archive builds."""
+    from blocker_process.dependent.run_symcc_blocker import (
+        _resolve_config_path,
+        load_project_config,
+    )
+
+    config = load_project_config("libvpx")
+    resolved = [str(_resolve_config_path(path, "libvpx")) for path in config["extra_include_dirs"]]
+
+    assert any(path.endswith("libvpx/work/build") for path in resolved), resolved
+    assert "work/build" in config["native_archive_include_dirs"]
+
+
+def test_every_seed_gets_the_extended_symcc_budget(tmp_path: Path, monkeypatch) -> None:
+    """Seeds must not be capped at the short per-execution timeout.
+
+    Under the old 15s cap, 21 archived cases had *every* seed time out and so discovered zero
+    candidates. Reserving the longer budget for seeds already proven productive deadlocked:
+    a seed whose first run times out writes nothing, never counts as productive, and never
+    earns the time it needed.
+    """
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "initial.seed").write_bytes(b"initial")
+    budgets: list[float] = []
+    runs = 0
+
+    def record_budget(*, timeout_sec, env, **_kwargs):
+        nonlocal runs
+        runs += 1
+        budgets.append(timeout_sec)
+        Path(env["SYMCC_OUTPUT_DIR"], f"generated-{runs}").write_bytes(f"cand{runs}".encode())
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", record_budget)
+
+    symcc_solver.explore_with_symcc(
+        symcc_exploration_args(tmp_path, max_generations=2, timeout_sec=1, extended_timeout_sec=90),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        lambda seed, _timeout: coverage_result(seed, branch_hits=0),
+    )
+
+    assert budgets, "no SymCC execution was attempted"
+    assert all(budget == 90 for budget in budgets), budgets
+
+
+def test_extended_budget_never_overruns_the_wall_clock(tmp_path: Path, monkeypatch) -> None:
+    # Handing every seed the long budget is only safe because bounded_timeout clamps it to
+    # whatever wall clock is left; without that, one seed could consume the whole run.
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "initial.seed").write_bytes(b"initial")
+    budgets: list[float] = []
+
+    def record_budget(*, timeout_sec, env, **_kwargs):
+        budgets.append(timeout_sec)
+        Path(env["SYMCC_OUTPUT_DIR"], "generated-0").write_bytes(b"candidate")
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(symcc_solver, "run_single_seed", record_budget)
+
+    symcc_solver.explore_with_symcc(
+        symcc_exploration_args(
+            tmp_path,
+            max_generations=1,
+            timeout_sec=1,
+            extended_timeout_sec=900,
+            wall_clock_budget_sec=30,
+        ),
+        tmp_path / "symcc-binary",
+        corpus_dir,
+        tmp_path / "generated",
+        lambda seed, _timeout: coverage_result(seed, branch_hits=0),
+    )
+
+    assert budgets and budgets[0] <= 30, budgets
+
+
+def test_oss_fuzz_build_defaults_supply_target_name_and_fuzzer_headers() -> None:
+    """The SymCC build reconstructs the compile that OSS-Fuzz's build.sh normally performs.
+
+    Every project's build.sh passes ``-D_FUZZ_TARGET_NAME="$target_basename"`` so a harness
+    can name its own scratch file, and libFuzzer's headers live outside the project tree.
+    Missing both stopped 11 archived libtiff blockers before SymCC ran.
+    """
+    from blocker_process.dependent.run_symcc_blocker import apply_oss_fuzz_build_defaults
+
+    args = SimpleNamespace(target_name="llm_fuzzgen0717082918", define=[], include_dir=[])
+
+    apply_oss_fuzz_build_defaults(args)
+
+    assert '_FUZZ_TARGET_NAME="llm_fuzzgen0717082918"' in args.define
+    assert any(path.endswith("compiler-rt/include/fuzzer") for path in args.include_dir)
+
+
+def test_oss_fuzz_build_defaults_do_not_override_an_explicit_target_name() -> None:
+    from blocker_process.dependent.run_symcc_blocker import apply_oss_fuzz_build_defaults
+
+    args = SimpleNamespace(
+        target_name="generated_harness",
+        define=['_FUZZ_TARGET_NAME="chosen_by_caller"'],
+        include_dir=[],
+    )
+
+    apply_oss_fuzz_build_defaults(args)
+
+    assert args.define == ['_FUZZ_TARGET_NAME="chosen_by_caller"']

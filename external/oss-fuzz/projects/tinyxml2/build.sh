@@ -113,7 +113,7 @@ fi
 echo "[llm-fuzzgen] SANITIZER=$SANITIZER BUILD_FLAVOR=$BUILD_FLAVOR" >&2
 
 make -j$(nproc) clean
-if [ "$SYMCC_LIBRARY_ENABLED" = "1" ]; then
+if [ "$SYMCC_NATIVE_EXPORT_ENABLED" = "1" ] || [ "$SYMCC_LIBRARY_ENABLED" = "1" ]; then
   make -j$(nproc) libtinyxml2.a
 else
   make -j$(nproc) all

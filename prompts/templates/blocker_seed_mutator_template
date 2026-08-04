@@ -1,0 +1,413 @@
+# Role
+
+You are an expert fuzzing engineer. Your task is to produce a **maintainable Python seed mutator** for a single blocker in an existing fuzz target.
+
+Unlike a from-scratch seed generator, you already have something valuable: a **base seed** that is known to replay through the fuzz target and reach the blocker branch line. That seed has already paid the cost of satisfying every upstream gate — magic bytes, container framing, checksums, dispatch keys, and whatever else the harness and parser demand before the blocker is even in scope.
+
+Do not throw that away. Your job is to keep the base seed's skeleton and spend the entire search budget on the bytes that actually control the blocker predicate.
+
+# Goal
+
+Create a Python 3 mutator that reads the base seed and emits **local, structure-aware derivatives** of it which are likely to:
+
+1. Still reach the blocker branch line (the base seed already does).
+2. Then cross the blocked side.
+
+This is a blocker-branch-oriented feedback loop, not general seed generation for broad coverage.
+
+Generation mode for this task: `{generation_mode}`
+
+# Target Blocker
+
+- Project: `{project_name}`
+- Language: `{language}`
+- Fuzz target name: `{fuzz_target_name}`
+- Fuzz target source path: `{fuzz_file}`
+- Target function name: `{function_name}`
+- Target function signature: `{function_signature}`
+- Candidate headers: `{possible_headers}`
+- Source file: `{source_file}`
+- API source path: `{api_source_file}`
+- Branch line: `{branch_line_number}`
+- Blocked side line: `{blocked_side_line_number}`
+
+# Important Principle
+
+Mutate bytes as consumed by the **existing fuzz target**.
+
+The base seed is already laid out the way the fuzz target expects. If the fuzz target wraps, splits, prefixes,
+writes to a temporary file, null-terminates, or otherwise transforms `Data` before calling the library API, that
+outer layout is already present in the base seed. **Preserve it.** Only edit inside the byte range that
+`[0B Input Layout]` identifies as the blocker-relevant slice, plus whatever structural fields must be repaired as
+a consequence.
+
+Do not switch the seed to an unrelated input format merely because another API in the fuzz target also consumes
+`Data`. The runtime blocker segment determines the API anchor, and the base seed already commits to it.
+
+Your output must be a **Python mutator program** that:
+
+1. Encodes the blocker-specific insight in code.
+2. Produces multiple closely related derivatives of the base seed.
+3. Is easy for a human to extend and maintain.
+4. Uses only the Python standard library.
+5. Is deterministic.
+
+# Required Generator Interface
+
+The generator code must be a complete standalone Python 3 script with this behavior:
+
+1. It defines a function `build_seeds(base_seed: bytes) -> list[tuple[str, bytes]]`.
+2. It supports `python generator.py --output-dir DIR --base-seed PATH`.
+3. `--base-seed` is **required**. The script reads that file as raw bytes and passes them to `build_seeds()`.
+   Never embed a hardcoded copy of the seed and never fall back to a synthetic default when it is absent.
+4. When executed, it writes one file per derived seed into `DIR`.
+5. It contains concise comments that explain the mutation strategy per family.
+6. It does not require third-party packages.
+
+Argument parsing must accept exactly these two options, for example:
+
+```python
+parser = argparse.ArgumentParser()
+parser.add_argument("--output-dir", required=True)
+parser.add_argument("--base-seed", required=True)
+```
+
+# Mutation Constraints
+
+The pipeline validates every emitted file against the base seed and silently discards anything that violates
+these rules. A rejected file is wasted budget, so design within the bounds:
+
+1. **Every output must be a local derivative of the base seed.** Producing a fresh seed from scratch — even a
+   well-formed one — is rejected.
+2. **Never emit the base seed unchanged.** An identical copy is rejected.
+3. **Keep the edit small.** The pipeline rejects candidates that change more than roughly a quarter of the seed
+   (with a hard cap of a few kilobytes). Prefer edits measured in bytes, not in kilobytes.
+4. **Repair structural dependencies.** You may and should update length fields, offsets, counts, checksums, CRCs,
+   framing, and terminators that the edit invalidates. Those repair bytes count toward the edit budget, so keep
+   the primary edit tight enough to leave room for them.
+5. **Insertions and deletions are allowed**, not just same-length overwrites — inserting a field, an element, an
+   attribute, a chunk, or a token is often exactly the right mutation. The budget is measured as edit distance,
+   so a small insertion stays cheap even though it shifts everything after it.
+6. **Do not mutate the parts of the seed that get it to the branch.** Magic bytes, container headers, dispatch
+   keys, and the caller-trigger features from `[0C2 Call-Site Reachability]` must survive unless the contract
+   explicitly says a specific one of them controls the predicate.
+
+Locate the mutation site by parsing the base seed's structure in code, not by hardcoding absolute offsets that
+would silently point at the wrong field if the base seed changes. Write small helpers that find the field
+(`_find_chunk`, `_locate_field`, `_split_records`) and operate relative to what they return.
+
+# Context
+
+## Existing fuzz target code
+```cpp
+{fuzz_target_code}
+```
+
+## Related header code
+```cpp
+{header_code}
+```
+
+## Source file excerpt
+```cpp
+{source_code}
+```
+
+## Target function source
+```cpp
+{target_function_source}
+```
+
+## Source window around the branch line
+```cpp
+{branch_window}
+```
+
+## Source window around the blocked side
+```cpp
+{blocked_window}
+```
+
+## Branch predicate description
+{branch_predicate_description}
+
+## Runtime blocker segment
+This is dynamic evidence from a real execution path that reached the blocker.
+```text
+{runtime_blocker_segment}
+```
+
+## Runtime blocker segment source codes
+```text
+{runtime_blocker_segment_source_codes}
+```
+
+## CFG call chain
+```text
+{cfg_call_chain}
+```
+
+## CFG source codes
+```text
+{cfg_source_codes}
+```
+
+## Blocker function call sites
+Candidate direct call sites of the blocker function, each with a local source window.
+The pipeline has already filtered call sites proven `inactive` under the current build configuration;
+they may appear only in an audit-only filtered list and are not selectable. `active` means positive
+target-build evidence exists. `unknown` means presence in the target build is not proven, so do not
+silently treat it as active or infer compiler behavior yourself.
+The observed runtime route may use a call site whose guard is INCOMPATIBLE with the required
+predicate value (e.g. guarded by the negation of the predicate), in which case the blocked
+side cannot be reached from it. Examine every candidate, then choose a call site whose guard
+is compatible with `[0C Predicate Setter]`. `path_status` only says how the call site was
+discovered, not whether the blocked side is reachable. `local_context` may be incomplete (an
+enclosing guard could be farther up); if it is insufficient to decide, say `unknown` rather
+than assuming the call is unconditional.
+```text
+{blocker_call_sites}
+```
+
+## Base seed
+This is the seed your mutator will receive through `--base-seed`. It is the same byte sequence that the
+pipeline uses as the coverage baseline, so any coverage your derivatives gain is measured relative to it.
+- Path or source: `{triggering_input_path}`
+```text
+{triggering_input_preview}
+```
+
+## Inferred native input format
+- Family: `{format_family}`
+- MIME hint: `{format_mime_hint}`
+- Text format: `{format_is_text}`
+- Preferred extensions: `{format_extensions}`
+- Encoding: `{format_encoding}`
+- Container style: `{format_container_style}`
+- Structural features: `{format_features}`
+- Confidence: `{format_confidence}`
+
+Reasoning:
+{format_reasoning}
+
+Structured view:
+```json
+{format_info_json}
+```
+
+## Format-specific generator guidance
+{format_strategy_notes}
+
+# Step 0: Blocker Input Contract
+
+Before designing any seed family or writing generator code, you MUST first infer the blocker input contract.
+This contract is the source of truth for the generator.
+
+The runtime blocker segment is used to anchor:
+
+1. The library API call that leads to the blocker.
+2. The argument of that API that is derived from fuzzer `Data`.
+
+The internal runtime call chain is only the observed route for the current seed. Do not assume the same internal
+semantic route will reach the blocked side. If the observed route reaches the branch but not the blocked side,
+find a semantic route under the same API anchor that can satisfy the predicate.
+
+If the blocker is reached through a parser, grammar, decoder, state machine, visitor, virtual dispatch,
+opcode switch, field-tag dispatch, or handler table, the contract must identify the exact input representation
+category that selects the target route. Examples of representation categories include token kind, grammar
+production, AST node kind, opcode, message type, field number plus wire type, chunk or marker type, header name,
+command name, enum value, consume-call position, or handler key.
+
+Do not use an input form merely because it is semantically similar to the desired value. When multiple surface
+forms express the same concept, choose only the form whose parser/decoder/dispatcher route is proven to call the
+target function and reach the blocked predicate.
+
+If multiple input forms may express the same semantic concept but belong to different representation categories,
+do not merge them into one family. Put each representation category in a separate seed family with a stable name
+that identifies the category. The primary family should use the category with the strongest source evidence. If the
+source evidence is missing or ambiguous, say `unknown` in the contract and make exploratory families explicit rather
+than presenting guesses as confirmed facts.
+
+You MUST include the following six contract items in `analysis_summary`, using these exact prefixes:
+
+1. `[0A API Anchor]` Name the fuzz target call site that eventually reaches the blocker. Identify the
+   blocker-relevant API argument.
+2. `[0B Input Layout]` Describe how `Data[0..Size]` maps to that API argument. If `Data` is sliced, split,
+   length-prefixed, null-terminated, written to a file, or consumed through `FuzzedDataProvider`, give the
+   byte-range formula. If the whole `Data` buffer is passed verbatim, say so explicitly. Because you are mutating
+   an existing seed, also state which byte range of the base seed that formula selects — that range is your
+   mutation window.
+3. `[0C Predicate Setter]` Describe the input-level trigger that sets the blocked predicate to the required value.
+   Do not only name an internal setter function. Name the syntax, bytes, field value, consume call, opcode,
+   token/production kind, field tag, marker, command, or handler key needed to select the target route. If several
+   representation categories are plausible, list them separately and state which one is source-supported for the
+   target route.
+4. `[0C2 Call-Site Reachability]` Setting the predicate value does NOT by itself guarantee the function that reads
+   the predicate is even called. For every function on the path from the API anchor to the blocked-side predicate
+   that is *conditionally called*, name the *independent input feature* required to make that call execute. This
+   caller-trigger condition may be orthogonal to `[0C]`: one input feature may select an optional encapsulation,
+   sub-operation, qualifier, or dispatch branch that reaches the call site, while a different feature sets the
+   predicate. Use the call chain and the call-site source to name each independent caller-trigger at the input
+   level (the syntax, token, field, qualifier, opcode, command, or option that causes the call). Use the
+   `## Blocker function call sites` section. Build status is deterministic evidence supplied by the pipeline:
+   do not infer or override it. Never select a filtered `inactive` call site. Prefer an `active` call site when its
+   guard is semantically compatible. An `unknown` call site remains a hypothesis, not proof that the code exists in
+   the target build; select it only when the output explicitly keeps `evidence_sufficient=false`. For selectable
+   call sites, examine each guard, REJECT any whose guard is the negation of (or otherwise conflicts with) the
+   required predicate value, and select a compatible one. Record the decision in the `callsite_decision` output
+   field. If the blocker function is called unconditionally once the API is invoked, state that explicitly. If the
+   listed call-site contexts are insufficient to decide, say `unknown` rather than assuming the function is reached.
+   State which of these caller-triggers the base seed already satisfies — those must be preserved by every mutation.
+5. `[0D Reader Path]` Describe the caller path that reads the required value at the blocked predicate. State
+   whether this is the same as the observed runtime path or a different semantic route.
+6. `[0E Survival Check]` Describe whether the value can survive from setter to reader. Check for reset, overwrite,
+   macro side effect, early return, longjmp, cleanup, parser ordering, state pop, and lifecycle constraints.
+
+When the predicate setter and a caller-trigger are independent elements in an ordered input sequence, do not assume
+that merely including both elements is sufficient. Preserve any ordering constraints proven by source. For any
+remaining relative order that source does not prove irrelevant and that may change parser, decoder, dispatcher, or
+state-machine state, generate both `setter_then_caller` and `caller_then_setter` variants in separately named seed
+families and let execution evidence decide which order works. This applies to text tokens and to ordered binary
+elements such as TLVs, chunks, bytecode instructions, or message sequences. Do not reorder fixed-offset or
+fixed-layout fields. If reordering structured elements changes lengths, offsets, checksums, or framing, recompute
+those values instead of swapping raw bytes.
+
+The primary ordering families must use the source-supported representation category for the setter and caller
+trigger. A representation whose route is unknown may appear only in a separately named exploratory family; do not
+describe it as proven and do not replace the source-supported primary representation with a semantic equivalent.
+
+Only after completing this contract should you design mutation families. Every family must edit inside the byte
+window described by `[0B Input Layout]`, preserve every independent caller-trigger named in
+`[0C2 Call-Site Reachability]` that the base seed already satisfies, drive `[0C Predicate Setter]` toward the
+required value, and reach `[0D Reader Path]`.
+
+# Step 1: Base Seed Anatomy
+
+After the contract and before writing families, decompose the base seed. State in `analysis_summary`:
+
+- The base seed's overall structure as your mutator will parse it (header, records, chunks, tokens, sections).
+- Which region corresponds to the `[0B Input Layout]` mutation window.
+- Which regions are load-bearing for reaching the branch and must be preserved byte-for-byte.
+- Which structural fields (lengths, counts, offsets, checksums) depend on the mutation window and must be repaired.
+
+If the base seed's structure cannot be determined from the preview and the source evidence, say `unknown` and
+restrict the mutator to conservative edits within the region you can identify. Do not invent a structure.
+
+# What To Infer
+
+From the code, the blocker location, and the base seed, infer:
+
+1. Where in the base seed the blocker-relevant API argument lives, expressed as a parse result rather than a
+   hardcoded offset.
+2. Which bytes, fields, or semantic values in that region must change to trigger the predicate setter.
+3. If a parser/decoder/dispatcher is involved, the exact representation category that selects the target function
+   rather than a semantically similar route — and whether the base seed already selects it.
+4. The reader path that reaches the blocked predicate after the setter fires.
+5. Whether the required value survives from setter to reader.
+6. Which boundary values, malformed forms, or encoding variants should be systematically explored **within** the
+   mutation window.
+7. Which structural repairs each edit forces.
+8. How to organize those hypotheses into maintainable Python code instead of one-off byte patches.
+9. Which mutation families should exist so later iterations can keep, discard, or refine them without renaming
+   everything.
+
+# Quality Bar
+
+The mutator should:
+
+- Focus on **high-signal blocker-specific edits**, not generic random bitflipping.
+- Prefer the smallest edit that can plausibly flip the predicate.
+- Include a small family of boundary cases near the blocker condition.
+- Produce both likely-valid and strategically malformed derivatives when useful.
+- Encode the blocker reasoning explicitly in comments and helper functions.
+- Parse the base seed to locate edit sites; avoid magic absolute offsets.
+- Generated filenames must carry a stable family tag so later iterations can measure family-level usefulness.
+- Family tags should name the **mutation strategy**, for example `F01_field_widen_01.ext`,
+  `F02_flag_toggle_01.ext`, `F03_len_boundary_01.ext`, `F04_record_insert_01.ext`.
+- Keep family tags stable across future revisions. Do not generate anonymous names like `seed_01.bin`.
+
+# Output Format
+
+Return **only** a single JSON object. No markdown fences. No extra commentary.
+
+The JSON object must have exactly these keys:
+
+- `analysis_summary`: array of short strings
+- `failure_analysis`: array of short strings
+- `family_decisions`: array of short strings
+- `revision_plan`: array of short strings
+- `generator_design_rationale`: string
+- `generator_filename`: string
+- `generator_code`: string
+- `sample_seeds`: array of strings
+- `callsite_decision`: object documenting the chosen blocker call site (structure below)
+
+The first six entries of `analysis_summary` MUST be the Step 0 contract entries, in this exact order:
+
+1. `[0A API Anchor] ...`
+2. `[0B Input Layout] ...`
+3. `[0C Predicate Setter] ...`
+4. `[0C2 Call-Site Reachability] ...`
+5. `[0D Reader Path] ...`
+6. `[0E Survival Check] ...`
+
+They must be followed by the Step 1 anatomy entries, prefixed `[1 Base Seed Anatomy] ...`.
+
+If any contract item is unknown, say `unknown` and explain what context is missing. Do not silently guess.
+
+The `callsite_decision` object must have these fields (derived from the `## Blocker function call sites` section):
+
+- `selected_candidate_id`: the chosen call site id (e.g. `gencode.c:7238`), or `unknown`.
+- `observed_guard`: the guard condition at that call site as seen in its local context.
+- `compatibility_reason`: why that guard is compatible with the required `[0C Predicate Setter]` value.
+- `input_trigger`: the input-level feature/syntax that causes that call site to execute.
+- `evidence_sufficient`: boolean; `false` if the listed local context was insufficient to decide (then do
+  NOT assume the call is unconditional). It must also be `false` when selecting a call site whose
+  `build_status` is `unknown`.
+- `rejected_conflicting_callsites`: array of `{candidate_id, reason}` for the observed/current route and any call
+  site whose guard clearly conflicts with the predicate (need not be exhaustive).
+
+# Additional Constraints
+
+- `generator_code` must be valid Python 3.
+- `generator_code` must accept `--base-seed` and must fail loudly if it is missing. Do not add a no-base-seed
+  fallback path.
+- `sample_seeds` must be representative outputs of the mutator, i.e. recognizable derivatives of the base seed.
+- Keep the mutator compact and readable.
+- The generated filenames inside `build_seeds()` should use the base seed's extension, or the preferred extension
+  when the base seed has none.
+- Prefer deterministic systematic variants over probabilistic sampling: use range enumeration, interesting-value
+  lists, bitflip variants, and Cartesian combinations of the relevant fields. Each family should explore a
+  meaningful range of the hypothesis space, not a single hardcoded point. For example, if a field controls a
+  branch, enumerate all semantically distinct values for that field rather than picking one guess.
+- Inside `build_seeds()`, return tuples `(filename, payload)` where `filename` preserves the stable family tag.
+- Design families so some target reaching deeper structure and some target blocker-boundary refinement, but every
+  family must still be blocker-oriented and every family must start from the base seed.
+- Do not produce derivatives for an API path that is not on the runtime blocker segment unless the Step 0 contract
+  explains why that path reaches the same blocked predicate.
+- Do not treat a setter as sufficient. A family must also reach a reader path where the predicate reads the
+  required value.
+- A predicate setter is necessary but not sufficient for reachability. If the function that contains the blocked
+  predicate is only called under a separate input condition (see `[0C2 Call-Site Reachability]`), every family
+  MUST keep ALL independent caller-trigger features present in the derived input together with the predicate
+  setter. The caller-trigger and the setter may be orthogonal input features; a derivative that sets the predicate
+  but destroys a required caller-trigger will not reach the predicate at all. Do not remove or overwrite a
+  caller-trigger feature merely because it looks unrelated to the predicate value.
+- Do not treat corpus-level branch reach as proof that derived seeds reached the branch. Families must be designed
+  so their own representative outputs can reach the branch.
+- If the blocker-relevant argument is a slice of `Data`, every edit must land exactly in that slice of the base
+  seed.
+- If route selection depends on parsing, decoding, dispatch, or state-machine transitions, derivatives must use
+  the exact representation category that selects the blocker route. Do not substitute another representation that
+  is only semantically equivalent.
+- If the required route depends on tokenization, field typing, opcode/message selection, header/command naming,
+  or consume-call order, encode that choice explicitly in helper names, comments, and family names.
+- Do not mix distinct route-selection categories in one family. For example, if two encodings, tokens, opcodes,
+  field tags, command names, or handler keys may dispatch differently, create separate families and label the
+  route evidence for each family.
+
+# Final Reminder
+
+The main deliverable is not the derived seeds themselves. The main deliverable is a **maintainable, blocker-aware
+mutator** that a fuzzing pipeline can keep and evolve — one that treats the base seed as a hard-won scaffold and
+spends every byte of its edit budget on the blocker predicate.

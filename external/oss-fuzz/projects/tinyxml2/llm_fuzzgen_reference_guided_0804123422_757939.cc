@@ -1,0 +1,308 @@
+/* BLOCKER_STRATEGY_CONTRACT
+required_state: The node to be inserted (`addThis`) must belong to a different `XMLDocument` than the parent node (`this`). Specifically, `addThis->_document != this->_document`.
+state_constructor: Create a second `tinyxml2::XMLDocument` (`doc2`) and use it to create a new `XMLElement` (`elementFromDoc2`). This ensures the new element's `_document` pointer is different from that of nodes created by the primary `doc`.
+trigger_api: `root->InsertFirstChild(elementFromDoc2)`, where `root` is a node owned by the primary document (`doc`) and `elementFromDoc2` is owned by the second document (`doc2`).
+preserved_invariants: The original input consumption sequence via `FuzzedDataProvider` is unchanged. The primary XML parsing and node manipulation logic from the reference target remains intact.
+END_BLOCKER_STRATEGY_CONTRACT */
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <unistd.h>
+#include <vector>
+
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/tinyxml2/tinyxml2.h"
+
+// Custom visitor to exercise the XMLVisitor interface.
+class MyVisitor : public tinyxml2::XMLVisitor {
+private:
+    FuzzedDataProvider& fdp;
+public:
+    /*
+     * ANALYSIS: The base XMLVisitor methods were uncovered because the derived
+     *           visitor's methods always returned `true`, preventing the code path
+     *           in `Accept()` that handles an early exit from being exercised.
+     * IMPLEMENTATION: The visitor is now stateful, using the FuzzedDataProvider
+     *                 to randomly return `true` or `false`, allowing the fuzzer
+     *                 to explore branches where the document traversal is halted.
+     */
+    MyVisitor(FuzzedDataProvider& provider) : fdp(provider) {}
+    bool VisitEnter(const tinyxml2::XMLElement&, const tinyxml2::XMLAttribute*) override { return fdp.ConsumeBool(); }
+    bool VisitExit(const tinyxml2::XMLElement&) override { return fdp.ConsumeBool(); }
+    bool Visit(const tinyxml2::XMLDeclaration&) override { return fdp.ConsumeBool(); }
+    bool Visit(const tinyxml2::XMLText&) override { return fdp.ConsumeBool(); }
+    bool Visit(const tinyxml2::XMLComment&) override { return fdp.ConsumeBool(); }
+    bool Visit(const tinyxml2::XMLUnknown&) override { return fdp.ConsumeBool(); }
+};
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    FuzzedDataProvider fdp(data, size);
+
+    // Create the main XML document. All nodes are owned by this document.
+    tinyxml2::XMLDocument doc;
+
+    std::string xml_data = fdp.ConsumeRandomLengthString();
+
+    /*
+     * ANALYSIS: The function-level coverage report showed XMLDocument::LoadFile
+     *           had low line and branch coverage. The line-level report confirmed
+     *           this was due to untested error handling, such as when fopen fails.
+     * IMPLEMENTATION: The following code block writes fuzzed data to a temporary
+     *                 file and attempts to load it. It also attempts to load from
+     *                 an invalid path to trigger the fopen failure branch.
+     */
+    {
+        // Define a unique temporary file path.
+        const std::string path = std::string("/tmp/") + _FUZZ_TARGET_NAME + ".tmp";
+        FILE* fp = fopen(path.c_str(), "w");
+        if (fp) {
+            fwrite(xml_data.c_str(), 1, xml_data.size(), fp);
+            fclose(fp);
+            // Attempt to load the created file.
+            doc.LoadFile(path.c_str());
+            // Clean up the temporary file.
+            unlink(path.c_str());
+        }
+
+        // Attempt to load from a likely invalid path to trigger error.
+        doc.LoadFile("/tmp");
+    }
+
+    /*
+     * ANALYSIS: The coverage report for XMLDocument::SaveFile showed that the
+     *           error handling for a failed file open was not covered.
+     * IMPLEMENTATION: Call SaveFile with a path that is intentionally invalid
+     *                 to trigger the fopen failure branch.
+     */
+    doc.SaveFile("/invalid_path/test.xml", false);
+
+
+    // Parse the XML data directly to continue testing other APIs.
+    doc.Parse(xml_data.c_str());
+
+    /*
+     * ANALYSIS: The function-level coverage report showed that all methods of
+     *           the XMLVisitor class were completely uncovered (0% coverage).
+     * IMPLEMENTATION: A custom visitor `MyVisitor` is defined above. Here, we
+     *                 create an instance of it and call `doc.Accept()` to traverse
+     *                 the parsed document, thereby exercising all the `Visit` methods.
+     */
+    MyVisitor visitor(fdp);
+    doc.Accept(&visitor);
+
+    // Create some nodes to test node-specific APIs.
+    tinyxml2::XMLElement* root = doc.NewElement(fdp.ConsumeRandomLengthString(10).c_str());
+    if (root) {
+        doc.InsertFirstChild(root);
+
+        // --- BLOCKER-SPECIFIC LOGIC ---
+        // Goal: Trigger the assertion in `InsertFirstChild` by inserting a node
+        // from a different document. The predicate is `addThis->_document != _document`.
+        {
+            tinyxml2::XMLDocument doc2;
+            tinyxml2::XMLElement* elementFromDoc2 = doc2.NewElement("cross_doc_element");
+            if (elementFromDoc2) {
+                // `root` is from `doc`, `elementFromDoc2` is from `doc2`.
+                // This call will make the predicate true and hit the unreached branch.
+                root->InsertFirstChild(elementFromDoc2);
+            }
+        }
+        // --- END BLOCKER-SPECIFIC LOGIC ---
+
+        /*
+         * ANALYSIS: The function-level coverage report showed that XMLNode::GetDocument()
+         *           and XMLDocument::RootElement() were completely uncovered.
+         * IMPLEMENTATION: Call these methods to ensure they are exercised.
+         */
+        root->GetDocument();
+        doc.RootElement();
+
+        tinyxml2::XMLText* text1 = doc.NewText(fdp.ConsumeRandomLengthString(20).c_str());
+        tinyxml2::XMLText* text2 = doc.NewText(text1->Value()); // Same value as text1
+        tinyxml2::XMLComment* comment1 = doc.NewComment(fdp.ConsumeRandomLengthString(20).c_str());
+
+        if (text1 && text2 && comment1) {
+            root->InsertEndChild(text1);
+            root->InsertEndChild(text2);
+            root->InsertEndChild(comment1);
+
+            /*
+             * ANALYSIS: The ShallowEqual methods for XMLText, XMLComment, etc.,
+             *           had uncovered branches. Specifically, the case where the
+             *           compared node is of a different type was missed, as was the
+             *           case where two nodes of the same type have equal values.
+             * IMPLEMENTATION: We call ShallowEqual to compare a text node with a
+             *                 comment node (triggers wrong-type branch). We also
+             *                 compare two text nodes that were created with the
+             *                 same value (triggers equal-value branch).
+             */
+            text1->ShallowEqual(comment1); // Compare different types.
+            text1->ShallowEqual(text2);    // Compare same types with same value.
+            
+            /*
+             * ANALYSIS: The line coverage for various ShallowClone methods (XMLText,
+             *           XMLComment, etc.) shows that the branch for a null document
+             *           argument is never taken.
+             * IMPLEMENTATION: Call ShallowClone with a nullptr argument. The returned
+             *                 node is owned by the document and will be freed automatically.
+             */
+            text1->ShallowClone(nullptr);
+        }
+
+        /*
+         * ANALYSIS: The line coverage report for XMLElement::DeleteAttribute
+         *           showed two uncovered paths: deleting a null attribute, and
+         *           deleting an attribute that is not the first one in the list.
+         *           Additionally, the overload taking an XMLAttribute* was not covered.
+         * IMPLEMENTATION: We call DeleteAttribute with nullptr to cover the null
+         *                 check. Then we add two attributes and delete the second
+         *                 one to exercise the logic for removing a non-first attribute.
+         *                 Finally, we get a pointer to the first attribute and delete it
+         *                 using the `DeleteAttribute(XMLAttribute*)` overload.
+         */
+        root->DeleteAttribute(static_cast<const char*>(nullptr));
+        root->SetAttribute(fdp.ConsumeRandomLengthString(5).c_str(), fdp.ConsumeRandomLengthString(5).c_str());
+        const std::string attr_name = fdp.ConsumeRandomLengthString(5);
+        root->SetAttribute(attr_name.c_str(), fdp.ConsumeRandomLengthString(5).c_str());
+        root->DeleteAttribute(attr_name.c_str());
+        const tinyxml2::XMLAttribute* first_attr = root->FirstAttribute();
+        if (first_attr) {
+            root->DeleteAttribute(first_attr->Name());
+        }
+
+        /*
+         * ANALYSIS: The line coverage report for XMLNode::InsertChildPreamble shows
+         *           an untaken branch for when a node with an existing parent is inserted.
+         * IMPLEMENTATION: Create a node, insert it, then create a second node and
+         *                 insert the first node into the second, triggering the unlink logic.
+         */
+        tinyxml2::XMLElement* child1 = doc.NewElement("child1");
+        if (child1) {
+            root->InsertFirstChild(child1);
+            tinyxml2::XMLElement* child2 = doc.NewElement("child2");
+            if (child2) {
+                root->InsertEndChild(child2);
+                // Re-insert child1 under child2 to trigger the unlink logic.
+                child2->InsertFirstChild(child1);
+            }
+        }
+        
+        /*
+         * ANALYSIS: The function-level coverage report showed that the various
+         *           XMLElement::InsertNew... helper methods were not being called.
+         * IMPLEMENTATION: Call the InsertNew... methods on the root element to
+         *                 ensure they are exercised. The returned nodes are owned
+         *                 by the document and will be cleaned up automatically.
+         */
+        root->InsertNewChildElement(fdp.ConsumeRandomLengthString(10).c_str());
+        root->InsertNewComment(fdp.ConsumeRandomLengthString(20).c_str());
+        root->InsertNewText(fdp.ConsumeRandomLengthString(20).c_str());
+        root->InsertNewDeclaration(fdp.ConsumeRandomLengthString(10).c_str());
+        root->InsertNewUnknown(fdp.ConsumeRandomLengthString(10).c_str());
+
+        /*
+         * ANALYSIS: The function-level coverage report showed that
+         *           XMLNode::PreviousSiblingElement was not fully covered.
+         * IMPLEMENTATION: Insert multiple sibling elements and then use
+         *                 PreviousSiblingElement to navigate backwards, exercising
+         *                 this function.
+         */
+        tinyxml2::XMLElement* elem1 = doc.NewElement("elem1");
+        tinyxml2::XMLElement* elem2 = doc.NewElement("elem2");
+        if (elem1 && elem2) {
+            root->InsertEndChild(elem1);
+            root->InsertEndChild(elem2);
+            elem2->PreviousSiblingElement("elem1"); // With name
+            elem2->PreviousSiblingElement();      // Without name
+        }
+
+        /*
+         * ANALYSIS: The function-level coverage report showed that the XMLHandle
+         *           and XMLConstHandle classes and their methods were largely
+         *           uncovered or had significant branch coverage gaps (e.g. 50%).
+         *           This was due to not testing with null nodes.
+         * IMPLEMENTATION: Create XMLHandle and XMLConstHandle from both a valid
+         *                 node and from nullptr. Then, call various navigation
+         *                 and conversion methods to exercise these code paths.
+         */
+        {
+            tinyxml2::XMLHandle handle(root);
+            handle.FirstChild();
+            handle.LastChild();
+            handle.ToElement();
+            tinyxml2::XMLConstHandle constHandle(root);
+            constHandle.FirstChild();
+            constHandle.LastChild();
+            constHandle.ToElement();
+
+            tinyxml2::XMLHandle nullHandle(nullptr);
+            nullHandle.FirstChild();
+            nullHandle.LastChild();
+            nullHandle.ToElement();
+            tinyxml2::XMLConstHandle nullConstHandle(nullptr);
+            nullConstHandle.FirstChild();
+            nullConstHandle.LastChild();
+            nullConstHandle.ToElement();
+        }
+    }
+
+    /*
+     * ANALYSIS: The coverage report for XMLNode::DeleteNode indicated that the
+     *           initial check for a null node pointer was never executed for the
+     *           static `XMLNode::DeleteNode` version.
+     * IMPLEMENTATION: The following line directly calls the static DeleteNode with a null
+     *                 pointer to exercise this specific error-handling branch.
+     */
+    doc.DeleteNode(nullptr);
+
+    /*
+     * ANALYSIS: The function-level coverage report showed several `To...` methods
+     *           like `ToDeclaration` and `ToUnknown` were uncovered.
+     * IMPLEMENTATION: Create a declaration and an unknown node, insert them,
+     *                 and then call the corresponding `To...` methods on them.
+     */
+    tinyxml2::XMLDeclaration* decl = doc.NewDeclaration();
+    tinyxml2::XMLUnknown* unknown = doc.NewUnknown(fdp.ConsumeRandomLengthString(10).c_str());
+    if (decl && unknown) {
+        doc.InsertFirstChild(decl);
+        doc.InsertEndChild(unknown);
+        decl->ToDeclaration();
+        unknown->ToUnknown();
+    }
+
+    /*
+     * ANALYSIS: The coverage report for the `XMLPrinter` constructor showed a branch
+     *           related to apostrophe escaping was not taken. Also, methods that use
+     *           an `XMLPrinter` with a file pointer (`_fp`) were not covered.
+     * IMPLEMENTATION: Construct an `XMLPrinter` with a temporary file and the
+     *                 `DONT_ESCAPE_APOS_CHARS_IN_ATTRIBUTES` flag. Then call `doc.Print()`
+     *                 to exercise the printing logic with these options.
+     */
+    {
+        const std::string path = std::string("/tmp/") + _FUZZ_TARGET_NAME + "_printer.tmp";
+        FILE* fp = fopen(path.c_str(), "w");
+        if (fp) {
+            tinyxml2::XMLPrinter printer(fp, false, 0, tinyxml2::XMLPrinter::DONT_ESCAPE_APOS_CHARS_IN_ATTRIBUTES);
+            doc.Print(&printer);
+            fclose(fp);
+            unlink(path.c_str());
+        }
+    }
+
+    /*
+     * ANALYSIS: The function-level coverage report showed that
+     *           `XMLDocument::ShallowEqual` was uncovered.
+     * IMPLEMENTATION: Create a second document and call `ShallowEqual` to
+     *                 compare it with the primary document.
+     */
+    tinyxml2::XMLDocument doc2;
+    doc.ShallowEqual(&doc2);
+
+
+    // The XMLDocument `doc` will be destroyed at the end of this function,
+    // and its destructor is responsible for freeing all memory associated
+    // with the nodes (elements, text, comments, etc.) it created.
+
+    return 0;
+}
