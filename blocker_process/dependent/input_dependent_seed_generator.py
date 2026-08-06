@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from external.oss_fuzz import OSSFuzz
+from blocker_process.blocker_artifacts import blocker_log_filename, blocker_stage_artifact_name
 from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.dependent.format_inference import FormatInfo, infer_input_format
 from blocker_process.dependent.format_strategies import build_format_strategy_notes
@@ -650,10 +651,13 @@ Your job in this repair attempt is different from the normal blocker-solving ite
     )
 
 
-def setup_file_logging(func_name: str, log_dir: str | Path | None = None) -> None:
-    safe_func_name = func_name.replace("::", "_").replace(" ", "_")
+def setup_file_logging(
+    func_name: str,
+    log_dir: str | Path | None = None,
+    branch_line_number: str | int | None = None,
+) -> None:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{timestamp}_{safe_func_name}_seedgen.log"
+    log_filename = blocker_log_filename(func_name, branch_line_number or "0", timestamp, "seedgen")
 
     resolved_log_dir = Path(log_dir) if log_dir else REPO_ROOT / "logs"
     resolved_log_dir.mkdir(parents=True, exist_ok=True)
@@ -2269,7 +2273,7 @@ def get_seed_generator_temperature(iteration_index: int) -> float:
 def run_seed_generation(args: argparse.Namespace) -> dict:
     from llm_interface.llm_client import LLMClient, new_thread_id
 
-    setup_file_logging(args.function_name, getattr(args, "log_dir", None))
+    setup_file_logging(args.function_name, getattr(args, "log_dir", None), args.branch_line_number)
     triggering_input_path, triggering_input_preview = resolve_triggering_input(args.triggering_input)
     format_info = infer_input_format(
         project_name=args.project_name,
@@ -2280,10 +2284,14 @@ def run_seed_generation(args: argparse.Namespace) -> dict:
         triggering_input_preview=triggering_input_preview,
     )
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_project = sanitize_name(args.project_name)
-    safe_function = sanitize_name(args.function_name)
     _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
-    output_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
+    output_dir = _output_root / blocker_stage_artifact_name(
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        timestamp,
+        "seedgen",
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     generation_mode, mutation_base_seed, generation_mode_reason = resolve_generation_mode(
         str(getattr(args, "seed_generation_mode", DEFAULT_SEED_GENERATION_MODE) or DEFAULT_SEED_GENERATION_MODE),

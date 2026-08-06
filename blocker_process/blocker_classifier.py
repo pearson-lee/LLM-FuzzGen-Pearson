@@ -19,6 +19,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from external.introspector import Introspector
 from external.oss_fuzz import OSSFuzz
+from blocker_process.blocker_artifacts import (
+    blocker_artifact_id,
+    blocker_log_filename,
+    blocker_stage_artifact_name,
+    write_blocker_metadata,
+)
 from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.blocker_triage import run_triage_for_classifier
 import config.config as config
@@ -319,7 +325,7 @@ def resolve_source_file_path(project_name: str, function_name: str) -> str | Non
     if not source_code:
         return None
 
-    source_name = Path(source_path).name or f"{sanitize_filename(function_name)}.c"
+    source_name = Path(source_path).name or f"{blocker_artifact_id(function_name, '0')}.c"
     return write_auto_context_file(project_name, "library_sources", source_name, source_code)
 
 
@@ -364,7 +370,7 @@ def resolve_header_file_path(
         header_code = introspector.get_project_source_code(project_name, header_path, 1, 999999)
         if not header_code:
             continue
-        header_name = Path(header_path).name or f"{sanitize_filename(function_name)}.h"
+        header_name = Path(header_path).name or f"{blocker_artifact_id(function_name, '0')}.h"
         return write_auto_context_file(project_name, "headers", header_name, header_code)
 
     api_source = source_api_file or resolve_source_api_file(project_name, function_name)
@@ -374,7 +380,7 @@ def resolve_header_file_path(
             header_code = introspector.get_project_source_code(project_name, candidate, 1, 999999)
             if not header_code:
                 continue
-            header_name = Path(candidate).name or f"{sanitize_filename(function_name)}.h"
+            header_name = Path(candidate).name or f"{blocker_artifact_id(function_name, '0')}.h"
             logging.info("Resolved header via source include fallback: %s", candidate)
             return write_auto_context_file(project_name, "headers", header_name, header_code)
     return None
@@ -842,10 +848,13 @@ def check_function_coverage(project_name: str, fuzzer_name: str, func_name: str)
     return report
 
 @contextlib.contextmanager
-def scoped_file_logging(func_name: str, log_dir: str | Path | None = None):
-    safe_func_name = func_name.replace("::", "_").replace(" ", "_")
+def scoped_file_logging(
+    func_name: str,
+    log_dir: str | Path | None = None,
+    branch_line_number: str | int | None = None,
+):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{timestamp}_{safe_func_name}.log"
+    log_filename = blocker_log_filename(func_name, branch_line_number or "0", timestamp, "classifier")
 
     resolved_log_dir = Path(log_dir) if log_dir else REPO_ROOT / "logs"
     resolved_log_dir.mkdir(parents=True, exist_ok=True)
@@ -931,7 +940,7 @@ def classify_blocker(args: argparse.Namespace, execute_pipeline: bool = True) ->
 
     try:
         args = apply_blocker_payload(args)
-        with scoped_file_logging(args.function_name, getattr(args, "log_dir", None)):
+        with scoped_file_logging(args.function_name, getattr(args, "log_dir", None), args.branch_line_number):
             args = auto_resolve_context_files(args)
             args = auto_collect_callpath_context(args)
             log_collection_status(args)
@@ -1275,12 +1284,24 @@ def main():
         parser.error("Missing required blocker fields: " + ", ".join(missing))
     if not args.output_root and not args.classify_only:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        fn = (args.function_name or "unknown").replace("/", "_")
-        branch = args.branch_line_number or "0"
         args.output_root = str(
-            Path("experiments") / f"{ts}_{args.project_name}_{fn}_{branch}"
+            Path("experiments")
+            / blocker_stage_artifact_name(args.project_name, args.function_name, args.branch_line_number, ts)
         )
         logging.info("Auto-generated output root: %s", args.output_root)
+    if args.output_root:
+        blocker_id = blocker_artifact_id(args.function_name, args.branch_line_number)
+        write_blocker_metadata(
+            Path(args.output_root),
+            blocker_id=blocker_id,
+            project_name=args.project_name,
+            function_name=args.function_name,
+            branch_line_number=args.branch_line_number,
+            blocked_side_line_number=args.blocked_side_line_number,
+            source_file=args.source_file,
+            target_name=args.target_name,
+            extra={"artifact_source": "blocker_classifier"},
+        )
     try:
         result = classify_blocker(args, execute_pipeline=not args.classify_only)
     except FileNotFoundError as exc:

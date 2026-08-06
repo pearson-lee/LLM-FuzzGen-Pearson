@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import config.config as config
+from blocker_process.blocker_artifacts import blocker_log_filename, blocker_stage_artifact_name
 from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.blocker_source_evidence import collect_symbol_evidence, render_symbol_evidence_for_prompt
 from blocker_process.target_quality_analyzer import analyze_target_quality
@@ -231,10 +232,13 @@ def sanitize_name(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("._-") or "unknown"
 
 
-def setup_file_logging(func_name: str, log_dir: str | Path | None = None) -> None:
-    safe_func_name = func_name.replace("::", "_").replace(" ", "_")
+def setup_file_logging(
+    func_name: str,
+    log_dir: str | Path | None = None,
+    branch_line_number: str | int | None = None,
+) -> None:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{timestamp}_{safe_func_name}_input_independent_solver.log"
+    log_filename = blocker_log_filename(func_name, branch_line_number or "0", timestamp, "input_independent_solver")
 
     resolved_log_dir = Path(log_dir) if log_dir else REPO_ROOT / "logs"
     resolved_log_dir.mkdir(parents=True, exist_ok=True)
@@ -336,10 +340,14 @@ def guess_container_source_file(project_name: str, local_source_file: str) -> st
 
 def build_output_dir(args: argparse.Namespace) -> Path:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_project = sanitize_name(args.project_name)
-    safe_function = sanitize_name(args.function_name)
     _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
-    out_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
+    out_dir = _output_root / blocker_stage_artifact_name(
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        timestamp,
+        "input_independent",
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
@@ -1431,7 +1439,7 @@ def summarize_best_iteration(iterations: list[dict]) -> dict | None:
 
 
 def run_input_independent_solver(args: argparse.Namespace) -> dict:
-    setup_file_logging(args.function_name, getattr(args, "log_dir", None))
+    setup_file_logging(args.function_name, getattr(args, "log_dir", None), args.branch_line_number)
     oss_fuzz = OSSFuzz()
     llm = LLMClient(backend=args.backend, model_name=args.model)
     output_dir = build_output_dir(args)

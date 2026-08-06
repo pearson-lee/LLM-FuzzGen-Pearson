@@ -16,6 +16,7 @@ from dataclasses import field
 import config.config as config
 import prompts.prompt_generator as prompt_generator
 from blocker_process.blocker_classifier import classify_blocker
+from blocker_process.blocker_artifacts import blocker_artifact_id, write_blocker_metadata
 from blocker_process.coverage_utils import get_line_execution_count
 from blocker_process.dependent.input_dependent_seed_generator import evaluate_iteration_with_coverage
 from blocker_process.global_blocker_selector import (
@@ -158,12 +159,23 @@ def _live_revalidate_blocker_before_classify(
                     "output_dir": None,
                 }
 
+    blocker_id = blocker_artifact_id(function_name, branch_line)
     if experiment_dir is not None:
-        output_dir = experiment_dir / "blockers" / f"{function_name}_{branch_line}" / "revalidation"
+        blocker_base = experiment_dir / "blockers" / blocker_id
     else:
-        output_dir = Path("artifacts") / "blocker_revalidation" / project_name / (
-            f"{target_name}_{function_name}_{branch_line}_{blocked_side_line}"
-        )
+        blocker_base = Path("artifacts") / "blocker_revalidation" / project_name / blocker_id
+    write_blocker_metadata(
+        blocker_base,
+        blocker_id=blocker_id,
+        project_name=project_name,
+        function_name=function_name,
+        branch_line_number=branch_line,
+        blocked_side_line_number=blocked_side_line,
+        source_file=source_file,
+        target_name=target_name,
+        extra={"artifact_source": "live_revalidation"},
+    )
+    output_dir = blocker_base / "revalidation"
     output_dir.mkdir(parents=True, exist_ok=True)
     evaluation = evaluate_iteration_with_coverage(
         oss_fuzz=oss_fuzz,
@@ -1254,11 +1266,24 @@ def run_blocker_pipeline(
     pipeline_started_at = time.perf_counter()
     _blocker_fn = blocker.get("function_name", "unknown")
     _blocker_branch_line = blocker.get("branch_line_number", 0)
+    _blocker_id = blocker_artifact_id(_blocker_fn, _blocker_branch_line)
     _blocker_base = (
-        experiment_dir / "blockers" / f"{_blocker_fn}_{_blocker_branch_line}"
+        experiment_dir / "blockers" / _blocker_id
         if experiment_dir is not None
         else None
     )
+    if _blocker_base is not None:
+        write_blocker_metadata(
+            _blocker_base,
+            blocker_id=_blocker_id,
+            project_name=project_name,
+            function_name=_blocker_fn,
+            branch_line_number=_blocker_branch_line,
+            blocked_side_line_number=blocked_side_line_number,
+            source_file=blocker.get("source_file"),
+            target_name=blocker.get("best_target"),
+            extra={"artifact_source": "blocker_pipeline"},
+        )
     _blocker_log_dir = (
         _blocker_base / "logs"
         if (

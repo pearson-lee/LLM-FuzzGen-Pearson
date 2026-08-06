@@ -76,6 +76,10 @@ class HelperCommandResult:
     stderr: str
     timed_out: bool = False
     output_log_path: str = ""
+    output_log_bytes: int = 0
+    output_log_original_bytes: int = 0
+    output_truncated: bool = False
+    output_status: str = ""
 
 
 class OSSFuzz:
@@ -84,6 +88,9 @@ class OSSFuzz:
     DEFAULT_FUZZER_TIMEOUT_BUFFER_SECONDS = 120
     DEFAULT_SCHEDULER_DRAIN_TIMEOUT_SECONDS = 120
     HELPER_OUTPUT_TAIL_BYTES = 32 * 1024
+    RUN_FUZZER_LOG_MAX_BYTES = 100 * 1024 * 1024
+    RUN_FUZZER_LOG_PRESERVED_TAIL_BYTES = 2 * 1024 * 1024
+    RUN_FUZZER_ARTIFACT_SCAN_TAIL_BYTES = 2 * 1024 * 1024
     FUZZER_OUTPUT_ARTIFACT_MARKERS = (
         "_crash-",
         "_oom-",
@@ -142,11 +149,14 @@ class OSSFuzz:
                         check=False,
                         timeout=timeout,
                     )
+                log_size = output_log_path.stat().st_size if output_log_path.exists() else 0
                 return HelperCommandResult(
                     process.returncode == 0,
                     self._read_file_tail(output_log_path, tail_bytes),
                     "",
                     output_log_path=str(output_log_path),
+                    output_log_bytes=log_size,
+                    output_log_original_bytes=log_size,
                 )
 
             process = subprocess.run(
@@ -175,6 +185,8 @@ class OSSFuzz:
                     "timed out",
                     timed_out=True,
                     output_log_path=str(output_log_path),
+                    output_log_bytes=output_log_path.stat().st_size if output_log_path.exists() else 0,
+                    output_log_original_bytes=output_log_path.stat().st_size if output_log_path.exists() else 0,
                 )
             stdout = e.stdout.decode(errors="ignore") if isinstance(e.stdout, bytes) else e.stdout
             stderr = e.stderr.decode(errors="ignore") if isinstance(e.stderr, bytes) else e.stderr
@@ -192,6 +204,8 @@ class OSSFuzz:
                     self._read_file_tail(output_log_path, tail_bytes),
                     str(e),
                     output_log_path=str(output_log_path),
+                    output_log_bytes=output_log_path.stat().st_size if output_log_path.exists() else 0,
+                    output_log_original_bytes=output_log_path.stat().st_size if output_log_path.exists() else 0,
                 )
             return HelperCommandResult(False, "", str(e))
         except BaseException as e:
@@ -207,13 +221,18 @@ class OSSFuzz:
         if max_bytes <= 0:
             return ""
         try:
-            size = path.stat().st_size
-            with path.open("rb") as f:
-                if size > max_bytes:
-                    f.seek(-max_bytes, os.SEEK_END)
-                return f.read().decode(errors="ignore")
+            return self._read_file_tail_bytes(path, max_bytes).decode(errors="ignore")
         except OSError:
             return ""
+
+    def _read_file_tail_bytes(self, path: Path, max_bytes: int) -> bytes:
+        if max_bytes <= 0:
+            return b""
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            if size > max_bytes:
+                f.seek(-max_bytes, os.SEEK_END)
+            return f.read()
 
     def _run_fuzzer_log_path(self, proj_name: str, fuzzer_name: str) -> Path:
         safe_fuzzer = re.sub(r"[^A-Za-z0-9_.-]+", "_", fuzzer_name)
@@ -232,13 +251,61 @@ class OSSFuzz:
         match = re.search(rf"(?:{marker_pattern})([0-9a-fA-F]{{40}})$", artifact_name)
         return match.group(1).lower() if match else None
 
-    def _read_full_log(self, log_path: Path | None, fallback_text: str = "") -> str:
+    def _read_log_tail_for_artifact_scan(self, log_path: Path | None, fallback_text: str = "") -> str:
         if log_path and log_path.exists():
             try:
-                return log_path.read_text(encoding="utf-8", errors="ignore")
+                return self._read_file_tail(log_path, self.RUN_FUZZER_ARTIFACT_SCAN_TAIL_BYTES)
             except OSError:
                 pass
-        return fallback_text
+        return fallback_text[-self.RUN_FUZZER_ARTIFACT_SCAN_TAIL_BYTES :]
+
+    def _cap_noisy_run_fuzzer_log(self, helper_result: HelperCommandResult) -> None:
+        if not helper_result.output_log_path:
+            return
+        output_log_path = Path(helper_result.output_log_path)
+        if not output_log_path.exists():
+            return
+
+        try:
+            original_size = output_log_path.stat().st_size
+        except OSError:
+            return
+
+        helper_result.output_log_original_bytes = original_size
+        helper_result.output_log_bytes = original_size
+        if original_size <= self.RUN_FUZZER_LOG_MAX_BYTES:
+            return
+
+        tail_budget = min(self.RUN_FUZZER_LOG_PRESERVED_TAIL_BYTES, self.RUN_FUZZER_LOG_MAX_BYTES // 2)
+        try:
+            preserved_tail = self._read_file_tail_bytes(output_log_path, tail_budget)
+        except OSError:
+            preserved_tail = b""
+
+        marker = (
+            "\n[LLM-FuzzGen] noisy_fuzzer_output: original run_fuzzer log exceeded "
+            f"{self.RUN_FUZZER_LOG_MAX_BYTES} bytes ({original_size} bytes observed); "
+            "middle output discarded after fuzzing completed; preserved bounded head and tail only.\n"
+        ).encode("utf-8")
+        head_budget = max(0, self.RUN_FUZZER_LOG_MAX_BYTES - len(marker) - len(preserved_tail))
+
+        try:
+            with output_log_path.open("r+b") as output_log:
+                output_log.truncate(head_budget)
+                output_log.seek(0, os.SEEK_END)
+                output_log.write(marker)
+                output_log.write(preserved_tail)
+        except OSError as exc:
+            logger.warning("Failed to cap noisy run_fuzzer log %s: %s", output_log_path, exc)
+            return
+
+        helper_result.output_truncated = True
+        helper_result.output_status = "noisy_fuzzer_output"
+        try:
+            helper_result.output_log_bytes = output_log_path.stat().st_size
+        except OSError:
+            helper_result.output_log_bytes = self.RUN_FUZZER_LOG_MAX_BYTES
+        helper_result.stdout = self._read_file_tail(output_log_path, self.HELPER_OUTPUT_TAIL_BYTES)
 
     def _extract_fuzzer_output_artifacts(self, log_text: str) -> list[dict[str, str]]:
         matches = list(re.finditer(r"Test unit written to\s+(\S+)", log_text))
@@ -370,7 +437,7 @@ class OSSFuzz:
             return []
 
         output_log_path = Path(helper_result.output_log_path) if helper_result.output_log_path else None
-        log_text = self._read_full_log(output_log_path, helper_result.stdout + helper_result.stderr)
+        log_text = self._read_log_tail_for_artifact_scan(output_log_path, helper_result.stdout + helper_result.stderr)
         artifacts = self._extract_fuzzer_output_artifacts(log_text)
         if not artifacts:
             return []
@@ -406,7 +473,12 @@ class OSSFuzz:
                 "run_fuzzer_log": str(output_log_path) if output_log_path else "",
                 "saved_log_path": str(log_copy_path) if log_copy_path.exists() else "",
                 "summary": summary,
+                "run_fuzzer_log_bytes": helper_result.output_log_bytes,
+                "run_fuzzer_log_original_bytes": helper_result.output_log_original_bytes,
+                "run_fuzzer_log_truncated": helper_result.output_truncated,
             }
+            if helper_result.output_status:
+                metadata["run_fuzzer_log_status"] = helper_result.output_status
             if seed_path.exists():
                 metadata["seed_size"] = seed_path.stat().st_size
                 metadata["seed_sha1"] = hashlib.sha1(seed_path.read_bytes()).hexdigest()
@@ -1016,6 +1088,15 @@ class OSSFuzz:
             output_log_path=output_log_path,
             tail_bytes=self.HELPER_OUTPUT_TAIL_BYTES,
         )
+        self._cap_noisy_run_fuzzer_log(helper_result)
+        if helper_result.output_truncated:
+            logger.warning(
+                "Fuzzer %s emitted noisy_fuzzer_output; capped run_fuzzer log from %d to %d bytes: %s",
+                fuzzer_name,
+                helper_result.output_log_original_bytes,
+                helper_result.output_log_bytes,
+                helper_result.output_log_path,
+            )
         saved_artifacts = self._save_fuzzer_output_artifacts(
             proj_name,
             fuzzer_name,

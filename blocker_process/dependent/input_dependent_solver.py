@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 from external.oss_fuzz import OSSFuzz  # noqa: E402
+from blocker_process.blocker_artifacts import blocker_artifact_id, blocker_stage_artifact_name  # noqa: E402
 import config.config as config  # noqa: E402
 
 SEED_GENERATOR = MODULE_ROOT / "input_dependent_seed_generator.py"
@@ -381,9 +382,9 @@ def persist_successful_llm_seeds_to_corpus(
             continue
 
         corpus_dir.mkdir(parents=True, exist_ok=True)
+        blocker_id = blocker_artifact_id(args.function_name, args.branch_line_number)
         dest_name = (
-            f"llm_blocker_{sanitize_name(args.function_name)}_"
-            f"{int(args.branch_line_number)}_{str(record['sha256'])[:12]}"
+            f"llm_{blocker_id}_{str(record['sha256'])[:12]}"
         )
         dest_path = corpus_dir / dest_name
         already_present = dest_path.exists()
@@ -662,8 +663,13 @@ def archive_generated_harness_for_debug(
 ) -> dict:
     target_name = str(parsed_harness.get("native_build_target_name") or "").strip()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    archive_name = sanitize_name(
-        f"{args.project_name}_{args.function_name}_{args.branch_line_number}_{target_name or 'generated_harness'}_{timestamp}"
+    archive_name = blocker_stage_artifact_name(
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        timestamp,
+        target_name or "generated_harness",
+        "debug",
     )
     archive_dir = _resolve_symcc_debug_root(args) / archive_name
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -828,10 +834,14 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
         )
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_project = sanitize_name(args.project_name)
-    safe_function = sanitize_name(args.function_name)
     _output_root = (Path(args.output_root) / "symbolic_run") if getattr(args, "output_root", None) else OUTPUT_ROOT
-    output_dir = _output_root / f"{safe_project}_{safe_function}_{timestamp}"
+    output_dir = _output_root / blocker_stage_artifact_name(
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        timestamp,
+        "symbolic_run",
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     payload_path = output_dir / "blocker_payload.json"

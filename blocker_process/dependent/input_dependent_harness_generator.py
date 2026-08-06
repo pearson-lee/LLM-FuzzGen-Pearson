@@ -16,6 +16,7 @@ REPO_ROOT = MODULE_ROOT.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from blocker_process.blocker_artifacts import blocker_artifact_id, blocker_stage_artifact_name
 from blocker_process.dependent.build_context import reconstruct_build_context
 from external.oss_fuzz import OSSFuzz
 import config.config as config
@@ -743,7 +744,10 @@ def run_harness_native_build_gate(
     native_target = oss_fuzz.save_named_target(
         args.project_name,
         harness_code,
-        stem_prefix=f"llm_fuzzgen_symcc_{sanitize_name(args.function_name)}",
+        stem_prefix=(
+            f"llm_fuzzgen_symcc_"
+            f"{blocker_artifact_id(args.function_name, getattr(args, 'branch_line_number', '0'))}"
+        ),
     )
     build_result = oss_fuzz.ensure_target_binary(args.project_name, native_target.stem, sanitizer="address")
     native_log = output_dir / "native_build_check.txt"
@@ -1101,11 +1105,15 @@ def write_harness(output_dir: Path, harness_code: str, suggested_name: str) -> P
 
 
 def build_output_dir(args: argparse.Namespace) -> Path:
-    safe_project = sanitize_name(args.project_name)
-    safe_function = sanitize_name(args.function_name)
-    prefix = f"{safe_project}_{safe_function}_{args.mode}_"
+    prefix = blocker_stage_artifact_name(
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        "",
+        args.mode,
+    )
     candidates = sorted(path for path in OUTPUT_ROOT.glob(prefix + "*") if path.is_dir())
-    return candidates[-1] if candidates else (OUTPUT_ROOT / f"{prefix}unknown")
+    return candidates[-1] if candidates else (OUTPUT_ROOT / f"{prefix}_unknown")
 
 
 def run_generation(args: argparse.Namespace) -> dict:
@@ -1113,10 +1121,14 @@ def run_generation(args: argparse.Namespace) -> dict:
 
     prompt = build_prompt(args)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_project = sanitize_name(args.project_name)
-    safe_function = sanitize_name(args.function_name)
     _output_root = Path(args.output_root) if getattr(args, "output_root", None) else OUTPUT_ROOT
-    output_dir = _output_root / f"{safe_project}_{safe_function}_{args.mode}_{timestamp}"
+    output_dir = _output_root / blocker_stage_artifact_name(
+        args.project_name,
+        args.function_name,
+        args.branch_line_number,
+        timestamp,
+        args.mode,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
 

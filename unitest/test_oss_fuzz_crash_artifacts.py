@@ -56,6 +56,43 @@ def test_run_fuzzer_recovers_crash_seed_from_log_base64(tmp_path):
     assert metadata["summary"]["summary"].startswith("SUMMARY: AddressSanitizer")
 
 
+def test_run_fuzzer_caps_noisy_log_but_scans_tail_for_artifacts(tmp_path):
+    artifact_name = "llm_fuzzgen_demo_crash-abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    log_tail = (
+        "==15==ERROR: AddressSanitizer: heap-buffer-overflow\n"
+        "SUMMARY: AddressSanitizer: heap-buffer-overflow /src/demo.c:1:1 in demo\n"
+        f"artifact_prefix='llm_fuzzgen_demo_'; Test unit written to {artifact_name}\n"
+        "Base64: aGk=\n"
+    )
+    log_text = ("noisy formatter output\n" * 300) + log_tail
+    oss_fuzz = _FakeArtifactOSSFuzz(tmp_path, False, log_text)
+    oss_fuzz.RUN_FUZZER_LOG_MAX_BYTES = 1024
+    oss_fuzz.RUN_FUZZER_LOG_PRESERVED_TAIL_BYTES = 512
+    oss_fuzz.RUN_FUZZER_ARTIFACT_SCAN_TAIL_BYTES = 512
+    crash_dir = tmp_path / "crash_seeds"
+
+    result = oss_fuzz.run_fuzzer(
+        "demo",
+        "llm_fuzzgen_demo",
+        seconds=1,
+        build_fuzzer=False,
+        crash_artifact_dir=crash_dir,
+    )
+
+    saved_seed = crash_dir / "demo" / "llm_fuzzgen_demo" / artifact_name
+    metadata = json.loads((saved_seed.parent / f"{artifact_name}.metadata.json").read_text(encoding="utf-8"))
+    capped_log = Path(metadata["run_fuzzer_log"])
+
+    assert not result.success
+    assert saved_seed.read_bytes() == b"hi"
+    assert capped_log.stat().st_size <= oss_fuzz.RUN_FUZZER_LOG_MAX_BYTES
+    assert "noisy_fuzzer_output" in capped_log.read_text(encoding="utf-8", errors="ignore")
+    assert metadata["run_fuzzer_log_status"] == "noisy_fuzzer_output"
+    assert metadata["run_fuzzer_log_truncated"] is True
+    assert metadata["run_fuzzer_log_original_bytes"] == len(log_text.encode("utf-8"))
+    assert metadata["seed_source"] == "log_base64"
+
+
 class _ReplayCorpusOSSFuzz(_FakeArtifactOSSFuzz):
     def __init__(self, tmp_path: Path):
         super().__init__(tmp_path, True, "")

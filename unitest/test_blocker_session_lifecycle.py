@@ -1,7 +1,9 @@
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+from blocker_process.blocker_artifacts import blocker_artifact_id
 import main
 from external.oss_fuzz import CompilationResult, CoverageMetricSummary
 
@@ -328,6 +330,77 @@ def test_blocker_pipeline_passes_live_branch_hit_count_to_classifier(monkeypatch
     )
 
     assert captured["branch_hit_count"] == 22800
+
+
+def test_blocker_pipeline_uses_short_artifact_id_and_metadata(monkeypatch, tmp_path):
+    long_function = (
+        "_ZN4toml2v35table16insert_or_assignIRKNS0_3keyERA17_KcTnNSt3__19enable_ifIXoo"
+        "21is_key_or_convertibleIOT_Esr4implE14is_wide_stringISB_EEiE4typeELi0EEENS9_"
+        "4pairINS0_4impl14table_iteratorILb0EEEbEESC_OT0_NS0_11value_flagsE"
+    )
+    blocker = _blocker(long_function, 8635, "target_a")
+    blocker_json = tmp_path / "branch-blockers.json"
+    blocker_json.write_text(json.dumps({"target_a": [blocker]}), encoding="utf-8")
+    experiment = tmp_path / "experiment"
+    blocker_id = blocker_artifact_id(long_function, 8635)
+    blocker_base = experiment / "blockers" / blocker_id
+    monkeypatch.setattr(main, "experiment_dir", experiment)
+    monkeypatch.setattr(
+        main,
+        "experiment_logger",
+        SimpleNamespace(project_name="run_all_fuzzer", run_id="test-run", log_event=lambda *args, **kwargs: None),
+    )
+    monkeypatch.setattr(
+        main,
+        "_live_revalidate_blocker_before_classify",
+        lambda **kwargs: {
+            "success": True,
+            "branch_line_reached": True,
+            "blocked_side_line_reached": False,
+            "branch_hit_count": 1,
+            "blocked_side_hit_count": 0,
+        },
+    )
+    captured = {}
+
+    def fake_classifier(args, execute_pipeline):
+        captured["function_name"] = args.function_name
+        captured["output_root"] = args.output_root
+        captured["log_dir"] = args.log_dir
+        return {
+            "success": False,
+            "attempt_result": "failed",
+            "dependency_result": "Input Independent",
+            "pipeline_returncode": 4,
+            "pipeline_methods": ["reference_guided_generation"],
+            "pipeline_output": {
+                "parsed_output": {
+                    "success": False,
+                    "failure_stage": "dedicated_generation",
+                    "output_dir": str(blocker_base / "independent_target"),
+                    "summary_path": str(blocker_base / "independent_target" / "summary.json"),
+                }
+            },
+        }
+
+    monkeypatch.setattr(main, "classify_blocker", fake_classifier)
+    monkeypatch.setattr(main.oss_fuzz, "invalidate_project_build_state", lambda *args, **kwargs: True)
+
+    main.run_blocker_pipeline(
+        project_name="demo",
+        llm_backend="vertexai",
+        model_name="model",
+        blocker_json_path=blocker_json,
+        blocker_record=blocker,
+    )
+
+    metadata = json.loads((blocker_base / "blocker_metadata.json").read_text(encoding="utf-8"))
+    assert captured["function_name"] == long_function
+    assert captured["output_root"] == str(blocker_base)
+    assert captured["log_dir"] == str(blocker_base / "logs")
+    assert metadata["function_name"] == long_function
+    assert metadata["blocker_id"] == blocker_id
+    assert long_function not in str(blocker_base)
 
 
 def test_refresh_budget_guard_does_not_start_expensive_refresh(monkeypatch):

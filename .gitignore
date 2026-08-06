@@ -43,3 +43,5 @@ logs/
 /experiments/*/oss-fuzz-build-out-*.tar.zst
 experiment_artifact_backup/
 original_fuzz_target/
+# Local experiment archives
+/experiments/**/*.tar.gz
