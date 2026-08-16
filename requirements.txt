@@ -1,4 +1,5 @@
-PyYAML==6.0
+PyYAML==6.0.1
+requests==2.32.3
 langchain==0.3.25
 langchain_google_genai==2.1.4
 langchain-google-vertexai==2.0.25

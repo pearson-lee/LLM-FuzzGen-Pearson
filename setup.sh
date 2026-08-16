@@ -4,8 +4,10 @@
 # Script Setup and Helper Functions
 # ==============================================================================
 
-BASE_DIR="$(pwd)"
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXTERNAL_DIR="$BASE_DIR/external"
+
+cd "$BASE_DIR" || exit 1
 
 # Function to handle errors and exit
 fail() {
@@ -52,9 +54,10 @@ python -m pip install -r requirements.txt || fail "Failed to install main projec
 # External Repositories Setup
 # ==============================================================================
 
-# Install Python requirements for Fuzz Introspector
+# Install the local Fuzz Introspector web API and package used by this snapshot.
 echo "[+] Installing Fuzz Introspector Python requirements..."
-python -m pip install -r "$EXTERNAL_DIR/fuzz-introspector/tools/web-fuzzing-introspection/requirements.txt" || fail "Failed to install Fuzz Introspector Python requirements"
+python -m pip install -r "$EXTERNAL_DIR/fuzz-introspector/tools/web-fuzzing-introspection/requirements.txt" || fail "Failed to install Fuzz Introspector web requirements"
+python -m pip install -e "$EXTERNAL_DIR/fuzz-introspector/src" || fail "Failed to install the local Fuzz Introspector package"
 echo "[+] External repositories setup is complete."
 
 
