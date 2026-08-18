@@ -1,0 +1,27 @@
+{
+  "artifact_kind": "crash",
+  "artifact_name": "llm_fuzzgen0727125955_crash-44805f0834f1275cc012e4e3775f526ae12e9c78",
+  "artifact_sha1": "44805f0834f1275cc012e4e3775f526ae12e9c78",
+  "fuzzer": "llm_fuzzgen0727125955",
+  "project": "tomlplusplus",
+  "run_fuzzer_log": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/logs/tomlplusplus/run_fuzzer/20260806_154428_756374_llm_fuzzgen0727125955_53bc7179.log",
+  "run_fuzzer_log_bytes": 15683,
+  "run_fuzzer_log_original_bytes": 15683,
+  "run_fuzzer_log_truncated": false,
+  "saved_log_path": "experiments/20260806_154151_run_all_fuzzer/crash_seeds/tomlplusplus/llm_fuzzgen0727125955/llm_fuzzgen0727125955_crash-44805f0834f1275cc012e4e3775f526ae12e9c78.log",
+  "seed_path": "experiments/20260806_154151_run_all_fuzzer/crash_seeds/tomlplusplus/llm_fuzzgen0727125955/llm_fuzzgen0727125955_crash-44805f0834f1275cc012e4e3775f526ae12e9c78",
+  "seed_saved": true,
+  "seed_sha1": "44805f0834f1275cc012e4e3775f526ae12e9c78",
+  "seed_size": 90,
+  "seed_source": "build_out",
+  "source_path": "/home/kyliechien/LLM-FuzzGen/external/oss-fuzz/build/out/tomlplusplus/llm_fuzzgen0727125955_crash-44805f0834f1275cc012e4e3775f526ae12e9c78",
+  "summary": {
+    "dedup_tokens": [
+      "as<toml::v3::table>--as<toml::v3::table>--as_table\r",
+      "operator delete(void*)--operator()--reset\r",
+      "operator new(unsigned long)--toml::v3::impl::table_iterator<false> toml::v3::table::emplace_hint<toml::v3::table, toml::v3::key, 0>(toml::v3::impl::table_iterator<true>, toml::v3::key&&)--toml::v3::impl::impl_ex::parser::parse_table_header()\r"
+    ],
+    "sanitizer_error": "==15==ERROR: AddressSanitizer: heap-use-after-free on address 0x507000075c70 at pc 0x55d698b1f8f9 bp 0x7fff71e90c50 sp 0x7fff71e90c48",
+    "summary": "SUMMARY: AddressSanitizer: heap-use-after-free /src/tomlplusplus/include/toml++/impl/node.hpp:450:12 in as<toml::v3::table>"
+  }
+}
