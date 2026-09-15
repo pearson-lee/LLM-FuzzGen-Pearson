@@ -94,9 +94,15 @@ class LLMClient:
                 import langchain_google_vertexai
                 PROJECT_ID = os.getenv(
                     "VERTEXAI_PROJECT_ID",
-                    os.getenv("GOOGLE_CLOUD_PROJECT", "project-def9a177-752e-48d4-85b"),
+                    os.getenv(
+                        "GOOGLE_CLOUD_PROJECT",
+                        getattr(config, "VERTEXAI_PROJECT_ID", "project-7593333e-b728-4561-b67"),
+                    ),
                 )
-                LOCATION = os.getenv("VERTEXAI_LOCATION", "us-central1")
+                LOCATION = os.getenv(
+                    "VERTEXAI_LOCATION",
+                    getattr(config, "VERTEXAI_LOCATION", "us-central1"),
+                )
 
                 vertexai.init(project=PROJECT_ID, location=LOCATION)
                 llm_base = langchain_google_vertexai.ChatVertexAI(
