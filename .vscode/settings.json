@@ -67,4 +67,5 @@
         "**/symcc/build/**",
         "**/symcc/build_simple/**"
     ],
+    "cmake.sourceDirectory": "/home/peason/Projects/LLM_FuzzGen_Blocker/symcc",
 }

@@ -38,7 +38,7 @@ dependencies = [
 "sphinx_rtd_theme",
 "configparser",
 "coverage",
-"atheris",
+"atheris<3.0.0",
 "setuptools>=65.5.1",
 "tqdm",
 "rust-demangler",

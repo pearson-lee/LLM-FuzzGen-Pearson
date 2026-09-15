@@ -18,9 +18,9 @@ index 742cfd6..cc124ea 100644
 -    python3 -m pip install --upgrade pip && \
 +    python3 -m pip install --upgrade pip setuptools && \
 +    python3 -m pip install cxxfilt pyyaml beautifulsoup4 lxml soupsieve rust-demangler && \
-+    python3 -m pip install --prefer-binary matplotlib && \
++    python3 -m pip install --prefer-binary matplotlib "atheris<3.0.0" && \
 +    cd /fuzz-introspector/src && \
-+    python3 -m pip install -e . && \
++    python3 -m pip install --prefer-binary -e . && \
      apt-get remove -y $PYTHON_DEPS # https://github.com/google/oss-fuzz/issues/3888
  
  

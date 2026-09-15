@@ -642,10 +642,10 @@ docker run --rm gcr.io/oss-fuzz/<project> \
 檢查 SymCC archive。第一個 command 必須找得到 `_sym_*` undefined references；第二個 command 必須沒有輸出並回傳成功：
 
 ```bash
-nm -A external/oss-fuzz/build/out/<project>/symcc_library/libproject.a \
+nm -A external/oss-fuzz/build/out/<project>/symcc_library/lib{project}.a \
   | rg '[[:space:]]U[[:space:]]+_sym_'
 
-! nm -A external/oss-fuzz/build/out/<project>/symcc_library/libproject.a \
+! nm -A external/oss-fuzz/build/out/<project>/symcc_library/lib{project}.a \
   | rg '__sanitizer_cov_|__sancov_'
 ```
 
