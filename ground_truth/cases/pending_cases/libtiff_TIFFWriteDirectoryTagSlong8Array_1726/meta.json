@@ -1,0 +1,32 @@
+{
+  "case_id": "libtiff_TIFFWriteDirectoryTagSlong8Array_1726",
+  "project_name": "libtiff",
+  "function_name": "TIFFWriteDirectoryTagSlong8Array",
+  "branch_line_number": 1726,
+  "blocked_side_line_number": 1733,
+  "target_name": "llm_fuzzgen0717053529",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717053529.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFWriteDirectoryTagSlong8Array_1726/symbolic_run/libtiff_TIFFWriteDirectoryTagSlong8Array_20260718_103808",
+  "historical_reason": "The blocker predicate `if (dir == NULL)` is part of a two-pass mechanism in `TIFFWriteDirectorySec`. The `dir` variable is `NULL` during the first ('counting') pass and non-`NULL` during the second ('writing') pass. The transition to the writing pass, and thus setting `dir` to a non-`NULL` value, depends on the successful completion of the counting pass, which processes the input-derived `tif` object. The unreachable code is further guarded by `if (tif->tif_flags & TIFF_BIGTIFF)`, which is also controlled by the input file's header. An input that is a valid BigTIFF file with the necessary tags would allow the library to proceed to the writing pass and satisfy both conditions. Therefore, the ability to reach the blocked code is dependent on the semantic content of the fuzzer input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (dir == NULL)` at line 1726 of `TIFFWriteDirectoryTagSlong8Array`. The variable is `dir`, a pointer to a `TIFFDirEntry` struct. The branch hit count of 3 indicates this line is executed, meaning the function is called, but the condition `dir == NULL` is always true.",
+    "[1.5. Blocked Side Direction]: The blocked side, containing the `if (tif->tif_flags & TIFF_BIGTIFF)` check at line 1733, is in the `else` block of the `if (dir == NULL)` condition. To reach the blocked side, the predicate must be false, meaning the required state is `dir != NULL`.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime segment shows the execution path starts in the fuzz target at line 48 with the call `TIFFWriteDirectory(tif);`.",
+    "[2.5. Materialization Check]: The fuzz target creates a TIFF file on disk using the raw fuzzer input bytes via `fdp.ConsumeRemainingBytes<uint8_t>()`. It then opens this file using `TIFFOpen(filename, \"r+\")`, which parses the file and materializes the `tif` object. The subsequent call to `TIFFWriteDirectory(tif)` operates on this input-derived object. The necessary state is materialized from the input.",
+    "[3A. Setter / Transition Evidence]: The value of the `dir` argument is controlled by its caller, `TIFFWriteDirectorySec`. This function operates in two phases: a 'counting pass' where it calls tag-writing functions with `dir = NULL` to determine the directory size, followed by a 'writing pass' where it allocates memory for `dir` and calls the functions again with a non-NULL `dir` to write the data. The transition from the counting pass to the writing pass (which sets `dir` to non-NULL) is internal library logic. However, this transition depends on the counting pass completing successfully without errors, which in turn depends on the validity of the input TIFF data held in the `tif` object. The runtime trace shows `TIFFWriteDirectoryTagSlong8Array` is called, which happens when writing `TIFFTAG_SUBIFD`, implying the input data caused `tif->tif_nsubifd > 0`. To reach the deeper blocked code, the `tif->tif_flags & TIFF_BIGTIFF` flag must also be set. This flag is set by `TIFFOpen` if the input file header identifies it as a BigTIFF file. Both conditions are therefore derived from the fuzzer input bytes.",
+    "[3B. Survival / Feasibility Check]: For the blocked side to be reached, the fuzzer must generate input that represents a valid BigTIFF file containing SubIFDs. With such an input, `TIFFOpen` would set the `TIFF_BIGTIFF` flag, and `TIFFWriteDirectorySec` would successfully complete its counting pass and proceed to the writing pass. In the writing pass, it would allocate `dir` and call `TIFFWriteDirectoryTagSlong8Array` with `dir != NULL`. At this point, both conditions (`dir != NULL` and `tif->tif_flags & TIFF_BIGTIFF`) would be met, and execution would reach the unreachable code. There is no evidence of a structural invariant in the fuzz target or the observed API path that would prevent a sufficiently well-formed input from reaching this state.",
+    "[4. Rule Application]: Rule 2, 'Implicit Flow & Semantic Properties', applies. Reaching the blocked side requires the input bytes to have specific semantic properties: they must form a valid BigTIFF header and define SubIFDs. The state of the `dir` variable, while set internally by the library, is implicitly dependent on the input data being well-formed enough to allow the library's state machine (counting pass -> writing pass) to transition correctly. Since these properties can be encoded in the input data without changing the fuzz target, the blocker is input-dependent."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

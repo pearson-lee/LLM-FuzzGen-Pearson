@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_recon_block_1043",
+  "project_name": "libvpx",
+  "function_name": "recon_block",
+  "branch_line_number": 1043,
+  "blocked_side_line_number": 1044,
+  "target_name": "llm_fuzzgen_dedicated_generation_0727001606_033744",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_dedicated_generation_0727001606_033744.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/recon_block_1043/symbolic_run/libvpx_recon_block_20260727_230432",
+  "historical_reason": "The blocker is classified as Input Dependent. The fuzz target correctly establishes the necessary decoder configuration for multi-threading. However, as specified in the `BLOCKER_STRATEGY_CONTRACT`, a final condition (`log2_tile_rows` being 0) must be met, and this condition is dependent on the content of the input bitstream passed to `vpx_codec_decode`. The fuzzer directly controls this bitstream. The failure to reach the blocked code is because the fuzzer has not yet generated the specific byte sequence required to satisfy this input-dependent condition.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `uv_subsize == BLOCK_INVALID` on line 1043 in the function `recon_block`. The branch hit count of `8.30k` indicates that this line is frequently executed, but the condition `uv_subsize == BLOCK_INVALID` has never been met.",
+    "[1.5. Blocked Side Direction]: The blocked side at line 1044 is within the `if` statement, meaning it is executed when the condition `uv_subsize == BLOCK_INVALID` evaluates to TRUE. To unblock, the fuzzer needs to generate an input that causes `uv_subsize` to be set to `BLOCK_INVALID`.",
+    "[2. Fuzz Target Call Site]: The fuzz target triggers the decoding process and the subsequent path to the blocker via the `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);` call.",
+    "[2.5. Materialization Check]: The fuzz target consumes bytes from the fuzzer input (`fdp.ConsumeBytes`) and passes them as a frame to `vpx_codec_decode`. It then attempts to retrieve decoded images with `vpx_codec_get_frame`. This confirms that the library is processing the input data provided by the fuzzer, and the internal state is derived from this data.",
+    "[3A. Setter / Transition Evidence]: The `BLOCKER_STRATEGY_CONTRACT` in the fuzz target provides the most critical information. It states that three conditions are required: `pbi->max_threads > 1`, `pbi->row_mt == 1`, and `log2_tile_rows` must be 0. The fuzz target explicitly sets the first two conditions via API calls (`vpx_codec_dec_init_ver` with `cfg.threads > 1` and `vpx_codec_control_` with `VP9D_SET_ROW_MT`). The contract clarifies that the third condition, `log2_tile_rows` being 0, is dependent on the content of the input bitstream. This bitstream is supplied by the fuzzer through the `frame_data` buffer passed to `vpx_codec_decode`. Therefore, the state required to satisfy the blocker predicate is directly influenced by the fuzzer's input bytes. No data starvation is observed.",
+    "[3B. Survival / Feasibility Check]: The fuzz target is explicitly designed to create the necessary preconditions for the blocker. It correctly sets up the multi-threading and row-based multi-threading modes. The final piece, the bitstream content (`log2_tile_rows = 0`), is left to the fuzzer. There is no evidence in the provided context to suggest that an input satisfying this condition would be discarded or fail to propagate to the point where `uv_subsize` is checked. The high execution count of the predicate without reaching the blocked side strongly implies that the fuzzer has not yet successfully generated the required complex byte sequence for the video frame.",
+    "[4. Rule Application]: Rule 2 (Implicit Flow & Semantic Properties) applies. The value of the variable `uv_subsize` is determined by the internal state of the decoder, which in turn depends on semantic properties (like `log2_tile_rows`) parsed from the input bitstream. The path to the blocker is controlled by the content of the data buffer provided by the fuzzer."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vp8_decode_407",
+  "project_name": "libvpx",
+  "function_name": "vp8_decode",
+  "branch_line_number": 407,
+  "blocked_side_line_number": 408,
+  "target_name": "llm_fuzzgen0720133552",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen0720133552.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp8_decode_407/symbolic_run/libvpx_vp8_decode_20260727_235155",
+  "historical_reason": "The blocker is classified as Input Dependent. The predicate variable `pc->Width` is checked at line 407 in the `vp8_decode` function. This variable's value is derived directly from the fuzzer's input data. Specifically, the `vp8_peek_si_internal` function parses the input bitstream to determine frame properties, including the width (`ctx->si.w`). This width is then assigned to `pc->Width` at line 393. To reach the blocked code at line 408, the condition `pc->Width <= 0` must be true, which requires the fuzzer to provide input that is parsed as having a frame width of zero or a negative value. This is a direct consequence of the input's semantic content.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (pc->Width <= 0)` at line 407 of `vp8_decode`. The variable is `pc->Width`. The branch hit count of `1.41k` indicates this condition is evaluated frequently, but the blocked side is never reached.",
+    "[1.5. Blocked Side Direction]: The blocked side, line 408 (`pc->Width = w;`), is inside the `if` statement. To reach it, the condition `pc->Width <= 0` must evaluate to `true`.",
+    "[2. Fuzz Target Call Site]: The fuzz target invokes the library API that leads to the blocker at line 47: `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);`. This is confirmed by the runtime trace, which shows `LLVMFuzzerTestOneInput` calling `vpx_codec_decode`.",
+    "[2.5. Materialization Check]: The fuzz target consumes the remaining bytes into `frame_data` and passes this buffer to `vpx_codec_decode`. The `vp8_decode` function then uses this data to parse frame properties. Specifically, `vp8_peek_si_internal` is called to parse stream info (`ctx->si`), including width, from the input data. This parsed state is then used to configure the decoder's common structure (`pc`), so the input data is being materialized and consumed to affect the predicate variable.",
+    "[3A. Setter / Transition Evidence]: The value of `pc->Width` is set within the `vp8_decode` function. The key sequence is:\n1. `vp8_peek_si_internal` is called at line 320, which parses the input data (`ctx->fragments.ptrs[0]`) and populates `ctx->si`, including `ctx->si.w` (the frame width).\n2. If a resolution change is detected (at line 341), which is common, execution enters a block where `pc->Width` is assigned the parsed width: `pc->Width = ctx->si.w;` at line 393.\n3. The predicate at line 407, `if (pc->Width <= 0)`, then checks this input-derived value.\nTherefore, to make the predicate true, the input data must be structured such that `vp8_peek_si_internal` parses a width (`ctx->si.w`) that is less than or equal to zero.",
+    "[3B. Survival / Feasibility Check]: The assignment to `pc->Width` at line 393 and the check at line 407 occur within the same `if (resolution_change)` block and the same `setjmp` context. There are no intervening returns, resets, or other logic paths that would prevent the value from surviving between the assignment and the check. If the input can cause `ctx->si.w` to be `<= 0`, execution will proceed directly to the check at line 407, and the condition will be met.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The predicate variable `pc->Width` is not a raw byte from the input but a semantic property (frame width) derived from parsing the input bitstream via `vp8_peek_si_internal`. The ability to reach the blocked side depends entirely on the fuzzer generating input that the library interprets as a frame with a width of zero or less."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

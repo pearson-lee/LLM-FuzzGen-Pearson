@@ -1,0 +1,457 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <unistd.h>
+#include <sstream>
+#include <optional>
+#include <fuzzer/FuzzedDataProvider.h>
+#include "/src/tomlplusplus/include/toml++/toml.h"
+#include "/src/tomlplusplus/include/toml++/impl/yaml_formatter.hpp"
+#include "/src/tomlplusplus/include/toml++/impl/json_formatter.hpp"
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  FuzzedDataProvider fdp(data, size);
+  // volatile sink to prevent the compiler from optimizing away unused return values.
+  volatile int sink = 0;
+
+  std::string toml_string = fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange<size_t>(0, 1024));
+  
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nkey1 = ''''\n" + fdp.ConsumeRandomLengthString(50) + "''''\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nkey2 = \"\"\"\n" + fdp.ConsumeRandomLengthString(50) + "\\\n" + fdp.ConsumeRandomLengthString(50) + "\"\"\"\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += std::string("\nkey3 = ") + fdp.PickValueInArray({"+inf", "-inf", "inf", "+nan", "-nan", "nan"}) + "\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nkey4 = 0x" + fdp.ConsumeRandomLengthString(4) + "." + fdp.ConsumeRandomLengthString(4) + "p-" + std::to_string(fdp.ConsumeIntegralInRange<int>(0, 5)) + "\n";
+  }
+
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nbool1 = true\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nld1 = 1979-05-27\n";
+    /*
+     * ANALYSIS: The detailed fuzzer coverage report showed that the `else` branch for date
+     *           comparison was never taken because only one date was being generated.
+     * IMPLEMENTATION: Add a second date to the TOML string to allow for date-comparison
+     *                 logic to be exercised.
+     */
+    toml_string += "\nld2 = 1981-02-10\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nlt1 = 07:32:00\n";
+    toml_string += "\nlt2 = 08:00:00\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nldt1 = 1979-05-27T07:32:00\n";
+    toml_string += "\nldt2 = 1981-02-10T10:00:00\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\nodt1 = 1979-05-27T07:32:00-07:00\n";
+    toml_string += "\nodt2 = 1981-02-10T10:00:00-05:00\n";
+  }
+
+  if (fdp.ConsumeBool()) {
+    toml_string += "\narr1 = [1, 2, 3]\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\n[[products]]\nname = \"Hammer\"\n\n[[products]]\nname = \"Nail\"\n";
+  }
+  if (fdp.ConsumeBool()) {
+    toml_string += "\narr_of_arr = [[1, 2], [3, 4]]\n";
+  }
+  
+  if (fdp.ConsumeBool()) {
+    toml_string += "\narr_het = [1, \"two\", 3.0, true]\n";
+  }
+  
+  /*
+   * ANALYSIS: The detailed fuzzer coverage report for the fuzz target showed that the
+   *           branch `if (!a->empty())` was always true.
+   * IMPLEMENTATION: Add an empty array to the TOML string to ensure that code paths
+   *                 handling empty arrays are exercised.
+   */
+  if (fdp.ConsumeBool()) {
+    toml_string += "\narr_empty = []\n";
+  }
+
+  /*
+   * ANALYSIS: The function `parser::consume_rest_of_line` was uncovered. The previous
+   *           attempt to trigger it by adding `garbage` after an integer failed.
+   * IMPLEMENTATION: Appending garbage characters after a table header is a more
+   *                 reliable way to trigger the "consume rest of line" logic in the parser.
+   */
+  if (fdp.ConsumeBool()) {
+    toml_string += "\n[table] garbage\n";
+  }
+
+
+  std::optional<toml::table> tbl;
+
+  try {
+    int parse_mode = fdp.ConsumeIntegralInRange(0, 3);
+    if (parse_mode == 0) {
+      tbl = toml::parse(toml_string);
+    } else if (parse_mode == 1) {
+      std::string path = std::string("/tmp/") + _FUZZ_TARGET_NAME + ".tmp";
+      std::ofstream out(path);
+      out << toml_string;
+      out.close();
+      tbl = toml::parse_file(path);
+      unlink(path.c_str());
+    } else if (parse_mode == 2) {
+        /*
+         * ANALYSIS: The function-level coverage report showed 0% coverage for the
+         *           `istream` parsing overload that takes a source path.
+         * IMPLEMENTATION: Call the `toml::parse` overload that accepts an istream
+         *                 and a source path string to cover this function.
+         */
+        std::stringstream ss(toml_string);
+        tbl = toml::parse(ss, std::string("fuzz_source"));
+    } else {
+        /*
+         * ANALYSIS: The function-level coverage report showed 0% coverage for the
+         *           `_toml` literal operator.
+         * IMPLEMENTATION: Use the `_toml` literal to parse a TOML string.
+         */
+        using namespace toml::literals;
+        tbl = operator""_toml(toml_string.c_str(), toml_string.length());
+    }
+
+    if (tbl) {
+      if (fdp.ConsumeBool()) {
+        toml::table t1{{"a", 1}, {"b", "2"}, {"c", toml::array{1, 2}}};
+        toml::table t2{{"a", 1}, {"b", "2"}, {"c", toml::array{1, 2}}};
+        if (fdp.ConsumeBool()) sink += (t1 == t2);
+
+        toml::array a1{1, "2", toml::table{{"a", 1}}};
+        toml::array a2{1, "2", toml::table{{"a", 1}}};
+        if (fdp.ConsumeBool()) sink += (a1 == a2);
+      }
+
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        ss << *tbl;
+      }
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        ss << toml::json_formatter{*tbl};
+      }
+      if (fdp.ConsumeBool()) {
+        std::stringstream ss;
+        /*
+         * ANALYSIS: The functions `yaml_formatter::print(table)` and `print(array)` were uncovered.
+         * IMPLEMENTATION: Call the `yaml_formatter` on the entire table and on a newly
+         *                 created array to exercise these uncovered functions.
+         */
+        ss << toml::yaml_formatter{*tbl};
+        toml::array yaml_arr{1, 2, 3};
+        ss << toml::yaml_formatter{yaml_arr};
+      }
+      
+      if (fdp.ConsumeBool()) {
+        toml::table inline_table;
+        inline_table.insert("a", 1);
+        inline_table.insert("b", "two");
+        /*
+         * ANALYSIS: The function `toml_formatter::print_inline` had low coverage.
+         * IMPLEMENTATION: Add a nested inline table to exercise more complex paths
+         *                 within the inline table formatting logic.
+         */
+        if (fdp.ConsumeBool()) {
+            toml::table nested_inline;
+            nested_inline.insert("c", 3);
+            inline_table.insert("nested", nested_inline);
+        }
+        std::stringstream ss;
+        ss << toml::toml_formatter{inline_table};
+      }
+
+      if (fdp.ConsumeBool()) {
+        tbl->erase(fdp.ConsumeRandomLengthString(10));
+      }
+      
+      if (fdp.ConsumeBool() && !tbl->empty()) {
+        /*
+         * ANALYSIS: The function `table::erase(iterator)` was uncovered.
+         * IMPLEMENTATION: Call the iterator-based `erase` to cover this function.
+         */
+        tbl->erase(tbl->cbegin());
+      }
+      
+      if (fdp.ConsumeBool()) {
+        tbl->clear();
+      }
+
+      std::vector<toml::node*> nodes;
+      nodes.push_back(&*tbl);
+      std::optional<toml::date> first_date;
+      std::optional<toml::time> first_time;
+      std::optional<toml::date_time> first_date_time;
+      while (!nodes.empty() && fdp.remaining_bytes() > 2) {
+          toml::node* n = nodes.back();
+          nodes.pop_back();
+          if (!n) continue;
+
+          toml::node_view view{n};
+
+          /*
+           * ANALYSIS: Many `is_*` and `as_*` methods on node_view, array, and value
+           *           were uncovered because their return values were unused and optimized out.
+           * IMPLEMENTATION: The return values of these functions are now conditionally
+           *                 added to a volatile sink to force the compiler to evaluate them.
+           */
+          if (fdp.ConsumeBool()) sink += view.is_table();
+          if (fdp.ConsumeBool()) sink += view.is_array();
+          if (fdp.ConsumeBool()) sink += view.is_value();
+          
+          if (fdp.ConsumeBool()) sink += view.is_homogeneous();
+          if (fdp.ConsumeBool()) sink += view.is_homogeneous(toml::node_type::array);
+
+
+          if (auto t = view.as_table()) {
+              if (fdp.ConsumeBool()) {
+                  t->prune(fdp.ConsumeBool());
+              }
+              for (auto&& [k, v] : *t) {
+                  nodes.push_back(&v);
+              }
+          } else if (auto a = view.as_array()) {
+              if (fdp.ConsumeBool()) {
+                  a->prune(fdp.ConsumeBool());
+              }
+              if (fdp.ConsumeBool()) {
+                  a->flatten();
+              }
+              for (auto&& v : *a) {
+                  nodes.push_back(&v);
+              }
+              if (!a->empty() && fdp.ConsumeBool()) {
+                  size_t index = fdp.ConsumeIntegralInRange<size_t>(0, a->size() - 1);
+                  (void)a->get(index);
+                  try {
+                      (void)a->at(index);
+                  } catch (...) {}
+              }
+              if (fdp.ConsumeBool()) {
+                toml::array new_arr;
+                new_arr.push_back(1);
+                new_arr.pop_back();
+                /*
+                 * ANALYSIS: The detailed fuzzer coverage showed the `if` at line 301
+                 *           was always true.
+                 * IMPLEMENTATION: Make the `emplace_back` call conditional to allow
+                 *                 the array to sometimes be empty, exercising both branches.
+                 */
+                if (fdp.ConsumeBool()) {
+                    new_arr.emplace_back(false);
+                }
+                if (!new_arr.empty()) {
+                  new_arr.truncate(fdp.ConsumeIntegralInRange<size_t>(0, new_arr.size()));
+                  new_arr.shrink_to_fit();
+                  /*
+                   * ANALYSIS: The function `array::erase(iterator, iterator)` was uncovered.
+                   * IMPLEMENTATION: Call the two-iterator `erase` overload to cover this function.
+                   */
+                  if (fdp.ConsumeBool() && !new_arr.empty()) {
+                    new_arr.erase(new_arr.cbegin(), new_arr.cend());
+                  }
+                  if (!new_arr.empty()) {
+                    new_arr.erase(new_arr.cbegin());
+                  }
+                }
+                new_arr.insert(new_arr.cbegin(), 42);
+                /*
+                 * ANALYSIS: The functions `array::flatten() &&` and `prune() &&` were uncovered.
+                 * IMPLEMENTATION: Call the r-value reference overloads of `flatten` and `prune`
+                 *                 using `std::move` to cover these functions.
+                 */
+                if (fdp.ConsumeBool()) {
+                    std::move(new_arr).flatten();
+                } else {
+                    std::move(new_arr).prune(fdp.ConsumeBool());
+                }
+                new_arr.clear();
+              }
+              /*
+               * ANALYSIS: The `is_homogeneous`, `is_*`, and `as_*` methods on `toml::array` were uncovered.
+               * IMPLEMENTATION: Add calls to these methods for different types to improve coverage.
+               */
+              if (fdp.ConsumeBool()) sink += a->is_homogeneous<int64_t>();
+              if (fdp.ConsumeBool()) sink += a->is_homogeneous<std::string>();
+              if (fdp.ConsumeBool()) sink += a->is_homogeneous(toml::node_type::integer);
+              if (fdp.ConsumeBool()) sink += a->is_integer();
+              if (fdp.ConsumeBool()) sink += a->is_floating_point();
+              if (fdp.ConsumeBool()) sink += a->is_number();
+              if (fdp.ConsumeBool()) sink += a->is_boolean();
+              if (fdp.ConsumeBool()) sink += a->is_date();
+              if (fdp.ConsumeBool()) sink += a->is_time();
+              if (fdp.ConsumeBool()) sink += a->is_date_time();
+              if (fdp.ConsumeBool()) (void)a->as_string();
+              if (fdp.ConsumeBool()) (void)a->as_integer();
+              if (fdp.ConsumeBool()) (void)a->as_floating_point();
+              if (fdp.ConsumeBool()) (void)a->as_boolean();
+              if (fdp.ConsumeBool()) (void)a->as_date();
+              if (fdp.ConsumeBool()) (void)a->as_time();
+              if (fdp.ConsumeBool()) (void)a->as_date_time();
+
+          } else if (view.is_value()) {
+              if (fdp.ConsumeBool()) sink += view.is_string();
+              if (view.as_string() && fdp.ConsumeBool()) sink++;
+              if (fdp.ConsumeBool()) sink += view.is_integer();
+              if (view.as_integer() && fdp.ConsumeBool()) sink++;
+              if (fdp.ConsumeBool()) sink += view.is_floating_point();
+              if (view.as_floating_point() && fdp.ConsumeBool()) sink++;
+              if (fdp.ConsumeBool()) sink += view.is_boolean();
+              if (view.as_boolean() && fdp.ConsumeBool()) sink++;
+              if (fdp.ConsumeBool()) sink += view.is_date();
+              if (view.as_date() && fdp.ConsumeBool()) sink++;
+              if (fdp.ConsumeBool()) sink += view.is_time();
+              if (view.as_time() && fdp.ConsumeBool()) sink++;
+              if (fdp.ConsumeBool()) sink += view.is_date_time();
+              if (view.as_date_time() && fdp.ConsumeBool()) sink++;
+              
+              if (auto val = view.as_string()) { if (fdp.ConsumeBool()) sink += val->is_string(); if (val->as_string() && fdp.ConsumeBool()) sink++; }
+              if (auto val = view.as_integer()) { if (fdp.ConsumeBool()) sink += val->is_integer(); if (val->as_integer() && fdp.ConsumeBool()) sink++; }
+              if (auto val = view.as_floating_point()) { if (fdp.ConsumeBool()) sink += val->is_floating_point(); if (val->as_floating_point() && fdp.ConsumeBool()) sink++; }
+              if (auto val = view.as_boolean()) { if (fdp.ConsumeBool()) sink += val->is_boolean(); if (val->as_boolean() && fdp.ConsumeBool()) sink++; }
+              if (auto val = view.as_date()) { if (fdp.ConsumeBool()) sink += val->is_date(); if (val->as_date() && fdp.ConsumeBool()) sink++; }
+              if (auto val = view.as_time()) { if (fdp.ConsumeBool()) sink += val->is_time(); if (val->as_time() && fdp.ConsumeBool()) sink++; }
+              if (auto val = view.as_date_time()) { if (fdp.ConsumeBool()) sink += val->is_date_time(); if (val->as_date_time() && fdp.ConsumeBool()) sink++; }
+
+              if (auto d = view.as_date()) {
+                if (!first_date) first_date.emplace(*d);
+                else {
+                    if (fdp.ConsumeBool()) sink += (*d == *first_date); if (fdp.ConsumeBool()) sink += (*d != *first_date);
+                    if (fdp.ConsumeBool()) sink += (*d < *first_date); if (fdp.ConsumeBool()) sink += (*d <= *first_date);
+                    if (fdp.ConsumeBool()) sink += (*d > *first_date); if (fdp.ConsumeBool()) sink += (*d >= *first_date);
+                }
+              }
+              if (auto t = view.as_time()) {
+                if (!first_time) first_time.emplace(*t);
+                else {
+                    if (fdp.ConsumeBool()) sink += (*t == *first_time); if (fdp.ConsumeBool()) sink += (*t != *first_time);
+                    if (fdp.ConsumeBool()) sink += (*t < *first_time); if (fdp.ConsumeBool()) sink += (*t <= *first_time);
+                    if (fdp.ConsumeBool()) sink += (*t > *first_time); if (fdp.ConsumeBool()) sink += (*t >= *first_time);
+                }
+              }
+              if (auto dt = view.as_date_time()) {
+                if (!first_date_time) first_date_time.emplace(*dt);
+                else {
+                    if (fdp.ConsumeBool()) sink += (*dt == *first_date_time); if (fdp.ConsumeBool()) sink += (*dt != *first_date_time);
+                    if (fdp.ConsumeBool()) sink += (*dt < *first_date_time); if (fdp.ConsumeBool()) sink += (*dt <= *first_date_time);
+                    if (fdp.ConsumeBool()) sink += (*dt > *first_date_time); if (fdp.ConsumeBool()) sink += (*dt >= *first_date_time);
+                }
+              }
+          }
+      }
+
+      /*
+       * ANALYSIS: The function-level coverage report showed 0% coverage for `toml::node::at_path` (const version).
+       * IMPLEMENTATION: Add calls to `at_path` on a const table to cover this functionality.
+       */
+      if (fdp.remaining_bytes() > 20) {
+          try {
+              const toml::table& const_tbl = *tbl;
+              std::string path_str = fdp.ConsumeRandomLengthString(16);
+              if (fdp.ConsumeBool()) {
+                  (void)const_tbl.at_path(path_str);
+              } else {
+                  toml::path p(path_str);
+                  (void)const_tbl.at_path(p);
+              }
+          } catch (...) {}
+      }
+      
+      /*
+       * ANALYSIS: The function-level coverage report showed 0% coverage for many `toml::path` and `toml::key` operators and methods.
+       * IMPLEMENTATION: Add calls to exercise various path and key functionalities like construction,
+       *                 comparison, concatenation, and access.
+       */
+      if (fdp.remaining_bytes() > 40) {
+          try {
+              using namespace toml::literals;
+              std::string p_str1 = fdp.ConsumeRandomLengthString(8);
+              std::string p_str2 = fdp.ConsumeRandomLengthString(8);
+              toml::path p1(p_str1);
+              toml::path p2(p_str2);
+              if (fdp.ConsumeBool()) sink += (p1 == p2);
+              if (fdp.ConsumeBool()) sink += (p1 != p2);
+              p1.append(p2);
+              if (fdp.ConsumeBool()) { auto p3 = p1 + p2; }
+              p1 += p2;
+              if (!p1.empty()) {
+                (void)p1.subpath(0, 1);
+                (void)p1.leaf(0);
+                (void)p1[0];
+              }
+              p1.prepend(p2);
+              (void)p1.str();
+              toml::path p4 = "a.b.c"_tpath;
+              (void)tbl->at_path(p4);
+
+              toml::key k1{p_str1};
+              toml::key k2{p_str2};
+              if (fdp.ConsumeBool()) sink += (k1 == k2);
+              if (fdp.ConsumeBool()) sink += (k1 != k2);
+          } catch (...) {
+          }
+      }
+      if (fdp.ConsumeBool()) {
+          std::stringstream ss;
+          ss << toml::value{fdp.ConsumeIntegral<int>()};
+          ss << toml::value{fdp.ConsumeIntegral<unsigned short>()};
+          ss << toml::value{fdp.ConsumeIntegral<long long>()};
+          ss << toml::value{fdp.ConsumeFloatingPoint<float>()};
+          ss << toml::value{fdp.ConsumeIntegral<signed char>()};
+          ss << toml::value{fdp.ConsumeIntegral<unsigned char>()};
+          ss << toml::value{fdp.ConsumeIntegral<short>()};
+          ss << toml::value{fdp.ConsumeIntegral<unsigned long>()};
+          ss << toml::value{fdp.ConsumeIntegral<unsigned long long>()};
+      }
+      if (fdp.ConsumeBool()) {
+        toml::table t1;
+        t1.insert("a", 1);
+        toml::table t2;
+        t2 = t1;
+        t2 = std::move(t1);
+
+        toml::array a1;
+        a1.push_back(1);
+        toml::array a2;
+        a2 = a1;
+        a2 = std::move(a1);
+
+        toml::value<int64_t> v1(42);
+        toml::value<int64_t> v2;
+        v2 = v1;
+        v2 = std::move(v1);
+      }
+        /*
+        * ANALYSIS: The function-level coverage report showed 0% coverage for `time_offset` operators.
+        * IMPLEMENTATION: Create and compare `time_offset` objects.
+        */
+        if (fdp.ConsumeBool()) {
+            toml::time_offset to1{static_cast<int8_t>(fdp.ConsumeIntegralInRange<int>(-12, 12)), static_cast<int8_t>(fdp.ConsumeIntegralInRange<int>(0, 59))};
+            toml::time_offset to2{static_cast<int8_t>(fdp.ConsumeIntegralInRange<int>(-12, 12)), static_cast<int8_t>(fdp.ConsumeIntegralInRange<int>(0, 59))};
+            if (fdp.ConsumeBool()) sink += (to1 == to2);
+            if (fdp.ConsumeBool()) sink += (to1 != to2);
+            if (fdp.ConsumeBool()) sink += (to1 < to2);
+            if (fdp.ConsumeBool()) sink += (to1 <= to2);
+            if (fdp.ConsumeBool()) sink += (to1 > to2);
+            if (fdp.ConsumeBool()) sink += (to1 >= to2);
+        }
+
+    }
+  } catch (const toml::parse_error &err) {
+       std::stringstream ss;
+       ss << err;
+  }
+
+  return 0;
+}

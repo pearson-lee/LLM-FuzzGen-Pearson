@@ -1,0 +1,35 @@
+{
+  "case_id": "lcms_cmsIT8GetPropertyDbl_1590",
+  "project_name": "lcms",
+  "function_name": "cmsIT8GetPropertyDbl",
+  "branch_line_number": 1590,
+  "blocked_side_line_number": 1592,
+  "target_name": "llm_fuzzgen0625040504",
+  "target_source_path": "external/oss-fuzz/projects/lcms/llm_fuzzgen0625040504.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260707_000202_run_all_fuzzer/blockers/cmsIT8GetPropertyDbl_1590/symbolic_run/lcms_cmsIT8GetPropertyDbl_20260707_141810",
+  "historical_reason": "The blocker is classified as Input Dependent. The predicate at `cmscgats.c:1590` checks if the pointer `v` is NULL. This pointer is the return value of `cmsIT8GetProperty`, which performs a lookup in a data structure (`hIT8`) created by parsing the fuzzer's input data. The key for this lookup (`str1`) is also derived from the fuzzer's input. To reach the blocked code, the fuzzer must provide input that is both a valid IT8 file and contains a property key that matches the key used in the lookup. This is a direct data dependency that can be resolved by generating valid, structured input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (v == NULL)` at line `1590` in `cmscgats.c`. The target variable is `v`, a `const char*`. The branch hit count of `428` indicates this predicate is being reached and evaluated.",
+    "[1.5. Blocked Side Direction]: The blocked side, `return ParseFloatNumber(v);` at line `1592`, is executed when the condition `v == NULL` is FALSE. Therefore, to unblock the path, `v` must be a non-NULL pointer.",
+    "[2. Fuzz Target Call Site]: The runtime path is initiated by the call `cmsIT8GetPropertyDbl(hIT8, str1);` at line 103 in the fuzz target `llm_fuzzgen0625040504.c`.",
+    "[2.5. Materialization Check]: The fuzz target materializes the necessary state. The `hIT8` handle is created by `cmsIT8LoadFromMem(context, data, size)`, making its internal state dependent on the fuzzer input. The `str1` argument, used as the property key, is also directly copied from the fuzzer input `data`. Both are then used in the call to the function containing the blocker.",
+    "[3A. Setter / Transition Evidence]: Inside `cmsIT8GetPropertyDbl`, the variable `v` is assigned the return value of `cmsIT8GetProperty(hIT8, cProp)` at line 1588. The static source for `cmsIT8GetProperty` shows it returns a pointer to a property's value if the `Key` (the fuzzer-controlled `cProp`) is found in the `HeaderList` of the `it8` object (`hIT8`). This `HeaderList` is populated by parsing the fuzzer input `data` during the `cmsIT8LoadFromMem` call. Thus, `v` will be non-NULL if the fuzzer input `data` defines a valid IT8 structure and the `str1` key derived from the same input `data` matches a property within that structure.",
+    "[3B. Survival / Feasibility Check]: If `cmsIT8GetProperty` returns a non-NULL pointer, this value is immediately assigned to `v` and checked in the predicate at line 1590. There are no intermediate steps that could alter or nullify `v`. The path to the blocked side is feasible, provided the input `data` satisfies the structural and content requirements of the IT8 format.",
+    "[4. Rule Application]: Rule 1, Direct Data Flow, applies. The predicate's outcome is directly contingent on the fuzzer input `data`. The input must be structured as a valid IT8 file, and a portion of that same input must specify a property key that exists within the parsed file structure. This establishes a direct data dependency."
+  ],
+  "source_experiment": "20260707_000202_lcms",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

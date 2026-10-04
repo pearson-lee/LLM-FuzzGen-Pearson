@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_TIFFRGBAImageGet_596",
+  "project_name": "libtiff",
+  "function_name": "TIFFRGBAImageGet",
+  "branch_line_number": 596,
+  "blocked_side_line_number": 599,
+  "target_name": "llm_fuzzgen_reference_guided_0718153953_102554",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen_reference_guided_0718153953_102554.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFRGBAImageGet_596/symbolic_run/libtiff_TIFFRGBAImageGet_20260718_211208",
+  "historical_reason": "The blocker is classified as Input Dependent because the predicate `if (img->put.any == NULL)` checks a function pointer in the `TIFFRGBAImage` struct. This struct is initialized by `TIFFRGBAImageBegin`, which sets the `put` function pointer based on the properties of the TIFF image, such as compression and photometric interpretation. The fuzz target uses `FuzzedDataProvider` to set these properties when creating the TIFF file. An input that specifies a combination of image properties that libtiff cannot convert to RGBA will cause `TIFFRGBAImageBegin` to leave the `put` pointer as `NULL`, thus triggering the blocked branch. This is a direct dependency on the semantic properties of the input data.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (img->put.any == NULL)` at line 596 in `TIFFRGBAImageGet`. The variable `img` is a pointer to a `TIFFRGBAImage` struct, and the check is on the `put.any` function pointer. The branch hit count of `20.0k` indicates this condition is evaluated frequently, but the blocked side is never reached, meaning `img->put.any` is never `NULL` in the executions observed.",
+    "[1.5. Blocked Side Direction]: The blocked side, which contains the error message at line 599, is executed if the condition `img->put.any == NULL` evaluates to `TRUE`. Therefore, to unblock, the fuzzer must produce an input that causes the `img->put.any` function pointer to be `NULL` when `TIFFRGBAImageGet` is called.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime segment shows the call chain originates from `LLVMFuzzerTestOneInput` at line 211. The code at this line is `TIFFReadRGBAImage(tif, r_width, r_height, raster, 0);`. This API call initiates the process of reading and converting image data, which leads to the blocker.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes a `TIFF` object. It uses `FuzzedDataProvider` to select various properties like compression, width, height, and photometric interpretation. It writes these properties into a TIFF file using `TIFFSetField`, closes the file, re-opens it, and then attempts to read it via `TIFFReadRGBAImage`. This reading operation consumes the state of the TIFF file, which was constructed from fuzzer input. The properties of this `TIFF` object are what determine the state of the `TIFFRGBAImage` struct, including the `put` function pointers.",
+    "[3A. Setter / Transition Evidence]: The `TIFFRGBAImage` struct `img`, including its `put` member, is initialized by the `TIFFRGBAImageBegin` function. This function is called within `TIFFReadRGBAImage` before the call to `TIFFRGBAImageGet`. The logic within `TIFFRGBAImageBegin` selects appropriate `get` and `put` function pointers based on the properties of the `TIFF* tif` handle, such as compression type, photometric interpretation, bits per sample, and samples per pixel. The fuzz target explicitly sets these properties using fuzzer-controlled data:\n- `const char* mode = fdp.PickValueInArray(write_modes);`\n- `uint16_t compression = fdp.PickValueInArray(compression_schemes);`\n- `TIFFSetField(tif, TIFFTAG_COMPRESSION, compression);`\n- `TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, ...);`\nAn unsupported combination of these input-derived properties will cause `TIFFRGBAImageBegin` to fail to find a suitable `put` routine, leaving `img->put.any` as `NULL`. The error message in the blocked branch, 'No \"put\" routine setupl; probably can not handle image format', confirms this is the intended failure mechanism. No data starvation is detected.",
+    "[3B. Survival / Feasibility Check]: The `TIFFRGBAImage` struct is allocated on the stack within the `TIFFReadRGBAImage` (or a similar wrapper) and initialized by `TIFFRGBAImageBegin`. The call to `TIFFRGBAImageGet` happens immediately after, within the same scope. If `TIFFRGBAImageBegin` fails to set the `put` routine due to an unsupported image format, the `NULL` value will persist directly to the check in `TIFFRGBAImageGet`. There are no intermediate operations that would alter or reset this state. Therefore, an input that creates an unsupported TIFF format will directly trigger the blocked condition.",
+    "[4. Rule Application]: The value of the predicate variable `img->put.any` is determined by the internal logic of `TIFFRGBAImageBegin`, which configures image processing routines based on the semantic properties of the TIFF file (e.g., compression, color space). These properties are explicitly set in the fuzz target using data from `FuzzedDataProvider`. This represents an implicit flow of data from the fuzzer input to the blocked predicate. The blocker is therefore Input Dependent under Rule 2."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

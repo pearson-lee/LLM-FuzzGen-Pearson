@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vp9_receive_compressed_data_428",
+  "project_name": "libvpx",
+  "function_name": "vp9_receive_compressed_data",
+  "branch_line_number": 428,
+  "blocked_side_line_number": 429,
+  "target_name": "llm_fuzzgen_dedicated_generation_0727001606_033744",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_dedicated_generation_0727001606_033744.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp9_receive_compressed_data_428/symbolic_run/libvpx_vp9_receive_compressed_data_20260728_135744",
+  "historical_reason": "The blocked predicate `if (cm->frame_refs[0].idx > 0)` is inside a branch that is only taken if the function is called with `size == 0`. The dynamic evidence confirms that execution reaches this point with `size = 0`. This `size = 0` argument results from the decoder parsing a fuzzer-controlled input buffer as a superframe containing a zero-sized sub-frame. The predicate variable `cm->frame_refs[0].idx` reflects the decoder's reference frame state, which is determined by the properties of previously decoded frames, also from fuzzer-controlled input. To reach the blocked code, the fuzzer must provide a sequence of inputs that first establishes a reference frame (making `cm->frame_refs[0].idx > 0`) and then triggers the zero-size frame condition. Both conditions are dependent on the semantic content of the input data stream.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (cm->frame_refs[0].idx > 0)` on line 428 of `vp9_decoder.c`. The target variable is `cm->frame_refs[0].idx`. The branch hit count is 7, indicating that the code path leading to this check was executed, but the condition `cm->frame_refs[0].idx > 0` always evaluated to false.",
+    "[1.5. Blocked Side Direction]: The blocked assertion at line 429 is inside the `if` block. To reach it, the condition `cm->frame_refs[0].idx > 0` must evaluate to TRUE. This check occurs within an outer `if (size == 0)` block, meaning the input must also cause `vp9_receive_compressed_data` to be called with `size = 0`.",
+    "[2. Fuzz Target Call Site]: The fuzz target calls the API that begins the execution path to the blocker at line 68 of the fuzzer source: `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);`.",
+    "[2.5. Materialization Check]: The fuzz target repeatedly calls `vpx_codec_decode` with input data. The variable `cm->frame_refs[0].idx` represents the state of reference frames in the decoder's common state (`VP9_COMMON`). This state is continuously updated and used during the decoding process initiated by `vpx_codec_decode`. The state is fully materialized and consumed by the library.",
+    "[3A. Setter / Transition Evidence]: The runtime trace shows that `vp9_receive_compressed_data` is called with `size=0`. This happens when `decoder_decode` calls `decode_one` with `data_sz=0`. This can occur if the input data contains a VP9 superframe structure where one of the sub-frames is declared with a size of zero, which is a property of the fuzzer-controlled input data. The value of `cm->frame_refs[0].idx` depends on the history of previously decoded frames. If a prior frame was a reference frame, it would be stored, and its index would be a positive value. To make `cm->frame_refs[0].idx > 0`, the fuzzer must provide input that decodes a valid reference frame before providing the input that causes `size=0`. Both conditions are dependent on the content and sequence of the input data stream.",
+    "[3B. Survival / Feasibility Check]: The decoder state, including `cm->frame_refs`, is designed to be persistent across multiple calls to `vpx_codec_decode`. It is feasible for the fuzzer to generate an input stream that first establishes a reference frame (setting `cm->frame_refs[0].idx > 0`) and then, in a subsequent call, provides a frame that is parsed as having `size = 0`. The logic within the `if (size == 0)` block is intended to handle frame loss and explicitly uses the existing reference frame state, so the state is expected to survive.",
+    "[4. Rule Application]: The blocker's reachability depends on two conditions, both of which are controlled by the input data. The `size == 0` condition is met by providing a specifically structured input (a superframe with a zero-size frame). The `cm->frame_refs[0].idx > 0` condition is met by providing a sequence of inputs that establishes a reference frame state. These are semantic properties derived from the input stream. Therefore, this is Input Dependent under Rule 2."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

@@ -1,0 +1,37 @@
+{
+  "case_id": "libvpx_setup_frame_size_with_refs_1563",
+  "project_name": "libvpx",
+  "function_name": "setup_frame_size_with_refs",
+  "branch_line_number": 1563,
+  "blocked_side_line_number": 1570,
+  "target_name": "llm_fuzzgen_reference_guided_0727135655_876912",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727135655_876912.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02",
+    "libfuzzer_focused_pass_replan_02",
+    "symcc_generated_harness_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/setup_frame_size_with_refs_1563/symbolic_run/libvpx_setup_frame_size_with_refs_20260727_160755",
+  "historical_reason": "The blocker is classified as Input Dependent. The execution path to the blocked code at line 1570 is triggered by a specific sequence of bits in the fuzzer-provided input data. To reach the blocker, the input must define a VP9 inter-frame that (1) refers to a reference frame slot which is currently invalid (`cm->frame_refs[i].idx == INVALID_IDX`), and (2) simultaneously sets a flag bit (`vpx_rb_read_bit(rb)`) indicating that this invalid reference should be used to determine the current frame's dimensions. Both the setup of the invalid reference index and the flag check are directly controlled by parsing the input bitstream provided by the fuzzer.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (cm->frame_refs[i].idx != INVALID_IDX)` at line 1563 in `setup_frame_size_with_refs`. The variable being checked is `cm->frame_refs[i].idx`. The branch hit count of 31.2k indicates this condition is evaluated frequently.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 1570, `vpx_internal_error(...)`, is located in the `else` block corresponding to the `if` statement at line 1563. To reach the blocked side, the condition `cm->frame_refs[i].idx != INVALID_IDX` must be false, meaning `cm->frame_refs[i].idx == INVALID_IDX`. Additionally, the enclosing condition `if (vpx_rb_read_bit(rb))` must be true. `vpx_rb_read_bit` reads a single bit from the input bitstream, so this is directly controlled by the fuzzer input.",
+    "[2. Fuzz Target Call Site]: The runtime stack trace shows that the execution path to the blocker originates from the `vpx_codec_decode` call within the main decoding loop of the fuzz target: `err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);` at line 177.",
+    "[2.5. Materialization Check]: The fuzz target passes the raw input buffer `data` to `vpx_codec_decode`. The library's decoding functions, as shown in the runtime trace (`vp9_decode_frame`, `read_uncompressed_header`), parse this data to populate the `VP9_COMMON` struct (`cm`), including the `frame_refs` array. The state required to influence the predicate is therefore materialized directly from the fuzzer input.",
+    "[3A. Setter / Transition Evidence]: The value of `cm->frame_refs[i].idx` is set within the `read_uncompressed_header` function, which is the caller of the blocker function `setup_frame_size_with_refs`. For non-key frames, `read_uncompressed_header` executes a loop that sets `cm->frame_refs[i].idx` based on values from the `cm->ref_frame_map`. The index into this map, `ref`, is read directly from the input bitstream: `const int ref = vpx_rb_read_literal(rb, REF_FRAMES_LOG2);`. The `ref_frame_map` itself is populated based on decoding previous frames and processing flags like `refresh_frame_flags`, which are also read from the input bitstream. Therefore, an input bitstream can specify a reference frame that maps to `INVALID_IDX`, setting the required state.",
+    "[3B. Survival / Feasibility Check]: The state `cm->frame_refs[i].idx = INVALID_IDX` is set in `read_uncompressed_header` immediately before `setup_frame_size_with_refs` is called. There are no intervening operations that would alter this value. Inside `setup_frame_size_with_refs`, the fuzzer input must then provide a `1` bit for `vpx_rb_read_bit(rb)` at the correct iteration `i`. This combination represents a corrupt bitstream where a frame header claims to use an invalid reference frame to determine its size, which is a plausible scenario for a fuzzer to generate. The state survives and the path to the blocker is feasible.",
+    "[4. Rule Application]: Rule 2 applies. The predicate depends on semantic properties of the VP9 video stream that are parsed from the fuzzer's input data. Specifically, it relies on the reference frame indices and flags contained within the frame header, which are used to populate and check the `cm->frame_refs` array."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

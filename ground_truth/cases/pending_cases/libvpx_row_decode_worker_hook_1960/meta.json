@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_row_decode_worker_hook_1960",
+  "project_name": "libvpx",
+  "function_name": "row_decode_worker_hook",
+  "branch_line_number": 1960,
+  "blocked_side_line_number": 1961,
+  "target_name": "llm_fuzzgen_dedicated_generation_0727001606_033744",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_dedicated_generation_0727001606_033744.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/row_decode_worker_hook_1960/symbolic_run/libvpx_row_decode_worker_hook_20260727_203344",
+  "historical_reason": "The blocked predicate `if (corrupted)` depends on the `corrupted` variable, which is a flag set by the libvpx decoder during the `vpx_codec_decode` operation. This flag indicates whether the input bitstream, provided directly from the fuzzer's input buffer, is malformed. Reaching the blocked code at line 1961 requires the fuzzer to generate a specific sequence of bytes that the decoder interprets as a corrupt frame, setting the `corrupted` flag to true. This is a classic case of dependency on the semantic content of the input data.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The target predicate is the condition `if (corrupted)` at line 1960 in the function `row_decode_worker_hook`. The branch hit count of `33.1k` indicates that this line is executed frequently, but the `corrupted` variable consistently evaluates to false, preventing the blocked side from being reached.",
+    "[1.5. Blocked Side Direction]: The blocked side at line 1961, which calls `vpx_internal_error`, is executed if the condition `if (corrupted)` evaluates to TRUE. Therefore, the required state to unblock the path is `corrupted == true`.",
+    "[2. Fuzz Target Call Site]: The fuzz target triggers the execution path leading to the blocker via the following API call: `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);`. The `frame_data` argument is a vector of bytes consumed directly from the fuzzer's input buffer.",
+    "[2.5. Materialization Check]: The fuzz target materializes the relevant state by passing fuzzer-generated data to `vpx_codec_decode`. The `corrupted` flag is an internal state of the decoder that is set based on the content of this input data during the decoding process. The high hit count on the branch confirms that execution reliably reaches the check, and the state being checked is directly dependent on the parsing of the input.",
+    "[3A. Setter / Transition Evidence]: The source code for the function is not provided, but the variable name `corrupted` strongly implies it is a boolean flag set by the VP9 decoder when it encounters malformed or invalid data within the bitstream provided by the fuzzer (`frame_data`). The `BLOCKER_STRATEGY_CONTRACT` further supports this by noting that other decoding parameters (`log2_tile_rows`) are derived from the bitstream. Thus, the value of `corrupted` is determined by the semantic content of the fuzzer's input. No data starvation is present in the fuzz target.",
+    "[3B. Survival / Feasibility Check]: The execution path consistently reaches the `if (corrupted)` check, as shown by the 33.1k hit count. There is no evidence to suggest that a `corrupted = true` state would be reset or that control flow would be diverted before reaching line 1960. If the input can induce a corrupted state, that state will survive to the predicate.",
+    "[4. Rule Application]: Rule 2, 'Implicit Flow & Semantic Properties', applies. The `corrupted` variable is a semantic property derived from parsing the input bitstream provided by the fuzzer. The fuzzer's inability to reach the blocked side is not due to a limitation in the fuzz target's logic or API usage, but because it has not yet discovered the specific byte sequence that the `libvpx` decoder logic identifies as corrupt, which would set the `corrupted` flag to `true`."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

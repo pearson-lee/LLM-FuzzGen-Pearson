@@ -1,0 +1,45 @@
+{
+  "case_id": "libtiff_LZMADecode_211",
+  "project_name": "libtiff",
+  "function_name": "LZMADecode",
+  "branch_line_number": 211,
+  "blocked_side_line_number": 213,
+  "target_name": "llm_fuzzgen0717111847",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717111847.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/LZMADecode_211/symbolic_run/libtiff_LZMADecode_20260718_015021",
+  "historical_reason": "The blocker is classified as Input Dependent. The blocked condition checks if the variable `ret` is equal to `LZMA_MEMLIMIT_ERROR`. This variable holds the return value from the `lzma_code` function, which decodes a compressed data stream. The fuzz target provides the data for this stream by selecting `COMPRESSION_LZMA` and writing fuzzer-controlled bytes via `TIFFWriteTile`. The `LZMA_MEMLIMIT_ERROR` status is returned when the input stream's properties (e.g., a large dictionary size in its header) require more memory than the decoder has allocated. Because the fuzzer can craft an input stream with such properties, reaching the blocked code is dependent on the fuzzer's input bytes.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The target variable is `ret`, which holds the return value of the `lzma_code` function called on line 210. The branch hit count of 42 indicates that this line is being executed, and the `ret` variable is being evaluated in the subsequent `if` conditions.",
+    "[1.5. Blocked Side Direction]: The blocked code is at line 213, inside the condition `if (ret == LZMA_MEMLIMIT_ERROR)`. To reach this line, the preceding condition at line 211, `if (ret == LZMA_STREAM_END)`, must evaluate to false. Therefore, the required value for `ret` to reach the blocked side is `LZMA_MEMLIMIT_ERROR`.",
+    "[2. Fuzz Target Call Site]: The runtime segment shows the execution path `LLVMFuzzerTestOneInput` -> `TIFFReadEncodedTile` -> `LZMADecode`. In the fuzz target, this is initiated by reading the previously created TIFF file. The specific call is `TIFFReadTile(tif_read, buffer.data(), 0, 0, 0, 0);` at line 200 of the fuzz target code.",
+    "[2.5. Materialization Check]: The fuzz target materializes the necessary state. It can select `COMPRESSION_LZMA` (line 70), write compressed tile data derived from `fdp.ConsumeBytes()` (line 170), and then read that data back (line 200). The `lzma_code` function in `LZMADecode` operates directly on this fuzzer-controlled data stream, so the relevant state is fully materialized and consumed.",
+    "[3A. Setter / Transition Evidence]: The value of `ret` is set by the return of `lzma_code(&sp->stream, LZMA_RUN)` on line 210. The `sp->stream` object's input buffer (`next_in`) is populated from `tif->tif_rawcp`, which points to the compressed tile data read from the file. This data originates from `fdp.ConsumeBytes()` in the fuzz target. The `liblzma` documentation specifies that `lzma_code` can return `LZMA_MEMLIMIT_ERROR` if the input stream requires more memory (e.g., has a large dictionary size) than the decoder is configured to provide. This is a property of the compressed data itself. No data starvation is detected.",
+    "[3B. Survival / Feasibility Check]: If `lzma_code` returns `LZMA_MEMLIMIT_ERROR`, the value of `ret` survives to the check at line 213. The preceding check for `LZMA_STREAM_END` at line 211 will be false, allowing execution to continue to line 213, where the condition will be true. There is no other control flow logic between the function call and the check that would prevent the blocked side from being reached.",
+    "[4. Rule Application]: Rule 2 applies. The predicate variable `ret` depends on a semantic property of the fuzzer input—specifically, the memory requirements encoded within the LZMA-compressed data stream. The fuzzer can control this property by crafting the bytes supplied to `TIFFWriteTile`."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "branch_hit_count": 166,
+  "blocked_side_hit_count": 0,
+  "verification_status": "verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 4: Internal Invariant Guard / Redundant Defensive Code & Rule 3: Observed-Path Invariants",
+  "refined_triage_label": "Internal Invariant Guard",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason": "【Protocol 5 步審查因果推導與證明】\n- Step 1: Predicate & Target State（目標條件與分支方向）：目標函式為 LZMADecode（tif_lzma.c:210-230）。分支條件為第 211 行 if (ret == LZMA_STREAM_END)（須為 FALSE）以及第 213 行 if (ret == LZMA_MEMLIMIT_ERROR)（未覆蓋目標區塊，須為 TRUE）。要進入第 213 行內部的未覆蓋處理邏輯，變數 ret（lzma_ret）必須等於 LZMA_MEMLIMIT_ERROR（數值為 6）。\n- Step 2: Producer & Input Control（生產者與資料流追蹤）：變數 ret 是底層庫 liblzma（XZ Utils）函式 lzma_code(&sp->stream, LZMA_RUN) 於第 210 行的回傳值。歷史 LLM 僅憑 API 手冊直覺推斷「若輸入流包含超大字典大小，就會因記憶體超出限制返回 LZMA_MEMLIMIT_ERROR」，認定為 Input Dependent。\n- Step 3: Survival & Path Invariants（函式庫不變量與防禦性死碼證明）：在呼叫 LZMADecode 之前，解碼器狀態必須由 LZMAPreDecode 初始化。在 tif_lzma.c:150-160 中，libtiff 開發者留下了關鍵硬性設定：ret = lzma_stream_decoder(&sp->stream, (uint64_t)-1, 0);，並特別註明 Disable memory limit when decoding。memlimit 被設定為 (uint64_t)-1（即 UINT64_MAX = 18446744073709551615）。深入 liblzma 底層判定邏輯（stream_decoder.c:220-234），唯有 memusage > coder->memlimit 時才會回傳 LZMA_MEMLIMIT_ERROR。然而 coder->memlimit == UINT64_MAX，對於任何 64 位元無號整數，memusage > UINT64_MAX 在數學與邏輯上恆為 FALSE！若 Filter 異常，liblzma 回傳的是 LZMA_OPTIONS_ERROR 或 LZMA_DATA_ERROR，絕對不可能回傳 LZMA_MEMLIMIT_ERROR。因此第 213 行條件式恆為 FALSE，為標準的防禦性死碼。\n- Step 4: Alternative Path & Solver 失敗分析（歷史求解器全滅根因）：歷史實驗中 LLM 產生嚴重語意幻覺（只看錯誤碼定義，忽視 PreDecode 的 limit 賦值），誤判為 Input Dependent。下游求解器（SymCC 符號執行、種子生成器）耗費 1,794 秒進行 5 輪求解全數宣告失敗（分支執行 166 次，目標行 0 次命中）。SymCC 建立 memusage > UINT64_MAX 約束時，底層 SMT 求解器（Z3）判定恆 UNSAT，算力完全浪費。\n- Step 5: Final Adjudication & Triage Decision（最終裁決與評測判定）：裁決為 Input Independent，適用 Rule 4 (Internal Invariant Guard) 與 Rule 3 (Observed-Path Invariants)。Refined Triage Label 為 Internal Invariant Guard，不納入下游求解器評測（include_in_solver_evaluation = false）。",
+  "verification_details": {
+    "verification_method": "source_code_inspection_and_executable_poc_with_gdb",
+    "poc_path": "verify_poc.c",
+    "gdb_breakpoint_evidence": "GDB breakpoint at tif_lzma.c:154 confirmed memlimit argument is 18446744073709551615 (UINT64_MAX). Breakpoint at tif_lzma.c:210 confirmed ret evaluates to LZMA_OK, and line 213 (ret == LZMA_MEMLIMIT_ERROR) is bypassed.",
+    "poc_execution_result": "Executed verify_poc: lzma_stream_decoder with (uint64_t)-1 disables memory limiting; malformed stream with oversized dictionary returns LZMA_OK/data errors, never LZMA_MEMLIMIT_ERROR (code 6). Confirmed tif_lzma.c:213 is unreachable dead code."
+  }
+}

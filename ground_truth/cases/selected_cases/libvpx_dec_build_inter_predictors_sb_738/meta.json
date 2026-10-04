@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_dec_build_inter_predictors_sb_738",
+  "project_name": "libvpx",
+  "function_name": "dec_build_inter_predictors_sb",
+  "branch_line_number": 738,
+  "blocked_side_line_number": 739,
+  "target_name": "llm_fuzzgen_reference_guided_0727011112_353286",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727011112_353286.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/dec_build_inter_predictors_sb_738/symbolic_run/libvpx_dec_build_inter_predictors_sb_20260727_142621",
+  "historical_reason": "The blocker is a check on scaling factors, `!vp9_is_valid_scale(sf)`, which are derived from the dimensions of video frames. The fuzz target feeds a raw data buffer to the `vpx_codec_decode` API, and the decoder parses this data to determine frame properties, including dimensions. Because the frame dimensions are controlled by the fuzzer input, the resulting scaling factors in `sf` are also input-dependent. Reaching the blocked code requires the fuzzer to generate a bitstream with a specific combination of frame dimensions that the library considers invalid, which is a matter of crafting the right input, not a structural limitation of the fuzz target.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (!vp9_is_valid_scale(sf))` at line 738 in `dec_build_inter_predictors_sb`. The branch hit count of 4.02M indicates this condition is evaluated frequently. The target variable is `sf`, a pointer to a `struct scale_factors`.",
+    "[1.5. Blocked Side Direction]: The blocked side, an internal error at line 739, is executed if the condition `!vp9_is_valid_scale(sf)` evaluates to `true`. This requires the function `vp9_is_valid_scale` to return `false`.",
+    "[2. Fuzz Target Call Site]: The runtime trace begins after the fuzz target calls `vpx_codec_decode` at line 169: `err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);`. This API call initiates the video frame decoding process that leads to the blocker.",
+    "[2.5. Materialization Check]: The fuzz target passes raw input data to the `vpx_codec_decode` function. The library fully parses and decodes this data as a VP9 video stream. The `sf` struct, containing scaling factors, is populated based on properties (like frame dimensions) of the reference frames found within this input stream. The data is fully materialized and consumed by the decoder.",
+    "[3A. Setter / Transition Evidence]: Within the blocker function `dec_build_inter_predictors_sb`, the `sf` variable is assigned from a reference frame buffer: `const struct scale_factors *const sf = &ref_buf->sf;`. This `ref_buf` is selected from a global list of reference frames (`pbi->common.frame_refs`) using an index (`mi->ref_frame`) that is read from the compressed input bitstream. The scaling factors themselves are computed based on the dimensions of the current frame relative to the reference frame. These frame dimensions are also parsed from the fuzzer input data, for example in `read_uncompressed_header`. Thus, the contents of `sf` are derived from the input data.",
+    "[3B. Survival / Feasibility Check]: The runtime path from `vpx_codec_decode` to `dec_build_inter_predictors_sb` represents the standard decoding flow for an inter-predicted block. The check `!vp9_is_valid_scale(sf)` is designed to validate properties of the bitstream. There are no intermediate checks or logic shown in the evidence that would prevent an input-derived set of 'invalid' scaling factors from reaching this check. The condition is reachable if the fuzzer provides an input bitstream containing a frame that references another frame with dimensions that result in an unsupported scaling operation.",
+    "[4. Rule Application]: Rule 2 applies. The predicate depends on the `sf` variable, which holds scaling factors. These factors are not directly copied from the input but are computed based on semantic properties (frame dimensions) that are parsed from the fuzzer's input data. The relationship between the dimensions of different frames in the video stream dictates the value of `sf`."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "verified",
+  "ground_truth_label": "Input Dependent",
+  "ground_truth_rule": "Rule 2: Semantic / Dataflow Dependent Branch",
+  "ground_truth_reason": "【判定理由：Input Dependent（語意與資料流深度依賴）】\n\n1. 受阻分支與目標述詞：\n   目標函式為 vp9_decodeframe.c:716 的 dec_build_inter_predictors_sb，受阻條件為 Line 738 的 `if (!vp9_is_valid_scale(sf))`，受阻側為 Line 739 的 `vpx_internal_error(xd->error_info, VPX_CODEC_UNSUP_BITSTREAM, \"Reference frame has invalid dimensions\");`。\n\n2. 資料流與變數來源：\n   條件變數 `sf` 來自參照影格緩衝區結構（`&ref_buf->sf`），其數值是在解碼 Inter 影格標頭時（vp9_decodeframe.c:2758），由函式 `vp9_setup_scale_factors_for_frame` 依據當前影格與參照影格的寬高尺寸計算而得。當前影格與參照影格的尺寸完全直接來自 Fuzzer 輸入的 IVF 位元流（Uncompressed Frame Header）。\n\n3. 縮放限制與標頭守衛放行推導：\n   - 依據 VP9 規格與 vp9_scale.c:53 的 `valid_ref_frame_size`，參照縮放倍率必須滿足：2 * this_w >= ref_w 且 this_w <= 16 * ref_w。若尺寸縮小超過 2 倍或放大超過 16 倍，`sf->x_scale_fp` 即被標記為 `REF_INVALID_SCALE`（-1），使 `vp9_is_valid_scale(sf)` 回傳 0。\n   - 在影格標頭檢查（setup_frame_size_with_refs，Line 1586）中，解碼器檢查 `has_valid_ref_frame |= (valid_ref_frame_size(...));`。VP9 規格明確允許 Inter 影格所參照的 3 個影格中『只要有至少一個尺寸有效』即可放行通過標頭驗證。\n   - 當輸入位元流包含多個尺寸懸殊的影格（例如 Frame 0 為 32x32，Frame 1 為 128x128，Frame 2 為 600x600），Frame 2 標頭可藉由 Frame 1 滿足守衛檢查，但同時將 Frame 0（GOLDEN）標記為 `REF_INVALID_SCALE`。\n   - 進入巨區塊預測時，只要位元流指定參照 GOLDEN_FRAME，解碼器即進入 Line 738 並命中 Line 739 拋出錯誤。\n\n4. 歷史 14.5M 次未命中原因（Solver Capability Limit）：\n   隨機 Fuzzer 難以命中是因為此分支存在 5 重深度耦合約束（多影格合法 IVF 序列、跨影格狀態緩存、倍率超過 16x、混合參照標頭守衛通過、巨區塊布林熵解碼模式選擇）。歷史 LLM 的 Input Dependent 分類為 True Positive，下游符號執行（SymCC）生成失敗屬於求解器能力邊界而非結構性不可達。已建立實體驗證程式 verify_poc.c 驗證該分支 100% 可達。"
+}

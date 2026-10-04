@@ -1,0 +1,48 @@
+{
+  "case_id": "lcms_cmsIT8GetData_2865",
+  "project_name": "lcms",
+  "function_name": "cmsIT8GetData",
+  "branch_line_number": 2865,
+  "blocked_side_line_number": 2869,
+  "target_name": "llm_fuzzgen0625040504",
+  "target_source_path": "external/oss-fuzz/projects/lcms/llm_fuzzgen0625040504.c",
+  "source_file": "src/cmscgats.c",
+  "predicate": "if (iField < 0)",
+  "blocked_side_code": "iSet = LocatePatch(it8, cPatch);",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260707_000202_run_all_fuzzer/blockers/cmsIT8GetData_2865/symbolic_run/lcms_cmsIT8GetData_20260707_050709",
+  "source_experiment": "20260707_000202_lcms",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.c",
+  "ground_truth_label": "Input Dependent",
+  "ground_truth_rule": "Rule 1: Direct Data Flow & Rule 2: Implicit Flow & Semantic Properties",
+  "refined_triage_label": "Bounded Extreme Value",
+  "include_in_solver_evaluation": true,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙條件位於 cmscgats.c:2865：`if (iField < 0)`。要進入第 2869 行未覆蓋目標程式碼（`iSet = LocatePatch(it8, cPatch);`），條件式必須 evaluate 為 FALSE，亦即 `LocateSample(it8, cSample)` 在 IT8 表格中必須成功找到欄位索引（`iField >= 0`）。",
+    "step_2_producer_and_input_control": "在 Fuzz Target（llm_fuzzgen0625040504.c）中，整個 Fuzzer 輸入緩衝區 `data[0..size-1]` 先傳入 `cmsIT8LoadFromMem(context, data, size)` 建立 IT8 物件；隨後 Target 透過 offset 手動切片方式，將前 255 位元組拷貝至 `str1`，將第 255 位元組起的剩餘位元組拷貝至 `str2`。隨後在第 75 行執行 `cmsIT8GetData(hIT8, str1, str2)`，將 `str2` 作為 `cSample` 傳入。資料流完全由 Fuzzer 輸入直接切片控制（Direct Data Flow）。",
+    "step_3_survival_and_path_invariants": "深入追查 cmscgats.c 內部欄位匹配機制：要使 `LocateSample(it8, str2)` 成功回傳非負索引，輸入必須具備跨切片語意一致性（Dual Semantic Consistency）——前段 `data[0..254]` 內解析出的 IT8 格式必須宣告某個欄位名稱（如 `MYCOL`），而後段 `data[255..]` 切片出來的字串必須正好等於該欄位名稱，且整體輸入還需符合 IT8 語法。我們在案例目錄下附帶了實體驗證程式 `verify_poc.c`，構造了一組 260 位元組的輸入：前段宣告含 `MYCOL` 欄位並以 `#` 註解行填滿至第 252 位元組，第 253-254 位元組換行開啟新註解 `# `，第 255-259 位元組填入 `MYCOL`。實測證實 `cmsIT8LoadFromMem` 順利將尾段視為合法註解完成解析，`str2` 成功切出 `\"MYCOL\"`，`LocateSample` 回傳 `iField = 1 >= 0`，程式 100% 存活並成功執行第 2869 行！",
+    "step_4_alternative_path_and_feasibility": "此分支為 IT8 查表運算的主幹邏輯，非死碼或環境缺陷。歷史求解器失敗係因傳統 Fuzzer 或純符號執行極難無中生有拼出跨越 255 位元組 offset 相互呼應的語法與字串一致性結構。這屬於典型的『求解複雜度高、但本質完全相依於輸入』之 True Positive 案例。",
+    "step_5_final_adjudication": "在不修改目前 Fuzz Target 程式碼的前提下，Fuzzer 輸入 bytes 完全可讓程式存活並抵達第 2869 行未覆蓋分支。歷史 LLM 分類器在此處判斷為 Input Dependent 屬正確判定。裁決為 Input Dependent（Rule 1 & Rule 2），Refined Triage Label 為 Bounded Extreme Value（跨切片語意一致性輸入），include_in_solver_evaluation: true。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 2869 行（iSet = LocatePatch(...)）需滿足 `iField >= 0`（條件 if (iField < 0) 評定為 FALSE）。\n[Step 2: 生產者] IT8 物件由 cmsIT8LoadFromMem 解析全域 input 產生，搜尋鍵值 str2 則由 input 於 offset 255 切片獲得，屬直接資料流。\n[Step 3: 存活與實證] 附帶實體驗證程式 verify_poc.c：構造 260 bytes 輸入（前段定義欄位 MYCOL 並以註解銜接，offset 255 設置對應字串），成功使 cmsIT8LoadFromMem 解析並讓 LocateSample 回傳 1，100% 存活並執行第 2869 行。\n[Step 4: 求解器分析] 該分支為資料檢索主幹，歷史求解器失敗係因跨切片語意自洽難度極高，非死碼或環境缺陷。\n[Step 5: 裁決] Input Dependent（Rule 1: Direct Data Flow & Rule 2: Semantic Properties）；Refined Label: Bounded Extreme Value；include_in_solver_evaluation: true。",
+  "historical_reason": "The analysis shows that the blocked predicate `if (iField < 0)` in `cmsIT8GetData` can be satisfied by providing a correctly structured input. The variable `iField` is the result of `LocateSample`, which searches for a sample name within an IT8 object. Both the IT8 object's content and the sample name being searched for are derived from the fuzzer's input buffer `data`. To reach the blocked code, the fuzzer must generate an input that parses into a valid IT8 handle and also provides a sample name string that exists within that IT8 data structure. This is a complex data dependency that the fuzzer is currently failing to solve, but it is entirely input-controlled. Therefore, the blocker is classified as Input Dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (iField < 0)` at line `2865` of the function `cmsIT8GetData`. The variable `iField` receives its value from the return of the `LocateSample(it8, cSample)` call on the preceding line. The branch hit count of `1.00k` indicates this condition is frequently evaluated, but the fuzzer has not been able to make it false.",
+    "[1.5. Blocked Side Direction]: The blocked side, which includes the call `iSet = LocatePatch(it8, cPatch);` at line `2869`, is executed if the condition `iField < 0` evaluates to **false**. This requires `iField` to be greater than or equal to 0.",
+    "[2. Fuzz Target Call Site]: The runtime blocker segment shows that the execution path to the blocker originates from the fuzz target at line 66: `cmsIT8SetTableByLabel(hIT8, str1, str2, str3);`. This function, in turn, calls `cmsIT8GetData`, leading to the blocked branch.",
+    "[2.5. Materialization Check]: The fuzz target properly materializes and uses the relevant data. The `hIT8` handle is created at line 28 by parsing the raw fuzzer input `data` with `cmsIT8LoadFromMem`. The arguments `str1` and `str2`, used to query the `hIT8` object, are also copied directly from the fuzzer input `data`. The program logic consumes both the parsed `hIT8` object and the search strings derived from the input.",
+    "[3A. Setter / Transition Evidence]: To achieve `iField >= 0`, the `LocateSample` function must return a non-negative index. Looking at its source, this occurs when it finds a case-insensitive match for its `cSample` argument within the data format fields of the `it8` object. In the observed runtime path, `cSample` is derived from `str2` in the fuzz target, which is copied from the fuzzer input `data`. The `it8` object itself is also parsed from `data`. Thus, to satisfy the condition, the fuzzer input `data` must be structured such that it defines a valid IT8 table and also contains a string (`str2`) that matches one of the 'sample' (column) names within that table.",
+    "[3B. Survival / Feasibility Check]: If `LocateSample` returns a value `>= 0`, no code between line `2865` and `2869` can prevent execution from reaching the blocked side. The path is clear, provided the input can satisfy the condition.",
+    "[4. Rule Application]: The predicate variable `iField` depends on a search for a key (`cSample`) within a data structure (`it8`). Both the key and the data structure are constructed directly from the fuzzer input bytes. This is a direct data flow where the input must be internally consistent for the search to succeed. This falls under Rule 1, as the predicate's outcome is entirely dependent on the content of the fuzzer input."
+  ]
+}

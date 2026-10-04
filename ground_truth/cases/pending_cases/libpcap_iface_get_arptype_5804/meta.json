@@ -1,0 +1,31 @@
+{
+  "case_id": "libpcap_iface_get_arptype_5804",
+  "project_name": "libpcap",
+  "function_name": "iface_get_arptype",
+  "branch_line_number": 5804,
+  "blocked_side_line_number": 5814,
+  "target_name": "llm_fuzzgen0711025332",
+  "target_source_path": "external/oss-fuzz/projects/libpcap/llm_fuzzgen0711025332.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "solver_dispatch",
+  "pipeline_methods": [
+    "llm_seed_generator"
+  ],
+  "pipeline_output_dir": null,
+  "historical_reason": "ERROR: No blocker-reaching seed is available. Pass --seed or ensure --triggering-input points to a local seed file.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is the final `else` clause of a check on the `errno` variable, following an `ioctl` system call failure. The specific line is `ret = PCAP_ERROR;` at line 5814. The preceding checks are `if (errno == ENODEV)` (line 5804) and `else if (errno == EOPNOTSUPP)`. The hit count of 550 on line 5804 indicates that the `ioctl` call is failing, and the `errno` value is being checked.",
+    "[1.5. Blocked Side Direction]: To reach the blocked side at line 5814, the `ioctl(fd, SIOCGIFHWADDR, &ifr)` call must fail (return -1), and the resulting `errno` value must be something other than `ENODEV` or `EOPNOTSUPP`. For example, if `ioctl` failed due to insufficient permissions, `errno` might be set to `EPERM` or `EACCES`, which would satisfy the condition to enter the `else` block.",
+    "[2. Fuzz Target Call Site]: `pcap_t *p = pcap_open_live(name, 65535, 1, 1000, errbuf);`. The `name` variable, used as the network interface name, is populated directly from the fuzzer's input data: `memcpy(name, data, name_len);`.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes the input. The `name` variable, derived from fuzzer input, is passed to `pcap_open_live`. This function's implementation path on Linux involves calling `iface_get_arptype`, which uses the `name` in a system call (`ioctl`). The result of this system call directly influences the control flow leading to the blocker. The input is not just parsed; it is used to interact with the underlying operating system.",
+    "[3A. Setter / Transition Evidence]: The value of `errno` is set by the `ioctl(fd, SIOCGIFHWADDR, &ifr)` system call within the `iface_get_arptype` function. The primary input to this call is the interface name (`ifr.ifr_name`), which is a copy of the `name` parameter, derived from the fuzzer's input. Different input strings for `name` can cause `ioctl` to interact with the OS in various ways: a non-existent interface name should cause `ENODEV`, an existing interface without a hardware address (like 'lo') can cause `EOPNOTSUPP`, and other interactions could potentially lead to other error codes.",
+    "[3B. Survival / Feasibility Check]: A path to the blocked side is feasible. The fuzzer has direct control over the interface name string. By providing a valid interface name for which the fuzzer process lacks permissions to get the hardware address, the `ioctl` call would fail, and the OS would set `errno` to a value like `EPERM`. Since `EPERM` is not `ENODEV` or `EOPNOTSUPP`, the control flow would proceed to the `else` block containing the unreachable code. The value of `errno` is checked immediately after the system call that sets it, so there are no intervening operations to alter it.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The fuzzer input directly provides the interface name. This name is used in a system call, and the success or failure of that call, along with the specific error code (`errno`) it produces, determines whether the blocked branch is taken. The relationship between the input data (as an interface name) and the predicate variable (`errno`) is direct."
+  ],
+  "source_experiment": "20260720_232522_libpcap",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

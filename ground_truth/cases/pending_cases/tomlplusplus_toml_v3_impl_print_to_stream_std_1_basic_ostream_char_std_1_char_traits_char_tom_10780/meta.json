@@ -1,0 +1,32 @@
+{
+  "case_id": "tomlplusplus_toml_v3_impl_print_to_stream_std_1_basic_ostream_char_std_1_char_traits_char_tom_10780",
+  "project_name": "tomlplusplus",
+  "function_name": "toml::v3::impl::print_to_stream(std::__1::basic_ostream<char, std::__1::char_traits<char> >&, toml::v3::source_region const&)",
+  "branch_line_number": 10780,
+  "blocked_side_line_number": 10782,
+  "target_name": "llm_fuzzgen0728080444",
+  "target_source_path": "external/oss-fuzz/projects/tomlplusplus/llm_fuzzgen0728080444.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260806_154151_run_all_fuzzer/blockers/blocker_10780_cf5fabff3a04/symbolic_run/tomlplusplus_blocker_10780_cf5fabff3a04_symbolic_run_20260806_201931",
+  "historical_reason": "The blocker is in a function that prints a `source_region`. This function is called when a `toml::parse_error` is caught and printed. The `parse_error` is thrown by `toml::parse_file` when it fails to parse the input provided by the fuzzer. The blocked condition `val.begin != val.end` checks if the `source_region` associated with the parse error has a non-zero length. Whether this condition is met depends entirely on the type of parsing error triggered, which is determined by the content of the fuzzer-generated input file. Therefore, the blocker is input-dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (val.begin != val.end)` at line `10780` within the function `toml::v3::impl::print_to_stream`. The variable `val` is a `const toml::v3::source_region&`. The branch has been executed `6.87k` times, always with the condition evaluating to false, indicating that `val.begin` has always been equal to `val.end`.",
+    "[1.5. Blocked Side Direction]: To reach the blocked code at line `10782`, the condition `val.begin != val.end` must evaluate to TRUE. This requires the `source_region` object `val` to represent a source range with a non-zero length.",
+    "[2. Fuzz Target Call Site]: The call chain originates in the fuzz target's `catch` block. The specific line is `std::cerr << err << std::endl;` at line 100 of the fuzz target, which is executed when `toml::parse_file` throws a `toml::parse_error`. This invokes an `operator<<` overload that eventually calls the blocker function `print_to_stream`.",
+    "[2.5. Materialization Check]: Yes, the relevant state is materialized and consumed. The `toml::parse_file` function processes fuzzer input (`file_content`) and, upon failure, materializes a `toml::parse_error` object. This object, including its `source_region`, is then fully consumed by the `operator<<` call, which leads to the evaluation of the blocked predicate.",
+    "[3A. Setter / Transition Evidence]: The `source_region` object `val` is constructed and set by the `toml::parse_file` function's internal parsing logic. When the parser encounters an error in the fuzzer-provided input data, it creates a `parse_error` object, populating the `source_region` to indicate the error's location. The values of `val.begin` and `val.end` are therefore determined by the parser's response to the malformed TOML input. The fuzz target uses `fdp.ConsumeRemainingBytesAsString()`, so no data starvation occurs. It is highly probable that certain parsing errors (e.g., for an invalid multi-line string) would produce a `source_region` where `begin != end`.",
+    "[3B. Survival / Feasibility Check]: If the parser generates a `parse_error` containing a `source_region` where `begin != end`, that object is caught and passed by `const&` through the call chain to the `print_to_stream` function. There are no intermediate steps shown in the evidence that would alter the `source_region`'s state. Thus, if the parser can create this state, it will survive to the predicate. The feasibility is entirely dependent on the fuzzer's ability to generate an input that triggers a range-based parsing error.",
+    "[4. Rule Application]: The predicate's outcome depends on the properties of a `source_region` object, which reflects semantic information (the location of a parse error) derived from the fuzzer input. This is a direct application of Rule 2 (Implicit Flow & Semantic Properties), as the control flow depends on a semantic property of the input data."
+  ],
+  "source_experiment": "20260806_154151_tomlplusplus",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

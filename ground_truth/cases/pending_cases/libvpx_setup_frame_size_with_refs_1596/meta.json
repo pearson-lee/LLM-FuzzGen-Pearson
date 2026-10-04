@@ -1,0 +1,32 @@
+{
+  "case_id": "libvpx_setup_frame_size_with_refs_1596",
+  "project_name": "libvpx",
+  "function_name": "setup_frame_size_with_refs",
+  "branch_line_number": 1596,
+  "blocked_side_line_number": 1601,
+  "target_name": "llm_fuzzgen_reference_guided_0727004829_707547",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727004829_707547.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/setup_frame_size_with_refs_1596/symbolic_run/libvpx_setup_frame_size_with_refs_20260727_105341",
+  "historical_reason": "The blocker predicate checks properties of reference frames, specifically `ref_frame->idx` and color format compatibility. These properties are determined by parsing the input bitstream provided by the fuzzer. The runtime trace shows that the `vpx_codec_decode` function is called, which processes this bitstream. Inside the decoder, values read from the bitstream are used to look up and assign values to `cm->frame_refs`, which is the array being checked at the blocker. An input can be crafted to specify a mix of valid and invalid reference frames, allowing it to pass an initial check for at least one valid frame, and then fail in the subsequent loop that contains the blocker when it encounters an invalid reference frame index. Since the entire state of the decoder, including the reference frame map and the properties of the current frame, is derived from the fuzzer's input buffer, the blocker is Input Dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The branch hit count is 85.1k, which is greater than 0, indicating the predicate at line 1596 is frequently executed. The predicate is `ref_frame->idx == INVALID_IDX || !valid_ref_frame_img_fmt(...)`. The key variables are `ref_frame->idx` (which is `cm->frame_refs[i].idx`) and the properties of the current and reference frames (`bit_depth`, `subsampling_x`, `subsampling_y`) that are passed to `valid_ref_frame_img_fmt`.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 1601, `vpx_internal_error`, is located inside the `if` block starting at line 1596. It is executed if the condition evaluates to TRUE. To reach the blocked side, for any reference frame `i` being checked in the loop, `cm->frame_refs[i].idx` must be `INVALID_IDX`, or the format of the reference frame must be incompatible with the current frame's format.",
+    "[2. Fuzz Target Call Site]: The runtime trace shows that the execution path to the blocker originates from the `vpx_codec_decode` call within the `while` loop in `LLVMFuzzerTestOneInput`. The specific line is: `err = vpx_codec_decode(&codec, fuzzer_data_ptr, frame_size, nullptr, 0);`",
+    "[2.5. Materialization Check]: The fuzz target passes chunks of the raw input buffer directly to `vpx_codec_decode`. The libvpx library itself is responsible for parsing this data as a video bitstream, which involves decoding frame headers, identifying frame types (I, P, B frames), and managing reference frames. The variables in the predicate (`ref_frame->idx`, frame properties) are all populated as a direct result of the library consuming and interpreting the fuzzer's input data. The data is fully materialized by the decoder.",
+    "[3A. Setter / Transition Evidence]: The values in the predicate are determined by the content of the video bitstream provided by the fuzzer. The call `read_uncompressed_header` (which calls the blocker function) shows how this happens: 1. For non-key frames, it reads reference frame indices from the bitstream: `const int ref = vpx_rb_read_literal(rb, REF_FRAMES_LOG2);`. 2. It uses this index `ref` to look up a previously stored frame index in a map: `const int idx = cm->ref_frame_map[ref];`. 3. This `idx` is assigned to the predicate variable: `ref_frame->idx = idx;`. The `ref_frame_map` itself is state maintained by the decoder, and its contents are determined by the sequence and properties of previously decoded frames, all of which originate from the fuzzer input. Similarly, the frame format properties checked by `valid_ref_frame_img_fmt` are also read from the bitstream. Therefore, all variables in the predicate are controlled by the input data.",
+    "[3B. Survival / Feasibility Check]: Before the loop containing the blocker, the function `setup_frame_size_with_refs` ensures that `has_valid_ref_frame` is true, which means at least one of the referenced frames must have a valid index (`!= INVALID_IDX`). However, the blocking loop iterates through *all* `REFS_PER_FRAME` reference frames. This means it is possible for the input to specify one valid reference frame (to pass the `has_valid_ref_frame` check) and another reference frame that has `idx == INVALID_IDX`. When the loop reaches the invalid entry, the condition `ref_frame->idx == INVALID_IDX` will be true, triggering the error. This state is input-dependent and can survive to the predicate check.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The blocker's reachability depends on the semantic properties of the VP9 bitstream. The predicate variables, such as reference frame indices and color formats, are not just raw bytes from the input but are the result of the decoder parsing the input and maintaining state (like the `ref_frame_map`) across multiple frames. This stateful, semantic interpretation of the input data falls under Rule 2."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

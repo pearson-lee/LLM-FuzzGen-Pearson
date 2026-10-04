@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vp9_filter_block_plane_non420_1135",
+  "project_name": "libvpx",
+  "function_name": "vp9_filter_block_plane_non420",
+  "branch_line_number": 1135,
+  "blocked_side_line_number": 1138,
+  "target_name": "llm_fuzzgen0721014804",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen0721014804.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp9_filter_block_plane_non420_1135/symbolic_run/libvpx_vp9_filter_block_plane_non420_20260727_091150",
+  "historical_reason": "The blocked condition `if (!skip_border_4x4_c)` fails to pass execution to the `else` block because the variable `skip_border_4x4_c` has not yet evaluated to `true`. This variable's value is determined by `ss_x && mi_col + c == cm->mi_cols - 1`. The terms in this expression, `ss_x` (chroma subsampling) and `cm->mi_cols` (frame width), are derived from the properties of the video bitstream provided by the fuzzer to `vpx_codec_decode`. The fuzz target correctly passes input data to the decoder, and the library's ability to reach the blocked code is entirely dependent on the fuzzer generating a bitstream with the necessary semantic properties (e.g., a specific color format and frame width). This is a classic Input Dependent scenario where the fuzzer has not yet discovered the specific input structure needed to satisfy a deep condition.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (!skip_border_4x4_c)` at or near line 1135, which has been executed 4.97k times. The target variable is `skip_border_4x4_c`, a local `const int` within the function `vp9_filter_block_plane_non420`.",
+    "[1.5. Blocked Side Direction]: The unreachable code at line 1138 is in the `else` block corresponding to the `if (!skip_border_4x4_c)` condition. To reach line 1138, the `if` condition must be false, which means `skip_border_4x4_c` must evaluate to `true`. The variable is defined as `const int skip_border_4x4_c = ss_x && mi_col + c == cm->mi_cols - 1;`. Therefore, to reach the blocked side, both `ss_x` must be non-zero and the loop must be processing the rightmost column of the frame (`mi_col + c == cm->mi_cols - 1`).",
+    "[2. Fuzz Target Call Site]: The dynamic trace shows the execution path starts from the fuzzer's call to `vpx_codec_decode` at line 52: `vpx_codec_decode(&decoder_ctx, frame_data.data(), frame_data.size(), nullptr, 0);`. The `frame_data` is supplied by `fdp.ConsumeRemainingBytes<uint8_t>()` on the preceding line.",
+    "[2.5. Materialization Check]: The fuzz target passes a byte vector directly to `vpx_codec_decode`. The runtime trace confirms that this data is being processed as a video bitstream, leading through the entire decoding pipeline (`vp9_decode_frame`, `decode_tiles`, `loop_filter_rows`) to the blocker function. The variables in the predicate (`ss_x`, `cm->mi_cols`) are populated from parsing this input data (frame headers, etc.). The materialization is direct and complete.",
+    "[3A. Setter / Transition Evidence]: The values required to make `skip_border_4x4_c` true are derived entirely from the input bitstream. `ss_x` is `plane->subsampling_x`, which is determined by the video's color space defined in the bitstream header. `cm->mi_cols` is the frame width in macroblocks, also defined in the bitstream header. `mi_col` and `c` are loop counters iterating over this frame grid. All these parameters are set during the decoding process (e.g., in `vp9_decode_frame` and its sub-functions) based on the `frame_data` provided by the fuzzer. There is no logic in the fuzz target or the observed path that would prevent these values from being set. No data starvation is detected; `ConsumeRemainingBytes` provides the necessary data to the decoder.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer generates a valid VP9 bitstream that specifies a chroma-subsampled format (making `ss_x` non-zero) and has a width greater than a few macroblocks, the loop filter will eventually process the rightmost column. When `mi_col + c` equals `cm->mi_cols - 1`, the condition `skip_border_4x4_c` will become true. The variable is defined and used within the same loop iteration, so there is no opportunity for its value to be lost or reset. The path to the blocked side is feasible, provided the input data has the required semantic properties.",
+    "[4. Rule Application]: The predicate depends on semantic properties of the video stream (color subsampling and frame dimensions) that are derived from the fuzzer's input data. This is a clear case of implicit data flow. Therefore, the blocker is Input Dependent under Rule 2."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

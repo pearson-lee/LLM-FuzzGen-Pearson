@@ -1,0 +1,5 @@
+Call chain (Root -> Target):
+-> depth=0 demangled=LLVMFuzzerTestOneInput file=/src/llm_fuzzgen_reference_guided_0724141917_518251.cc line=-1
+  -> depth=1 demangled=cJSON_Duplicate file=/src/cjson/cJSON.c line=143
+    -> depth=2 demangled=cJSON_Duplicate_rec file=/src/cjson/cJSON.c line=2744
+      -> depth=3 demangled=cJSON_strdup file=/src/cjson/cJSON.c line=2771

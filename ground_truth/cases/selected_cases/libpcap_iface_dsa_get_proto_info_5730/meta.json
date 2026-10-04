@@ -1,0 +1,48 @@
+{
+  "case_id": "libpcap_iface_dsa_get_proto_info_5730",
+  "project_name": "libpcap",
+  "function_name": "iface_dsa_get_proto_info",
+  "branch_line_number": 5730,
+  "blocked_side_line_number": 5733,
+  "target_name": "llm_fuzzgen0710010837",
+  "target_source_path": "external/oss-fuzz/projects/libpcap/llm_fuzzgen0710010837.c",
+  "source_file": "pcap-linux.c",
+  "predicate": "if (fd < 0)",
+  "blocked_side_code": "r = read(fd, buf, sizeof(buf) - 1);",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260720_232522_run_all_fuzzer/blockers/iface_dsa_get_proto_info_5730/symbolic_run/libpcap_iface_dsa_get_proto_info_20260721_123905",
+  "source_experiment": "20260720_232522_libpcap",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.c",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 6: System Resource Failure / External Environment Dependency & Rule 3: Observed-Path Invariants",
+  "refined_triage_label": "External Resource Failure",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙條件位於 pcap-linux.c:5730：`if (fd < 0)`。要進入第 5733 行未覆蓋目標程式碼（`r = read(fd, buf, sizeof(buf) - 1);`），條件式必須 evaluate 為 FALSE（亦即檔案描述符 `fd >= 0`）。這要求對 `/sys/class/net/%s/dsa/tagging` 執行 `open(..., O_RDONLY)` 必須成功打開有效檔案。",
+    "step_2_producer_and_input_control": "變數 `fd` 是系統呼叫 `open(\"/sys/class/net/%s/dsa/tagging\", O_RDONLY)` 的回傳值。在 Fuzz Target（llm_fuzzgen0710010837.c）中，呼叫點一（第 89 行）使用 `pcap_findalldevs` 列舉的現有主機介面名稱（如 'eth0'）呼叫 `pcap_create` 與 `pcap_activate`；呼叫點二（第 312 行）使用輸入字串 `filter_str` 作為裝置名稱。但在 `pcap_activate_linux`（第 1249 行）中，任何不存在於主機核心的裝置名稱皆會在 `setup_socket` 的 `ioctl(SIOCGIFHWADDR)` 驗證時直接回傳 ENODEV 錯誤並中止，完全無法抵達 `iface_dsa_get_proto_info`。唯有主機上真實存在的 Ethernet 介面（第 89 行）才能進入此函式。",
+    "step_3_survival_and_path_invariants": "DSA（Distributed Switch Architecture）是 Linux 核心專為外接實體硬體交換機晶片（如 Marvell、Broadcom switch IC）設計的核心子系統。核心唯有在物理主機板上偵測到實體 DSA 交換機硬體驅動時，才會在 sysfs 建立 `/sys/class/net/<dev>/dsa/tagging` 節點。在標準 Linux 伺服器、虛擬機以及 OSS-Fuzz Docker 容器中，網路介面純屬常規網卡（如 eth0, lo, veth），根本沒有 DSA 硬體晶片。我們在案例目錄下附帶了實體驗證程式 `verify_poc.c`：掃描系統所有網路介面（eth0, lo, any 等），證實所有介面的 `dsa/tagging` 節點均物理不存在（`open` 恆回傳 -1，`fd < 0` 恆為真）；且 sysfs 為唯讀核心偽檔案系統，使用者空間 Fuzzer 絕不可能寫入建立。因此第 5730 行恆 evaluate 為 TRUE 並返回 0，目標行 5733 為絕對死碼！",
+    "step_4_alternative_path_and_feasibility": "歷史 LLM 產生嚴重的模式匹配幻覺（誤以為只要 Fuzzer 輸入猜中有效介面名稱的 Magic String 即可打開檔案），誤判為 Input Dependent。這導致下游的 LLM 種子生成器、SymCC 探針及多輪 replan 耗費大量算力反覆求解，最終全數失敗。該阻擋點本質係因缺失核心硬體 DSA 交換機子系統，非輸入變異或求解器能力所能解決。",
+    "step_5_final_adjudication": "在現有系統與容器環境下，任何 Fuzzer 輸入皆不可能使 `open()` 回傳非負描述符。裁決為 Input Independent（Rule 6: System Resource Failure & Rule 3: Observed-Path Invariants），Refined Triage Label 為 External Resource Failure（缺失核心硬體 DSA 交換機 sysfs 節點），include_in_solver_evaluation: false。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 5733 行（r = read(fd, ...);）需滿足 open() 成功回傳非負檔案描述符（fd >= 0）。\n[Step 2: 生產者] fd 為 open(\"/sys/class/net/%s/dsa/tagging\", O_RDONLY) 之回傳值，僅能以主機上真實存在的 Ethernet 介面（如 eth0）進入。\n[Step 3: 存活與路徑不變量] DSA（分散式交換機架構）為專門硬體開關晶片之核心子系統，常規 Linux/Docker 環境中所有介面均無此硬體節點（open 恆失敗，fd == -1）。且 sysfs 無法由使用者空間建立，fd < 0 為確定性路徑不變量，第 5733 行恆為死碼。\n[Step 4: 歷史誤判分析] 歷史 LLM 誤以為猜中介面名稱即可打開檔案，誤判為 Dependent，導致下游 5 種求解器耗費大量算力反覆求解全數失敗。\n[Step 5: 裁決] Input Independent（Rule 6: System Resource Failure & Rule 3: Observed-Path Invariants）；Refined Label: External Resource Failure；include_in_solver_evaluation: false。",
+  "historical_reason": "The blocker predicate `if (fd < 0)` checks a file descriptor that is obtained during the activation of a pcap handle. The fuzz target creates a handle using a device name (`filter_str`) that is a direct copy of the fuzzer input data. The `pcap_activate` function then uses this name to open a system resource (e.g., a network socket or a sysfs file). The success of this operation, which determines if `fd` is negative or non-negative, is therefore dependent on whether the fuzzer input string matches the name of a valid, accessible network interface on the host system. Although discovering such a 'magic string' is difficult for a fuzzer, the control flow is fundamentally dependent on the input data.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (fd < 0)` at line `5730`. The target variable is `fd`, which appears to be a file descriptor. The branch was executed 464 times, but the blocked side was never reached, indicating that `fd` was always a negative value during fuzzing.",
+    "[1.5. Blocked Side Direction]: The blocked code, `r = read(fd, buf, sizeof(buf) - 1);`, is at line `5733`. Given the condition `if (fd < 0)` at line `5730`, it is standard practice for such a check to guard a resource operation. The `read` call would logically occur after the check, meaning the `if` block likely contains an early return on failure. Therefore, to reach line `5733`, the condition `fd < 0` must evaluate to FALSE, which requires `fd` to be greater than or equal to 0.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime segment is missing. However, the function name `iface_dsa_get_proto_info` suggests it is related to network interface handling. The fuzz target calls `pcap_create` with a string derived directly from the fuzzer input, and then attempts to activate it. This is the most likely path to trigger interface-specific code. The relevant call sequence begins on line 336: `pcap_t *p_live = pcap_create(filter_str, errbuf);`, where `filter_str` is a copy of the fuzzer `Data`, followed by `if (pcap_activate(p_live) == 0)` on line 343.",
+    "[2.5. Materialization Check]: The fuzz target materializes the input data as a device name by passing `filter_str` to `pcap_create`. The subsequent call to `pcap_activate(p_live)` consumes this state, causing the library to attempt to find and open a system resource (network interface) with that name. The success or failure of this operation, which sets the internal file descriptor `fd`, is directly tied to the input-derived device name.",
+    "[3A. Setter / Transition Evidence]: The variable `fd` is an internal file descriptor within the `pcap_t` handle. It is set during the `pcap_activate` process. For a live capture on Linux, this involves creating a socket and binding it to the specified interface, or, as the function name `iface_dsa_get_proto_info` suggests, opening a sysfs file to query device properties (e.g., `open(\"/sys/class/net/<interface_name>/...\")`). The argument to this system call, the interface name, is the `filter_str` provided by the fuzzer. The system call will return a non-negative file descriptor (`fd >= 0`) if the input string is a valid name for an existing, accessible interface of the correct type on the system. Thus, the fuzzer input directly controls the arguments to the system call that sets `fd`.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides an input string that matches a valid and accessible network interface name, the underlying `socket()` or `open()` call within `pcap_activate` would succeed, setting `fd` to a non-negative value. This would cause the `if (fd < 0)` check to be false, allowing execution to bypass the error-handling block and proceed to the `read()` call at line `5733`. The state (`fd >= 0`) directly influences the control flow to the blocked side and survives until the check.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The predicate variable `fd` is the result of a system call (`open` or `socket`) whose primary argument (a path or interface name) is a string, `filter_str`, copied directly from the fuzzer's input `Data`. The success of this system call, and therefore the value of `fd`, is directly dependent on the content of the fuzzer input. If the input happens to match a valid system resource name, the condition `fd < 0` will be false, and the blocked code will be reached. This is a classic 'magic value' problem, which is a form of input dependency."
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "case_id": "tomlplusplus_void_toml_v3_impl_print_floating_point_to_stream_double_std_1_basic_ostream_char_10567",
+  "project_name": "tomlplusplus",
+  "function_name": "void toml::v3::impl::print_floating_point_to_stream<double>(std::__1::basic_ostream<char, std::__1::char_traits<char> >&, double, toml::v3::value_flags, bool)",
+  "branch_line_number": 10567,
+  "blocked_side_line_number": 10568,
+  "target_name": "llm_fuzzgen0728070146",
+  "target_source_path": "external/oss-fuzz/projects/tomlplusplus/llm_fuzzgen0728070146.cc",
+  "source_file": "include/toml++/impl/print_to_stream.inl",
+  "predicate": "if (!!(format & value_flags::format_as_hexadecimal))",
+  "blocked_side_code": "ss << std::hexfloat;",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260806_154151_run_all_fuzzer/blockers/blocker_10567_75f87f208b7d/symbolic_run/tomlplusplus_blocker_10567_75f87f208b7d_symbolic_run_20260806_201030",
+  "source_experiment": "20260806_154151_tomlplusplus",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.cc",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants & Rule 4: Internal Invariant Guard / Redundant Defensive Code & Rule 5: Fuzz Target Hardcoded Logic & Incomplete Scope",
+  "refined_triage_label": "Internal Invariant Guard",
+  "include_in_solver_evaluation": false,
+  "historical_reason": "The blocker is classified as Input Dependent. The blocked branch at line 10567 is controlled by the `format` variable, specifically whether the `value_flags::format_as_hexadecimal` flag is set.\n\nThe trace shows that execution begins in the fuzzer with `ss << toml::yaml_formatter{tbl};`, where `tbl` is a TOML table parsed directly from the fuzzer's input string. The `format` flag is set by the `toml::parse` function based on the syntactic representation of the floating-point number in the input string. The TOML language standard supports hexadecimal float literals (e.g., `key = 0x1.2p-3`).\n\nIf the fuzzer provides such a string, the parser will set the `format_as_hexadecimal` flag on the corresponding `value<double>` node. This flag is then passed down through the `yaml_formatter` to the `print_floating_point_to_stream` function, where it is checked in the predicate. Since the value of the controlling variable is derived from a semantic property of the fuzzer input, the blocker is input-dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (!!(format & value_flags::format_as_hexadecimal))` at line `10567` in the function `print_floating_point_to_stream`. The branch hit count of `3.16k` indicates this line is frequently executed. The controlling variable is `format`, an instance of `toml::v3::value_flags`.",
+    "[1.5. Blocked Side Direction]: To reach the blocked code at line `10568` (`ss << std::hexfloat;`), the `if` condition must evaluate to true. This requires the `format` variable to have the `value_flags::format_as_hexadecimal` bit set.",
+    "[2. Fuzz Target Call Site]: The runtime path originates from line 83 in `LLVMFuzzerTestOneInput`: `ss << toml::yaml_formatter{tbl};`. This line serializes a `toml::table` named `tbl`, which is created by parsing the fuzzer-provided input string.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes the data needed to influence the predicate. It parses the input string into a `toml::table` (`tbl`), then creates a `toml::yaml_formatter` using this table. The subsequent stream insertion operation reads the values and their associated metadata, including formatting flags, from the `tbl` object to generate the output. The runtime stack confirms this by showing the printing of a `double` value from the table.",
+    "[3A. Setter / Transition Evidence]: The `format` variable is passed down the call stack to the blocker function. Its value originates from the flags stored on the `value<double>` node within the `toml::table`. These flags are set during the initial parsing phase by `toml::parse(toml_string)`. The TOML specification includes syntax for hexadecimal floating-point literals (e.g., `val = 0x1.9p-4`). When the parser encounters such a literal in the input string, it sets the `value_flags::format_as_hexadecimal` flag on the corresponding value node. The fuzz target uses `ConsumeRemainingBytesAsString`, so the parser receives the full, unconstrained input, and there is no data starvation.",
+    "[3B. Survival / Feasibility Check]: If the parser sets the `format_as_hexadecimal` flag, it is stored as part of the `value` node's state. The subsequent call to the `yaml_formatter` reads this state. The runtime call stack shows that the base `formatter`'s printing logic is used, which passes the flags to `print_floating_point_to_stream`. There is no evidence of any intermediate logic that would clear this flag; its purpose is to control output formatting, so it is expected to persist until the value is printed. Therefore, an input containing a hexadecimal float will cause the flag to be set and survive to the predicate, making the blocked branch reachable.",
+    "[4. Rule Application]: The blocker is **Input Dependent** according to Rule 2 (Implicit Flow & Semantic Properties). The predicate depends on the `format` flag, which is a semantic property derived by the parser from the fuzzer-controlled input string. The fuzzer can trigger the blocked path by providing a valid TOML string containing a hexadecimal float literal."
+  ],
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "受阻述詞位於 print_to_stream.inl:209（單標頭檔 toml.hpp:10567）的 `if (!!(format & value_flags::format_as_hexadecimal))`。要進入 Line 10568 執行 `ss << std::hexfloat;`，傳入之 format 參數必須含有 format_as_hexadecimal (0x3) 旗標，條件式必須評估為 TRUE。",
+    "step_2_producer_and_input_control": "歷史 LLM 產生嚴重語意幻覺，誤以為 TOML 標準支援十六進位浮點數（如 0x1.2p-3），且誤以為解析器會為 value<double> 設定該旗標並由 yaml_formatter 透傳。然而 TOML 1.0.0 官方規範禁止十六進位浮點數，且格式化器內部硬編碼 value_flags::none，旗標完全無法抵達述詞。",
+    "step_3_survival_and_path_invariants": "追查 TOML 規格與 toml++ 原始碼不變量證明：1. TOML 1.0.0 規範禁止十六進位浮點數，toml::parse 遭遇 0x1.2p-3 會直接拋出解析錯誤中斷。2. 解析器 parser.inl 僅對整數 int64_t 設定 format_as_hexadecimal，全代碼庫從未對任何浮點數節點設定該旗標。3. 在 Fuzz Target 觸發的 yaml_formatter 流程中，基底類別 formatter::print(const value<double>&) 在調用 print_to_stream 時硬編碼傳遞常數 value_flags::none (0)。因此在當前路徑下 format 恆為 0，條件式恆為 FALSE，Line 10568 確證為防禦性死碼。",
+    "step_4_alternative_path_and_feasibility": "歷史實驗中 Line 10567 被評估 3,160 次，Line 10568 命中 0 次。下游符號執行（SymCC）生成 Harness 全滅失敗。實測驗證證實 hex float 無法通過解析器，且手動強制注入旗標亦會被 yaml_formatter 硬編碼常數阻斷，Line 10568 在該路徑下恆不可達。",
+    "step_5_final_adjudication": "裁決為 Input Independent，適用 Rule 3 (Observed-Path Invariants)、Rule 4 (Internal Invariant Guard / Redundant Defensive Code) 與 Rule 5 (Fuzz Target Hardcoded Logic & Incomplete Scope)。Refined Triage Label 為 Internal Invariant Guard，不納入下游求解器評測（include_in_solver_evaluation = false）。"
+  },
+  "ground_truth_reason": "【判定理由：Input Independent（內部規格與格式化器三重封鎖，歷史 LLM 規格語意誤判案例）】\n\n1. 受阻分支與目標述詞：\n   目標函式為 include/toml++/impl/print_to_stream.inl:209（單標頭檔 toml.hpp:10567）的 print_floating_point_to_stream<double>，受阻條件為 Line 10567 的 `if (!!(format & value_flags::format_as_hexadecimal))`，受阻側為 Line 10568 的 `ss << std::hexfloat;`。\n\n2. 歷史 LLM 的誤判根因（三重語意幻覺）：\n   歷史 LLM 誤以為 TOML 語言標準支援十六進位浮點數字面量（如 0x1.2p-3），誤以為 parser 會為 value<double> 設置 format_as_hexadecimal，並誤以為 yaml_formatter 會將該旗標傳入 print_floating_point_to_stream。\n\n3. 規格與程式碼三重鎖死證明：\n   - 第一重鎖：TOML 1.0.0 官方規範不支援十六進位浮點數，toml::parse 遇到 hex float 直接報錯拒絕。\n   - 第二重鎖：解析器代碼中 format_as_hexadecimal 僅對整數 int64_t 賦值，全庫從未對任何浮點數節點設置過該旗標。\n   - 第三重鎖：Harness 調用的 yaml_formatter 在 formatter::print(const value<double>&) 中，呼叫底層 print_to_stream 時硬編碼傳遞常數 value_flags::none（數值為 0）。\n   - 故在當前路徑下 format 恆等於 0，條件式恆為 FALSE，Line 10568 確證為防禦性死碼。\n\n4. 實體驗證結果：\n   在案例目錄已建立驗證程式 verify_poc.cc，實測證明 hex float 無法通過解析器，且手動注入旗標依然會被 yaml_formatter 的硬編碼攔截。歷史執行統計中 3,160 次評估中 Line 10568 命中 0 次，確證為絕對的 Input Independent。"
+}

@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_Fax3Close_1238",
+  "project_name": "libtiff",
+  "function_name": "_Fax3Close",
+  "branch_line_number": 1238,
+  "blocked_side_line_number": 1240,
+  "target_name": "llm_fuzzgen0717082918",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717082918.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/_Fax3Close_1238/symbolic_run/libtiff_Fax3Close_20260718_012011",
+  "historical_reason": "The blocked branch at line 1238 is controlled by the condition `(Fax3State(tif)->mode & FAXMODE_NORTC) == 0 && tif->tif_rawcp`. Both parts of this conjunction are dependent on fuzzer input. The `mode` field is set based on the `TIFFTAG_GROUP3OPTIONS` value, which the fuzz target provides using `fdp.ConsumeIntegral<uint32_t>()`. The `tif->tif_rawcp` pointer becomes non-NULL if a write operation like `TIFFWriteScanline` is executed, which depends on the fuzzer providing a sufficient number of bytes to a `fdp.ConsumeBytes()` call. Since an input can be crafted to satisfy both conditions, the blocker is classified as Input Dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if ((Fax3State(tif)->mode & FAXMODE_NORTC) == 0 && tif->tif_rawcp)` at line 1238 in `/src/libtiff/libtiff/tif_fax3.c`. The branch hit count of `1.23k` confirms this condition is being evaluated. The blocker's state depends on two variables: `Fax3State(tif)->mode`, which is part of the codec's internal state, and `tif->tif_rawcp`, a pointer to the current position in the library's raw output buffer.",
+    "[1.5. Blocked Side Direction]: To reach the blocked code at line 1240, the `if` condition must evaluate to `true`. This requires two sub-conditions to be met: 1) the `FAXMODE_NORTC` bit must be zero in the `mode` field, and 2) the `tif->tif_rawcp` pointer must be non-NULL, indicating an active output buffer.",
+    "[2. Fuzz Target Call Site]: The runtime trace indicates that `_Fax3Close` is called during file processing. `_Fax3Close` is a codec-specific cleanup routine. In the fuzz target, this is triggered by the call to `TIFFClose(tif);` at line 370, which finalizes the file and invokes the cleanup handlers for the active codec.",
+    "[2.5. Materialization Check]: The fuzz target correctly materializes the state needed to influence the predicate. It sets the compression mode to `COMPRESSION_CCITTFAX3` (line 178), which registers `Fax3Close` as the cleanup function. It then uses `TIFFSetField` to set `TIFFTAG_GROUP3OPTIONS` (line 179), which directly configures the `mode` field. Finally, it attempts to write image data using `TIFFWriteScanline` (lines 195-204), which is the operation that would cause the output buffer (`tif_rawcp`) to be initialized.",
+    "[3A. Setter / Transition Evidence]: The two conditions for reaching the blocked side are controlled by fuzzer input: \n1. `(Fax3State(tif)->mode & FAXMODE_NORTC) == 0`: The `mode` field is configured via the `TIFFTAG_GROUP3OPTIONS` tag. The fuzz target sets this at line 179 with `fdp.ConsumeIntegral<uint32_t>()`. The fuzzer can therefore provide any 32-bit integer, making it trivial to supply a value where the `FAXMODE_NORTC` bit is not set.\n2. `tif->tif_rawcp`: This pointer is non-NULL only if an output buffer has been allocated, which typically happens on the first write operation. The fuzz target calls `TIFFWriteScanline` at line 201, but this is inside a conditional block `if (scanline_data.size() == (size_t)TIFFScanlineSize(tif))`. The `scanline_data` is populated by `fdp.ConsumeBytes` at line 199. If the fuzzer provides insufficient input data, this condition fails, `TIFFWriteScanline` is never called, the buffer is not allocated, and `tif->tif_rawcp` remains NULL. Conversely, providing sufficient data will cause the buffer to be set up, making `tif->tif_rawcp` non-NULL.",
+    "[3B. Survival / Feasibility Check]: There is no apparent conflict that would prevent both conditions from being met simultaneously. The fuzzer can provide a value for `GROUP3OPTIONS` that clears the `FAXMODE_NORTC` bit and then provide a sufficient number of bytes to pass the `scanline_data.size()` check. This will result in `TIFFWriteScanline` being called, which sets `tif->tif_rawcp` to a non-NULL value. Both of these input-driven states will persist until `TIFFClose` is called, at which point the predicate in `_Fax3Close` can be fully satisfied.",
+    "[4. Rule Application]: Rule 1 (Direct Data Flow) applies. The predicate depends on two conditions, both of which are controllable by the fuzzer's input bytes. The `mode` field is set via a value directly consumed from the fuzzer input. The state of `tif->tif_rawcp` is implicitly controlled by the amount of input data provided, which determines whether a write operation occurs. Since input bytes can directly and implicitly control the predicate to make it true, the blocker is Input Dependent."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

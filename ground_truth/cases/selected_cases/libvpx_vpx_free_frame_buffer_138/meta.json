@@ -1,0 +1,32 @@
+{
+  "case_id": "libvpx_vpx_free_frame_buffer_138",
+  "project_name": "libvpx",
+  "function_name": "vpx_free_frame_buffer",
+  "branch_line_number": 138,
+  "blocked_side_line_number": 139,
+  "target_name": "llm_fuzzgen_reference_guided_0727011112_353286",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727011112_353286.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vpx_free_frame_buffer_138/symbolic_run/libvpx_vpx_free_frame_buffer_20260727_065341",
+  "historical_reason": "The blocker's predicate `ybf->buffer_alloc_sz > 0` depends on whether a frame buffer has been allocated by the VP9 decoder. Buffer allocation is triggered internally by `vpx_codec_decode` when it successfully processes a valid video frame from the fuzzer's input `data`. To make the condition true and reach the blocked code, the fuzzer must generate an input that conforms to the IVF format and contains at least one decodable frame, which will cause the library to allocate a buffer and set `buffer_alloc_sz` to a positive value. This establishes a clear dependency on the semantic content of the fuzzer input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (ybf->buffer_alloc_sz > 0)` at line 138 in `vpx_free_frame_buffer`. The target variable is `ybf->buffer_alloc_sz`, a field within the `YV12_BUFFER_CONFIG` struct pointed to by `ybf`. The branch hit count of `77.0k` indicates this condition is evaluated frequently, but the value of `ybf->buffer_alloc_sz` is never greater than 0, preventing entry into the `if` block.",
+    "[1.5. Blocked Side Direction]: To reach the blocked side, `vpx_free(ybf->buffer_alloc);` at line 139, the condition `ybf->buffer_alloc_sz > 0` must evaluate to TRUE.",
+    "[2. Fuzz Target Call Site]: The runtime stack trace begins in `LLVMFuzzerTestOneInput` and proceeds through a cleanup sequence. This sequence is initiated by the call to `vpx_codec_destroy(&codec);` at line 181 of the fuzz target code.",
+    "[2.5. Materialization Check]: The fuzz target correctly materializes the state needed to influence the blocker. It initializes a decoder, then enters a `while` loop that calls `vpx_codec_decode(&codec, data, frame_size, nullptr, 0)`. This function processes the fuzzer input (`data`) as video frames. The allocation of frame buffers, which sets the `ybf->buffer_alloc_sz` field, is a core part of the decoding process driven by this call. The blocker is not due to a failure to use the relevant library APIs.",
+    "[3A. Setter / Transition Evidence]: The value of `ybf->buffer_alloc_sz` is set by internal buffer allocation functions within the libvpx library, such as `vpx_alloc_frame_buffer` or `vpx_realloc_frame_buffer`. These functions are called by the decoder when it processes a video frame from the input stream (`data`) and needs to allocate memory to store the decoded image. The decision to allocate a buffer, and thus the resulting size `buffer_alloc_sz`, is entirely dependent on the properties (e.g., width, height, format) of the video frames parsed from the fuzzer's input data. If the input data does not constitute a valid, decodable frame, no buffer is allocated, and `buffer_alloc_sz` remains at its default value of 0.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides input that leads to a successful frame buffer allocation, `ybf->buffer_alloc_sz` will be set to a positive value. The runtime path shows the check occurs during `vpx_codec_destroy`, which is the standard final cleanup phase. The allocated buffer's state is expected to persist until this cleanup. The source code for `vpx_free_frame_buffer` shows that the structure is zeroed out (`memset`) *after* the check, so a positive value would survive to the predicate. Therefore, providing a valid frame in the input is a feasible path to making the condition true.",
+    "[4. Rule Application]: Rule 2 (Implicit Flow & Semantic Properties) applies. The blocker is not dependent on a direct copy of bytes from the input, but on a semantic property derived from it: whether the input data represents a valid, decodable video frame that requires a memory buffer. The internal state `ybf->buffer_alloc_sz` is a direct consequence of the decoder's state transitions, which are driven by the fuzzer input."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants & Rule 4: Internal Invariant Guard / Redundant Defensive Code",
+  "ground_truth_reason": "【判定理由：Input Independent（內部架構不變量保護守衛，歷史 LLM 誤判案例）】\n\n1. 受阻分支與目標述詞：\n   目標函式為 vpx_scale/generic/yv12config.c:136 的 vpx_free_frame_buffer，受阻條件為 Line 138 的 `if (ybf->buffer_alloc_sz > 0)`，受阻側為 Line 139 的 `vpx_free(ybf->buffer_alloc);`。\n\n2. 歷史 LLM 的誤判根因：\n   歷史 LLM 誤以為只要解碼器成功解析並解碼有效的視訊影格，系統就會配置 frame buffer 並設定 `buffer_alloc_sz > 0`。然而，這完全忽略了 VP9 解碼器的底層 Frame Buffer Callbacks 架構機制。\n\n3. 程式碼因果推導與架構不變量證明：\n   - 在 libvpx 中，通用函式 yv12config.c:34 白紙黑字註釋：`// If libvpx is using frame buffer callbacks then buffer_alloc_sz must not be set.`。\n   - 在 VP9 解碼器工作流程中（vp9_dx_iface.c:216），解碼器初始化時強制啟用內部或外部回調（`pool->get_fb_cb = vp9_get_frame_buffer; pool->release_fb_cb = vp9_release_frame_buffer;`，即 `cb != NULL`）。\n   - 在動態配置影格緩衝區時（yv12config.c:211-224 的 vpx_realloc_frame_buffer），當 `cb != NULL`，記憶體完全由回調函式配置於 `raw_frame_buffer`，`ybf->buffer_alloc` 僅指向外部對齊地址，而 `ybf->buffer_alloc_sz` 嚴格保持為 0，絕不設置。\n   - 在解碼器銷毀時（vp9_alloccommon.c:82-88 的 vp9_free_ref_buffers），緩衝區記憶體由 `pool->release_fb_cb` 統一回收，隨後調用 `vpx_free_frame_buffer(&pool->frame_bufs[i].buf)`。\n   - 此時 `ybf->buffer_alloc_sz` 恆等於 0，Line 138 的條件恆為 FALSE。若在此處執行 Line 139 呼叫 `vpx_free(ybf->buffer_alloc)` 反而會觸發 Double Free 毀損 Heap。因此 Line 138 是標準的內部不變量保護守衛，Line 139 在解碼器路徑下恆不可達。\n\n4. 實體驗證結果：\n   在案例目錄已建立驗證程式 verify_poc.c，實測解碼多個合法 64x64 VP9 影格，檢查 BufferPool 中全部 12 個緩衝區，證實 `buffer_alloc_sz` 全部恆為 0。歷史執行統計中 77,000 次評估中 Line 139 命中次數為 0，確證為絕對的 Input Independent。"
+}

@@ -1,0 +1,44 @@
+{
+  "case_id": "libpcap_gen_ncode_7517",
+  "project_name": "libpcap",
+  "function_name": "gen_ncode",
+  "branch_line_number": 7517,
+  "blocked_side_line_number": 7523,
+  "target_name": "llm_fuzzgen_reference_guided_0721050508_042323",
+  "target_source_path": "external/oss-fuzz/projects/libpcap/llm_fuzzgen_reference_guided_0721050508_042323.c",
+  "source_file": "gencode.c",
+  "predicate": "} else if (proto == Q_DECNET) {",
+  "blocked_side_code": "vlen = pcapint_atodn(s, &v);",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "solver_dispatch",
+  "pipeline_methods": [
+    "llm_seed_generator"
+  ],
+  "pipeline_output_dir": null,
+  "source_experiment": "20260720_232522_libpcap",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.c",
+  "ground_truth_label": "Input Dependent",
+  "ground_truth_rule": "Rule 1: Direct Data Flow & Rule 2: Implicit Flow & Semantic Properties",
+  "refined_triage_label": "Bounded Extreme Value",
+  "include_in_solver_evaluation": true,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙條件位於 gencode.c:7517：`} else if (proto == Q_DECNET) {`。要進入第 7523 行未覆蓋目標程式碼（`vlen = pcapint_atodn(s, &v);`），條件式必須 evaluate 為 TRUE，且必須滿足 `s != NULL` 以避開第 7503 行的純數字分支。",
+    "step_2_producer_and_input_control": "在 Fuzz Target（llm_fuzzgen_reference_guided_0721050508_042323.c）中，輸入緩衝區前半段直接切片為 `source_str`（第 59-68 行），並傳入第 378 行的 `pcap_compile(p, &fp, source_str, 1, PCAP_NETMASK_UNKNOWN)`。libpcap 語法解析器中，詞法 scanner.l 將字串 'decnet' 識別為 DECNET token、將 '1.2' 識別為點分位址 HID token；語法 grammar.y.in 將 DECNET 轉化為修飾詞屬性 `q.proto = Q_DECNET`，並以 HID 作為字串指標傳入 `gen_ncode(cstate, $1, 0, $$.q)`。資料流與語意狀態完全由 Fuzzer 輸入直接控制（Direct Data Flow）。",
+    "step_3_survival_and_path_invariants": "當輸入提供合法 DECnet 過濾表示式（如 'decnet host 1.2'）時，`s = \"1.2\" != NULL`，第 7503 行 `if (s == NULL)` 為假，程式順利抵達第 7517 行且 `proto == Q_DECNET` 必然為真，100% 執行第 7523 行 `vlen = pcapint_atodn(s, &v)`。我們在案例目錄下附帶了實體驗證程式 `verify_poc.c`：構造 32 位元組輸入（前半段設置 'decnet host 1.2'），以 Target 相同之 DLT_LINUX_SLL 呼叫 pcap_compile 編譯成功，解析生成的 BPF 機器碼精確捕捉到 DECnet EtherType (0x6003) 與位址常數 (0x204)，實體證實程式完全存活並穿透目標分支！",
+    "step_4_alternative_path_and_feasibility": "查閱歷史評測記錄，執行期 branch_hit_count 高達 949 次，證實該呼叫點高度活躍。歷史求解器失敗係因 LLM-FuzzGen 在派送階段（solver_dispatch）因初始種子庫中缺乏觸碰該分支的種子而報錯中斷，根本尚未進入求解生成，非程式邏輯或環境缺陷。此分支屬標準語意協定過濾主幹。",
+    "step_5_final_adjudication": "在不修改目前 Fuzz Target 程式碼的前提下，Fuzzer 輸入 bytes 完全可讓程式存活並抵達第 7523 行未覆蓋分支。歷史 LLM 分類器在此處判斷為 Input Dependent 屬正確判定。裁決為 Input Dependent（Rule 1 & Rule 2），Refined Triage Label 為 Bounded Extreme Value（語法與協定關鍵字結構約束），include_in_solver_evaluation: true。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 7523 行（vlen = pcapint_atodn(s, &v);）需滿足 s != NULL 且 proto == Q_DECNET 成立。\n[Step 2: 生產者] source_str 由輸入緩衝區直接切片取得，經 pcap_compile -> Bison parser 解析關鍵字 'decnet' 設置 q.proto = Q_DECNET，解析 '1.2' 設置 s，屬直接資料流。\n[Step 3: 存活與實證] 附帶實體驗證程式 verify_poc.c：構造 32 位元組輸入（含 'decnet host 1.2'），成功呼叫 pcap_compile 並於 BPF bytecode 生成 EtherType 0x6003 與節點位址 0x204，100% 存活並穿透第 7523 行。\n[Step 4: 求解器分析] 執行期命中 949 次，歷史求解器因派送階段種子缺失報錯中斷，非死碼或環境缺陷。\n[Step 5: 裁決] Input Dependent（Rule 1: Direct Data Flow & Rule 2: Semantic Properties）；Refined Label: Bounded Extreme Value；include_in_solver_evaluation: true。",
+  "historical_reason": "ERROR: No blocker-reaching seed is available. Pass --seed or ensure --triggering-input points to a local seed file.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `proto == Q_DECNET` on line 7517 of `gencode.c` within the `gen_ncode` function. The variable `proto` stores a protocol qualifier value derived from parsing the filter string. The branch was hit 823 times, indicating the code path is active, but the condition `proto == Q_DECNET` was never satisfied.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 7523, `vlen = pcapint_atodn(s, &v);`, is inside an `else if` block that is entered only when the condition `proto == Q_DECNET` evaluates to true. Therefore, the required state to reach the blocked side is `proto` must equal `Q_DECNET`.",
+    "[2. Fuzz Target Call Site]: The static call graph indicates the path `LLVMFuzzerTestOneInput` -> `pcap_compile` -> `pcap_parse` -> `gen_ncode`. The fuzz target invokes this path using fuzzer input via the following call: `if (pcap_compile(p, &fp, source_str, 1, PCAP_NETMASK_UNKNOWN) == 0)`. The `source_str` variable is a buffer containing raw bytes from the fuzzer input.",
+    "[2.5. Materialization Check]: The `pcap_compile` function and its subordinate parser (`pcap_parse`) are responsible for interpreting the filter expression in `source_str`. The `proto` variable in `gen_ncode` is a semantic property that is materialized by the parser when it recognizes specific protocol keywords in the input string. The state is fully derived from the input.",
+    "[3A. Setter / Transition Evidence]: The `proto` variable in `gen_ncode` is assigned the value of `q.proto`. The `q` (qualifier) struct is populated by the `pcap_parse` function. The provided `grammar.y` source shows that if the parser encounters the `DECNET` token (case 84), it sets the qualifier value to `Q_DECNET`. The lexer will produce a `DECNET` token when it processes the string 'decnet' in the input. Thus, if the fuzzer provides an input string starting with 'decnet', `q.proto` will be set to `Q_DECNET`.",
+    "[3B. Survival / Feasibility Check]: For the blocked branch to be taken, `s` must be non-NULL and `proto` must be `Q_DECNET`. If the input string is structured as `'decnet host <address>'`, the parser calls `gen_ncode` with `s` pointing to the address string (non-NULL) and `q.proto` set to `Q_DECNET`. This bypasses an earlier error check (`if (s == NULL)`) that would have been triggered by an input like `'decnet 123'`. The required state (`proto == Q_DECNET`) successfully survives to the predicate at line 7517, and the condition `s != NULL` is also met, allowing entry into the blocked branch. An input like `'decnet host 1.2'` would satisfy these conditions.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The predicate variable `proto` is populated based on the semantic parsing of the fuzzer-provided input string, `source_str`. The presence of a specific keyword (`decnet`) in the input directly determines the value of `proto`, making the branch condition dependent on the fuzzer's input."
+  ]
+}

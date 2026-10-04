@@ -1,0 +1,45 @@
+{
+  "case_id": "libtiff_TIFFjpeg_progress_monitor_281",
+  "project_name": "libtiff",
+  "function_name": "TIFFjpeg_progress_monitor",
+  "branch_line_number": 281,
+  "blocked_side_line_number": 284,
+  "target_name": "llm_fuzzgen0717154312",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717154312.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFjpeg_progress_monitor_281/symbolic_run/libtiff_TIFFjpeg_progress_monitor_20260718_094502",
+  "historical_reason": "The blocker is Input Dependent. The predicate `scan_no >= sp->otherSettings.max_allowed_scan_number` compares `scan_no`, a value derived from the input data, against a configurable limit. The variable `scan_no` represents the number of scans in the JPEG image being decoded. The fuzz target generates a TIFF file containing JPEG-compressed data sourced from the fuzzer's input. By providing a specially crafted input that results in a JPEG image with a high number of scans (e.g., a progressive JPEG), the fuzzer can cause `scan_no` to increase and eventually satisfy the condition, thus reaching the blocked code.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (scan_no >= sp->otherSettings.max_allowed_scan_number)` at line 281 in `TIFFjpeg_progress_monitor`. The branch hit count is 119k, indicating this condition is evaluated frequently, but the inequality is never met. The key variable to trace is `scan_no`.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 284 is inside the `if` statement. To reach this line, the condition `scan_no >= sp->otherSettings.max_allowed_scan_number` must evaluate to TRUE.",
+    "[2. Fuzz Target Call Site]: The runtime stack trace shows the execution path originates from `LLVMFuzzerTestOneInput` and enters the library via `TIFFReadScanline`. The specific call in the fuzz target is at line 180: `if (TIFFReadScanline(tif, read_buf, i, 0) < 0) {`.",
+    "[2.5. Materialization Check]: The fuzz target first writes a TIFF file using fuzzed data, including setting the compression type and writing image data from the fuzzer provider. It then re-opens this file and reads it using `TIFFReadScanline`. This read operation decodes the image data written previously. The state of the JPEG decompressor, including the variables in the predicate, is therefore directly materialized from the fuzzed input file.",
+    "[3A. Setter / Transition Evidence]: The predicate compares two variables: `scan_no` and `sp->otherSettings.max_allowed_scan_number`. \n1. `scan_no` is defined as `((j_decompress_ptr)cinfo)->input_scan_number`. This variable is part of the `libjpeg` state machine and represents the number of scans processed while decompressing the JPEG image data. The number of scans is a structural property of the JPEG data itself, which is provided by the fuzzer via `fdp.ConsumeData` and written into the TIFF file. Therefore, `scan_no` is derived from the fuzzer input.\n2. `sp->otherSettings.max_allowed_scan_number` is a configurable limit. The error message in the blocked branch explicitly states this limit can be raised via the `LIBTIFF_JPEG_MAX_ALLOWED_SCAN_NUMBER` environment variable. In the absence of this variable, it will have a static default value. To satisfy the predicate, the input-controlled `scan_no` must exceed this default value.",
+    "[3B. Survival / Feasibility Check]: The execution path is a standard JPEG decoding process. The `TIFFjpeg_progress_monitor` function is a callback that gets called during decoding. As the decoder processes a multi-scan (e.g., progressive) JPEG from the input file, it will increment `input_scan_number`. There is no logic visible in the provided evidence that would prevent a high `scan_no` value from reaching this predicate. The fuzzer simply needs to generate a valid JPEG stream with a sufficient number of scans to exceed the default limit.",
+    "[4. Rule Application]: Rule 2 applies. The predicate variable `scan_no` is not a direct copy of input bytes but represents a semantic property—the number of scans in the JPEG image—which is derived from parsing the fuzzer-provided input data. The blocker is therefore dependent on the structure of the input."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "branch_hit_count": 152000,
+  "blocked_side_hit_count": 0,
+  "verification_status": "verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 5: Structurally Unreachable API Path / Harness Architectural Limitation & Rule 3: Observed-Path Invariants & Rule 4: Internal Invariant Guard / Redundant Defensive Code",
+  "refined_triage_label": "Structurally Unreachable API Path",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason": "【Protocol 5 步審查因果推導與證明】\n- Step 1: Predicate & Target State（目標條件與分支方向）：阻礙條件位於 tif_jpeg.c:281 的 if (scan_no >= sp->otherSettings.max_allowed_scan_number)。要進入第 284 行未覆蓋之 DoS 防護中斷處理區塊，條件式必須 evaluate 為 TRUE。\n- Step 2: Producer & Input Control（生產者與資料流追蹤）：scan_no 取自 ((j_decompress_ptr)cinfo)->input_scan_number，代表當前解碼的 Scan 次數。max_allowed_scan_number 在 tif_jpeg.c:413 初始化為預設值 100（防範 Progressive JPEG 掃描炸彈 DoS 的安全上限）。歷史 LLM 誤以為 Fuzzer 可提供超過 100 次掃描的 Progressive JPEG，因而判定為 Input Dependent。\n- Step 3: Survival & Path Invariants（規格不變量與 Harness 架構限制證明）：Harness (llm_fuzzgen0717154312.cc) 採用自產自銷的寫入後讀取架構。Fuzzer 輸入僅為未壓縮光柵像素，經由 TIFFWriteScanline 傳入 libtiff 編碼器。依據 TIFF 6.0 規範，漸進式 JPEG 在 TIFF 檔案中是非法的；libtiff 編碼器在 tif_jpeg.c:1975-1992 (JPEGSetupEncode) 中硬性寫死 sp->cinfo.c.num_scans = 0; sp->cinfo.c.scan_info = NULL;，強制禁止 Progressive JPEG 編碼。因此 libtiff 產出的 JPEG 串流永遠只有 1 次掃描（Baseline 單一掃描，scan_no == 1）。在讀取端 TIFFReadScanline 解析時，scan_no 恆等於 1，而 max_allowed_scan_number 為 100。條件式 1 >= 100 恆為 FALSE！歷史覆蓋率統計中該分支被執行了 152,000 次，Line 284 命中次數恆為 0。\n- Step 4: Alternative Path & Solver 失敗分析（歷史求解器全滅根因）：歷史實驗耗時 1,468 秒，歷經 5 種求解器策略全數失敗。根因在於 Harness 的寫入端根本沒有生成漸進式多重掃描的程式碼路徑，符號執行引擎面對 1 >= 100 的約束恆 UNSAT，算力完全浪費。\n- Step 5: Final Adjudication & Triage Decision（最終裁決與評測判定）：裁決為 Input Independent，適用 Rule 5 (Structurally Unreachable API Path)、Rule 3 (Observed-Path Invariants) 與 Rule 4 (Internal Invariant Guard / Resource-Exhaustion Guard)。Refined Triage Label 為 Structurally Unreachable API Path，不納入下游求解器評測（include_in_solver_evaluation = false）。",
+  "verification_details": {
+    "verification_method": "source_code_inspection_and_executable_poc_with_gdb",
+    "poc_path": "verify_poc.c",
+    "gdb_breakpoint_evidence": "GDB breakpoint at tif_jpeg.c:280 confirmed scan_no == 1, max_allowed_scan_number == 100, and scan_no >= 100 evaluates to 0 (FALSE).",
+    "poc_execution_result": "Executed verify_poc: confirmed generated JPEG stream has exactly 1 SOS marker across multiple pixel inputs; scan_no >= 100 is invariant to FALSE; line 284 is structurally unreachable dead code under this harness."
+  }
+}

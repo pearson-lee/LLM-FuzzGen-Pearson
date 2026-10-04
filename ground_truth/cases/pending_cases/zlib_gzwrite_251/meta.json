@@ -1,0 +1,33 @@
+{
+  "case_id": "zlib_gzwrite_251",
+  "project_name": "zlib",
+  "function_name": "gzwrite",
+  "branch_line_number": 251,
+  "blocked_side_line_number": 252,
+  "target_name": "llm_fuzzgen_reference_guided_0714110502_902756",
+  "target_source_path": "external/oss-fuzz/projects/zlib/llm_fuzzgen_reference_guided_0714110502_902756.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight"
+  ],
+  "pipeline_output_dir": "experiments/20260714_035206_run_all_fuzzer/blockers/gzwrite_251/symbolic_run/zlib_gzwrite_20260714_162916",
+  "historical_reason": "The blocker is classified as Input Dependent. The predicate `if ((int)len < 0)` in the `gzwrite` function is directly controlled by the `len` argument. In the fuzz target, this argument is passed as `remaining_size`, which is calculated as `size - 5`, where `size` is the length of the input data from the fuzzer. To make the condition true, `len` must be a large unsigned integer (>= 2^31) that wraps to a negative value when cast to a signed integer. A fuzzer can achieve this by providing a large input buffer (e.g., >2GB). Since the fuzzer's input size directly determines whether the blocked branch is taken, the blocker is dependent on the input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if ((int)len < 0)` at line 251 in `gzwrite.c`. The variable `len` is of type `unsigned int`. The branch hit count of `7.62k` indicates this predicate is frequently evaluated.",
+    "[1.5. Blocked Side Direction]: To reach the blocked side at line 252, the condition `(int)len < 0` must evaluate to TRUE. This occurs when the `unsigned int` `len` has a value so large (typically >= 2^31) that its most significant bit is set, causing it to be interpreted as a negative value when cast to a signed `int`.",
+    "[2. Fuzz Target Call Site]: The relevant call site in the fuzz target is at line 68: `gzwrite(file, remaining_data, remaining_size);`.",
+    "[2.5. Materialization Check]: The `len` argument of `gzwrite` is materialized directly from `remaining_size`. This variable is calculated from the fuzzer input size via `size_t remaining_size = size - 5;`. Therefore, the size of the fuzzer input directly controls the value used in the predicate.",
+    "[3A. Setter / Transition Evidence]: The value for the `len` parameter is set at the call site on line 68. Its value is `remaining_size`, which is derived from the fuzzer input's size. To make `(int)len` negative, `size` must be a very large value (e.g., >= 2^31 + 5). Fuzzing engines are capable of generating inputs of this size, so this value is achievable. No FuzzedDataProvider is used, so data starvation is not applicable.",
+    "[3B. Survival / Feasibility Check]: The execution path from the `gzwrite` call in the fuzz target to the predicate at line 251 is direct. The provided evidence shows no intermediate logic that would alter or constrain the `len` value based on other conditions. A sufficiently large input from the fuzzer will cause `remaining_size` to be large, which will be passed as `len`, and the condition `(int)len < 0` will be met.",
+    "[4. Rule Application]: Rule 2 applies. The predicate's satisfaction depends on a semantic property of the fuzzer input\u2014its size. The value of `len` is directly derived from the input buffer's size, making the blocker Input Dependent."
+  ],
+  "source_experiment": "20260714_035206_zlib",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

@@ -1,0 +1,47 @@
+{
+  "case_id": "lcms_cmsDetectDestinationBlackPoint_442",
+  "project_name": "lcms",
+  "function_name": "cmsDetectDestinationBlackPoint",
+  "branch_line_number": 442,
+  "blocked_side_line_number": 446,
+  "target_name": "llm_fuzzgen0625183111",
+  "target_source_path": "external/oss-fuzz/projects/lcms/llm_fuzzgen0625183111.c",
+  "source_file": "src/cmssamp.c",
+  "predicate": "if (hRoundTrip == NULL)",
+  "blocked_side_code": "for (l=0; l < 256; l++)",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260707_000202_run_all_fuzzer/blockers/cmsDetectDestinationBlackPoint_442/symbolic_run/lcms_cmsDetectDestinationBlackPoint_20260707_030202",
+  "source_experiment": "20260707_000202_lcms",
+  "verification_status": "manually_verified",
+  "ground_truth_label": "Input Dependent",
+  "ground_truth_rule": "Rule 1: Direct Data Flow & Rule 2: Implicit Flow & Semantic Properties",
+  "refined_triage_label": "Bounded Extreme Value",
+  "include_in_solver_evaluation": true,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙條件位於 cmssamp.c:442：`if (hRoundTrip == NULL)`。要進入第 446 行未覆蓋目標迴圈（`for (l=0; l < 256; l++)` 計算黑點斜坡取樣），條件式必須 evaluate 為 FALSE，亦即 `CreateRoundtripXForm(hProfile, Intent)` 所回傳之雙向轉換控制代碼必須非空（`hRoundTrip != NULL`）。",
+    "step_2_producer_and_input_control": "在 Fuzz Target（llm_fuzzgen0625183111.c）第 126–143 行（Fuzz_cmsOpenProfileFromIOhandlerTHR），Fuzzer 原始輸入 bytes（Data, Size）直接經由 `cmsOpenIOhandlerFromMem` 建立記憶體 IO 串流，並由 `cmsOpenProfileFromIOhandlerTHR` 解析生成 ICC Profile 實體物件 `hProfile`，隨後傳入 `cmsDetectDestinationBlackPoint`。此處無任何人工篩選或阻斷，資料流為直接輸入資料流（Direct Data Flow）。",
+    "step_3_survival_and_path_invariants": "深入追查 cmssamp.c 內部 Adobe 黑點補償演算法流程：當傳入之 `hProfile` 為輸出設備（如 OutputClass/DisplayClass）、色彩空間為 Gray/RGB/CMYK 且包含輸出 CLUT 標籤（cmsIsCLUT 為真）時，程式進入 Step 2 呼叫 `CreateRoundtripXForm`。該函式建立 `Lab -> Device -> Lab` 之雙向閉環轉換。經本地編譯與官方測試庫標準 CMYK 配置檔（test1.icc，557KB 具完整雙向 CLUT）實測證明：合法二進位配置檔作為輸入時，`CreateRoundtripXForm` 成功回傳非空 Handle，`hRoundTrip == NULL` 順利為 FALSE，程式 100% 存活並進入第 446 行執行完整的 256 階梯取樣迴圈並回傳成功（res=1）。",
+    "step_4_alternative_path_and_feasibility": "此分支非死碼，而是 Adobe BPC 核心演算法的主幹運算區塊。歷史實驗中下游求解器（SymCC、LLM Seed Generator）全數失敗的原因在於 ICC Profile 具有高度嚴格的二進位語意結構（128-byte Header、Tag Table 偏移索引、多維度 CLUT 矩陣等），隨機變異或純符號執行在無模板情況下難以從零合成合法雙向 CLUT 檔案。這屬於典型的『求解複雜度高、但本質完全相依於輸入』之 True Positive 案例。",
+    "step_5_final_adjudication": "在不修改目前 Fuzz Target 程式碼的前提下，Fuzzer 輸入 bytes（合法的二進位 CLUT ICC Profile）完全可讓程式存活並抵達第 446 行未覆蓋分支。歷史 LLM 分類器在此處判斷為 Input Dependent 屬正確判定。裁決為 Input Dependent（Rule 1 & Rule 2），Refined Triage Label 為 Bounded Extreme Value（高結構性語意輸入），include_in_solver_evaluation: true。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 446 行（for 迴圈計算黑點斜坡取樣）需滿足 `hRoundTrip != NULL`（條件 if (hRoundTrip == NULL) 評定為 FALSE）。\n[Step 2: 生產者] `hProfile` 由 cmsOpenProfileFromIOhandlerTHR 直接自 Fuzzer 輸入緩衝區（Data, Size）解析而來，屬直接資料流。\n[Step 3: 存活與實證] 當傳入具備輸出 CLUT 的合法 ICC 設定檔（如官方測試檔 test1.icc）時，CreateRoundtripXForm 成功建立 Lab->Device->Lab 雙向轉換管線，hRoundTrip 非空，程式 100% 存活並進入第 446 行運算。\n[Step 4: 求解器分析] 該分支為演算法主幹，歷史求解器失敗係因 ICC 二進位標籤結構約束極高，非死碼或環境缺陷。\n[Step 5: 裁決] Input Dependent（Rule 1: Direct Data Flow & Rule 2: Semantic Properties）；Refined Label: Bounded Extreme Value；include_in_solver_evaluation: true。",
+  "historical_reason": "The blocker is on the condition `if (hRoundTrip == NULL)`. The value of `hRoundTrip` is the return value of the `CreateRoundtripXForm` function, which takes `hProfile` as an argument. The `hProfile` object is created directly from the fuzzer's input data via `cmsOpenProfileFromIOhandlerTHR`. The success or failure of `CreateRoundtripXForm` (and thus the value of `hRoundTrip`) is dependent on the properties of the input profile. If the fuzzer provides a valid profile as input, `CreateRoundtripXForm` is expected to return a non-NULL handle, allowing execution to bypass the `return FALSE;` statement and reach the blocked code. Therefore, the block is input-dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (hRoundTrip == NULL)` at line `442` of `cmssamp.c`. The variable is `hRoundTrip`. The branch was executed `228` times, indicating the predicate is reachable, but the condition `hRoundTrip == NULL` was always true.",
+    "[1.5. Blocked Side Direction]: To reach the blocked side at line `446` (`for (l=0; l < 256; l++)`), the condition `hRoundTrip == NULL` must evaluate to `FALSE`. This requires `hRoundTrip` to be a non-NULL pointer.",
+    "[2. Fuzz Target Call Site]: The dynamic evidence shows the execution path starts in the fuzz target `Fuzz_cmsOpenProfileFromIOhandlerTHR` which calls the function containing the blocker: `cmsDetectDestinationBlackPoint(&blackPoint, hProfile, INTENT_SATURATION, dwFlags);` at line `143` of `/src/llm_fuzzgen0625183111.c`.",
+    "[2.5. Materialization Check]: The fuzz target materializes a `cmsHPROFILE` object, `hProfile`, by calling `cmsOpenIOhandlerFromMem` and `cmsOpenProfileFromIOhandlerTHR` with the fuzzer-provided `Data`. This `hProfile` is then passed as an argument to `cmsDetectDestinationBlackPoint`, meaning its properties, derived from the input, are available to the function.",
+    "[3A. Setter / Transition Evidence]: Inside `cmsDetectDestinationBlackPoint`, the variable `hRoundTrip` is initialized to `NULL` and later assigned the return value of a call at line `441`: `hRoundTrip = CreateRoundtripXForm(hProfile, Intent);`. To make `hRoundTrip` non-NULL, `CreateRoundtripXForm` must return a non-NULL value. The implementation of `CreateRoundtripXForm` shows that it calls `cmsCreateExtendedTransform` with `hProfile` as one of the arguments. The success of `cmsCreateExtendedTransform` and its return value are dependent on the properties of the `hProfile` object, which is derived from the fuzzer input `Data`.",
+    "[3B. Survival / Feasibility Check]: If `CreateRoundtripXForm` returns a non-NULL value, it is assigned to `hRoundTrip`. The check at line `442` will then be false, and control flow will proceed directly to the blocked code block starting at line `446`. There are no intervening checks or operations that would prevent this. Therefore, a non-NULL value can survive to the predicate and allow execution to reach the blocked side.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The predicate variable `hRoundTrip` is determined by the return value of `CreateRoundtripXForm`. The behavior of this function is directly influenced by the `hProfile` object, which is created from the raw fuzzer input `Data`. By providing input that represents a valid color profile, the fuzzer can cause `CreateRoundtripXForm` to succeed and return a non-NULL value, reaching the blocked code."
+  ]
+}

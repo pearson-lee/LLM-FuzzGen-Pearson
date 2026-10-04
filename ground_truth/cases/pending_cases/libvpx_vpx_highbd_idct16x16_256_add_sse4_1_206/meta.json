@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vpx_highbd_idct16x16_256_add_sse4_1_206",
+  "project_name": "libvpx",
+  "function_name": "vpx_highbd_idct16x16_256_add_sse4_1",
+  "branch_line_number": 206,
+  "blocked_side_line_number": 207,
+  "target_name": "llm_fuzzgen_reference_guided_0727135655_876912",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727135655_876912.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vpx_highbd_idct16x16_256_add_sse4_1_206/symbolic_run/libvpx_vpx_highbd_idct16x16_256_add_sse4_1_20260727_185444",
+  "historical_reason": "The blocker is classified as Input Dependent. The analysis indicates that the predicate `if (bd == 8)` checks the bit depth of the video stream being decoded. This bit depth value is determined by parsing the VP9 profile from the input data provided by the fuzzer to `vpx_codec_decode`. To reach the blocked code, the fuzzer must generate a valid video bitstream with an 8-bit depth profile. Since the value of `bd` is a semantic property derived directly from the fuzzer's input, the branch's outcome is controllable through the input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (bd == 8)` at line 206 of `vpx_highbd_idct16x16_256_add_sse4_1`. The target variable is `bd`. The branch hit count of `12.6k` indicates this condition is evaluated frequently, but the required value of `8` for `bd` is never observed.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 207 is within the `if` statement and is executed only when the condition `bd == 8` is true.",
+    "[2. Fuzz Target Call Site]: Although the runtime segment is missing, the blocked function `vpx_highbd_idct16x16_256_add_sse4_1` is an inverse discrete cosine transform function, which is a core part of video decoding. The high hit count suggests it is called from the main decoding loop in the fuzz target: `err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);`. The explicit call to `vpx_highbd_idct8x8_12_add` at the end of the fuzzer targets a different (8x8) transform function and is therefore not the source of the calls to the blocked (16x16) function.",
+    "[2.5. Materialization Check]: The `bd` parameter represents the bit depth of the video stream. The libvpx decoder materializes this value by parsing the bitstream headers contained in the `data` buffer, which is supplied directly from the fuzzer input. The value of `bd` is therefore a direct result of the decoder processing the input.",
+    "[3A. Setter / Transition Evidence]: The value for `bd` is set by the decoder logic after it parses the stream profile from the input data. The prompt's context states, 'The default decoder flow results in `bd=12`,' which implies that the input streams being fuzzed result in a 12-bit depth configuration. To set `bd` to `8`, the fuzzer must generate input `data` that represents a valid VP9 stream with an 8-bit depth profile.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides an 8-bit depth video stream, the decoder will set its internal bit depth state to 8. This value will then be passed as the `bd` parameter to the transform functions, including the blocked one. There is no evidence of any logic that would alter this value or cause an early exit before the predicate at line 206 is checked. The path is feasible.",
+    "[4. Rule Application]: Rule 2 applies. The `bd` variable is not a raw byte from the input but a semantic property (the video's bit depth) that is entirely derived from the fuzzer-controlled input stream. Therefore, the condition is dependent on the input content."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

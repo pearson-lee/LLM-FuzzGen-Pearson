@@ -1,0 +1,38 @@
+{
+  "case_id": "cjson_print_number_602",
+  "project_name": "cjson",
+  "function_name": "print_number",
+  "branch_line_number": 602,
+  "blocked_side_line_number": 604,
+  "target_name": "llm_fuzzgen_reference_guided_0724141917_518251",
+  "target_source_path": "external/oss-fuzz/projects/cjson/llm_fuzzgen_reference_guided_0724141917_518251.cc",
+  "source_file": "/src/cjson/cJSON.c",
+  "predicate": "if ((length < 0) || (length > (int)(sizeof(number_buffer) - 1)))",
+  "blocked_side_code": "return false;",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260724_025850_run_all_fuzzer/blockers/print_number_602/symbolic_run/cjson_print_number_20260725_110418",
+  "source_experiment": "20260724_025850_cjson",
+  "verification_status": "manually_verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants",
+  "refined_triage_label": "Internal Invariant Guard",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "進入阻礙目標行 604（return false;）的條件為 `(length < 0) || (length > 25)`。函式宣告之暫存緩衝區為 `unsigned char number_buffer[26]`，因此 `sizeof(number_buffer) - 1 == 25`。要觸發該分支，`sprintf` 之回傳值必須小於 0（格式化錯誤）或大於 25（字串長度達到 26 以上產生緩衝區溢位）。",
+    "step_2_producer_and_input_control": "變數 `length` 為 `sprintf` 格式化雙精度浮點數 `d = item->valuedouble` 之回傳字元數。浮點數 `d` 來自 Fuzz Target 呼叫 `fdp.ConsumeFloatingPoint<double>()`，Fuzzer 輸入可完全控制該 64 位元 IEEE 754 浮點數之所有 64 個位元。",
+    "step_3_survival_and_path_invariants": "依據 C99 標準（Section 7.19.6.1）與 IEEE 754 雙精度浮點數規格，檢驗內部所有 4 條賦值路徑：(1) NaN/Inf 分支輸出固定字串 `null`，長度恆為 4；(2) 浮點數等於整數值時使用 `%d` 格式化，32 位元有號整數最長為 `-2147483648`，長度最大為 11；(3) 一般浮點數嘗試 `%1.15g`，有效位數最多 15 位，長度最大不超過 22；(4) 極限精度 `%1.17g` 的字串結構為：負號(1) + 首位數(1) + 小數點(1) + 小數有效位(16) + 指數'e'(1) + 指數符號(1) + 3位指數(3) = 最長 24 字元（如 `-4.9406564584124654e-324` 或 `-1.7976931348623157e+308`）。在全域 2^64 個浮點數取值空間中，回傳值嚴格滿足 `0 <= length <= 24 <= 25`，條件 `length < 0 || length > 25` 在數學與 C runtime 上恆為 False。",
+    "step_4_alternative_path_and_feasibility": "cJSON 函式庫中所有公開列印 API（cJSON_Print、cJSON_PrintUnformatted、cJSON_PrintBuffered）皆統一匯流至此靜態函式 `print_number`，且皆使用固定長度的局部陣列 `number_buffer[26]`。該行註解標示 `/* sprintf failed or buffer overrun occurred */`，證實此分支純屬作者為防範『理論上不可能發生之緩衝區溢位』所撰寫的防禦性死碼（Defensive Guard）。",
+    "step_5_final_adjudication": "該條件在任何合法 IEEE 754 浮點數輸入下皆絕對無法滿足。歷史 LLM 因語意關聯性偏誤（誤以為輸入能控制 double 就能產生任意長度字串）導致 False Positive，下游求解器耗費 20 多分鐘均徒勞無功。裁決為 Input Independent（Rule 3: Observed-Path Invariants），Refined Label 為 Internal Invariant Guard，include_in_solver_evaluation: false。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 604 行需滿足 `length < 0 || length > 25`（因 number_buffer 大小為 26）。\n[Step 2: 生產者] `length` 為 `sprintf` 格式化 `item->valuedouble`（由 fdp.ConsumeFloatingPoint 提供）的回傳長度。\n[Step 3: 數學不變量推導] 依據 C99 與 IEEE 754 標準，`%1.17g` 最長結構為：負號(1)+首位(1)+小數點(1)+16位小數(16)+e(1)+符號(1)+3位指數(3) = 24 字元（例如 -4.9406564584124654e-324）。在全域 2^64 個 double 空間中，回傳長度恆滿足 `0 <= length <= 24 <= 25`，條件恆為 False。\n[Step 4: 替代路徑] 所有 cJSON 列印 API 皆匯流至此處且使用固定陣列，純屬作者防範不可達之緩衝區溢位的防禦性死碼。\n[Step 5: 裁決] Input Independent（Rule 3: Observed-Path Invariants）；Refined Label: Internal Invariant Guard；include_in_solver_evaluation: false。",
+  "historical_reason": "The blocker's predicate `(length < 0) || (length > 25)` depends on the variable `length`, which is the return value of `sprintf`. The `sprintf` call formats a double-precision floating-point number that originates directly from the fuzzer's input via `fdp.ConsumeFloatingPoint<double>()`. Therefore, the value of `length` is a semantic property derived from the fuzzer's input data. If the fuzzer can provide a double that formats to a string longer than 25 characters, it can satisfy the predicate and reach the blocked code. This establishes a clear data dependency on the input, making the blocker Input Dependent."
+}

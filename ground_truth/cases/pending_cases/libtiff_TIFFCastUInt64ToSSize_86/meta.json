@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_TIFFCastUInt64ToSSize_86",
+  "project_name": "libtiff",
+  "function_name": "_TIFFCastUInt64ToSSize",
+  "branch_line_number": 86,
+  "blocked_side_line_number": 88,
+  "target_name": "tiff_read_rgba_fuzzer",
+  "target_source_path": null,
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/_TIFFCastUInt64ToSSize_86/symbolic_run/libtiff_TIFFCastUInt64ToSSize_20260718_040655",
+  "historical_reason": "The blocker is Input Dependent. The predicate `val > (uint64_t)TIFF_TMSIZE_T_MAX` checks if a calculated scanline size (`val`) overflows a signed type. This size is computed by `TIFFScanlineSize64` based on TIFF image properties, such as `ImageWidth`, which are read directly from the fuzzer-provided input file during the `TIFFStreamOpen` -> `TIFFReadDirectory` call sequence. The fuzzer's own size-limiting guards are executed after `TIFFStreamOpen` returns, so they do not prevent the blocker from being reached. A crafted input file with sufficiently large image dimensions can cause the calculated `val` to exceed `TIFF_TMSIZE_T_MAX` and satisfy the blocked condition.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (val > (uint64_t)TIFF_TMSIZE_T_MAX)` at line 86 in `_TIFFCastUInt64ToSSize`. The target variable is `val`, a `uint64_t`. The branch hit count of `773k` indicates this check is frequently performed, but the blocked side (the `if` body) is never reached.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 88 is reached when the condition `val > (uint64_t)TIFF_TMSIZE_T_MAX` evaluates to TRUE. This means the `uint64_t` value `val` must be larger than the maximum value of the signed type `tmsize_t`.",
+    "[2. Fuzz Target Call Site]: The runtime trace begins in the fuzz target `LLVMFuzzerTestOneInput` with the call to `TIFFStreamOpen` at `contrib/oss-fuzz/tiff_read_rgba_fuzzer.cc:62`: `TIFF *tif = TIFFStreamOpen(\"MemTIFF\", &s);`. This call initiates the parsing of the TIFF file from the fuzzer's input data.",
+    "[2.5. Materialization Check]: Yes, the fuzz target's input data is fully materialized. The `TIFFStreamOpen` function and its subordinate call, `TIFFReadDirectory`, parse the input stream (`s`, which contains the fuzzer `Data`) to read TIFF tags and populate the internal `tif` structure. The fields of this structure, such as image dimensions, are then used in subsequent calculations within the library.",
+    "[3A. Setter / Transition Evidence]: The runtime stack shows `_TIFFCastUInt64ToSSize` is called by `TIFFReadDirectory`. The static analysis and source code clarify this happens via `TIFFScanlineSize`. The `val` passed to `_TIFFCastUInt64ToSSize` is the return value of `TIFFScanlineSize64(tif)`. The value returned by `TIFFScanlineSize64` is a calculated scanline size, which depends on TIFF tags like `TIFFTAG_IMAGEWIDTH`, `TIFFTAG_BITSPERSAMPLE`, and `TIFFTAG_SAMPLESPERPIXEL`. These tags are read from the fuzzer input data within `TIFFReadDirectory`. Therefore, `val` is directly derived from the contents of the input TIFF file.",
+    "[3B. Survival / Feasibility Check]: The path from input parsing to the blocker is direct. The fuzzer's own sanity checks, such as `if (TIFFTileSize64(tif) > MAX_SIZE)`, are executed *after* the `TIFFStreamOpen` call returns. The blocker is hit deep inside the call stack of `TIFFStreamOpen` (specifically, within `TIFFReadDirectory`). Consequently, the fuzzer's checks do not prevent a crafted input with large dimensions from triggering the overflow condition. There are no other visible checks in the provided evidence that would prevent a large, calculated `val` from reaching the predicate.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The predicate variable `val` is the result of a calculation based on values (TIFF tags like image width) parsed directly from the fuzzer's `Data` buffer. A crafted input can control these values to make `val` exceed `TIFF_TMSIZE_T_MAX`."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

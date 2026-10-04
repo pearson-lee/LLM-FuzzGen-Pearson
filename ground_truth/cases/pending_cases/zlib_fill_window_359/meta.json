@@ -1,0 +1,33 @@
+{
+  "case_id": "zlib_fill_window_359",
+  "project_name": "zlib",
+  "function_name": "fill_window",
+  "branch_line_number": 359,
+  "blocked_side_line_number": 360,
+  "target_name": "llm_fuzzgen_reference_guided_0714062730_931460",
+  "target_source_path": "external/oss-fuzz/projects/zlib/llm_fuzzgen_reference_guided_0714062730_931460.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight"
+  ],
+  "pipeline_output_dir": "experiments/20260714_035206_run_all_fuzzer/blockers/fill_window_359/symbolic_run/zlib_fill_window_20260714_103757",
+  "historical_reason": "The blocker's predicate, `init > s->window_size - s->high_water`, depends on the internal state of the `deflate_state` structure, specifically the variables `s->strstart`, `s->lookahead`, and `s->high_water`. These variables are part of the core compression algorithm and their values are directly determined by the properties of the input data being processed. The condition to reach the blocked code simplifies to `s->strstart + s->lookahead + WIN_INIT > s->window_size`. While satisfying this requires a specific and complex sequence of states within the compressor, it is not prevented by any hardcoded invariants or logical impossibilities in the code. The values are derived from the fuzzer input, making the blocker Input Dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (init > s->window_size - s->high_water)` at line 359 of `deflate.c`. The line was executed 6.34M times, indicating the predicate is frequently evaluated. The variables `init`, `s->window_size`, and `s->high_water` are involved. The goal is to understand why the condition is never true.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 360 is executed if the condition at line 359 evaluates to TRUE. The variable `init` is defined at line 357 as `init = (ulg)curr + WIN_INIT - s->high_water`, where `curr = s->strstart + (ulg)(s->lookahead)`. Substituting this into the predicate gives `(ulg)curr + WIN_INIT - s->high_water > s->window_size - s->high_water`, which simplifies to `curr + WIN_INIT > s->window_size`. Therefore, to reach the blocked side, the state must satisfy `s->strstart + s->lookahead + WIN_INIT > s->window_size`.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime segment shows the execution path starts in `LLVMFuzzerTestOneInput`. The specific call launching the path to the blocker is `err = deflate(&c_stream, Z_NO_FLUSH);` at line 49 in the function `test_deflate`, which is called from `LLVMFuzzerTestOneInput` at line 119.",
+    "[2.5. Materialization Check]: The fuzz target passes the raw input data `d` and `size` to the `test_deflate` function. Inside `test_deflate`, the compression stream's `next_in` is pointed to this data. The `deflate` function and its subroutines, including `fill_window`, directly consume this data to populate the sliding window and drive the compression state machine. The predicate variables `s->strstart`, `s->lookahead`, and `s->high_water` are fundamental components of this state machine and are directly influenced by the content and length of the fuzzer input. The input is fully materialized and its properties determine the values in the predicate.",
+    "[3A. Setter / Transition Evidence]: The variables in the simplified predicate `s->strstart + s->lookahead + WIN_INIT > s->window_size` are all managed on the observed runtime path. \n- `s->strstart`: The current position in the sliding window. It is advanced by `deflate_slow` as it consumes input, making its value dependent on the number of bytes processed.\n- `s->lookahead`: The amount of available data in the window. It is consumed by `deflate_slow` and replenished in `fill_window` by reading from the fuzzer's input buffer (`strm->next_in`).\n- `s->high_water`: A marker within the window, updated in `fill_window` based on the values of `s->strstart` and `s->lookahead` in previous calls. \nAll these variables are part of a state machine whose transitions are driven by the input data being compressed. There is no FuzzedDataProvider, so data starvation is not applicable.",
+    "[3B. Survival / Feasibility Check]: Reaching the blocked side requires a specific sequence of state transitions over at least two calls to `fill_window`, where the value of `curr = s->strstart + s->lookahead` moves into a narrow numerical range (`s->window_size - WIN_INIT < curr`). While complex, this state is not made impossible by any obvious hardcoded values, logical contradictions, or early exits in the provided code. The assertion `(ulg)s->strstart <= s->window_size - MIN_LOOKAHEAD` at the end of `fill_window` does not preclude the condition, as it still allows for `s->lookahead > 4`, which is sufficient to theoretically satisfy the inequality. The difficulty in reaching the blocker stems from the complexity of the state transitions required, which are entirely dependent on the input data's characteristics.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The predicate depends on the internal state variables of the zlib compressor (`s->strstart`, `s->lookahead`, `s->high_water`). These variables represent semantic properties (e.g., current position in the compression window, amount of data ready for processing) that are derived from processing the fuzzer's input stream. The condition is not met because generating an input that drives the compressor's state machine into the required narrow configuration is difficult, not because it is structurally impossible."
+  ],
+  "source_experiment": "20260714_035206_zlib",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

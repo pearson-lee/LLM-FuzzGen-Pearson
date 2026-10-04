@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vp8_decode_413",
+  "project_name": "libvpx",
+  "function_name": "vp8_decode",
+  "branch_line_number": 413,
+  "blocked_side_line_number": 414,
+  "target_name": "llm_fuzzgen0720133552",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen0720133552.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp8_decode_413/symbolic_run/libvpx_vp8_decode_20260728_004958",
+  "historical_reason": "The blocker is classified as Input Dependent because the predicate `if (pc->Height <= 0)` checks a value that is derived directly from parsing the fuzzer's input data. Specifically, the `vp8_decode` function calls `vp8_peek_si_internal` to parse frame dimensions from the input bitstream. This parsed height is then assigned to `pc->Height`. A malformed input from the fuzzer can cause the parsed height to be zero or negative, which would satisfy the predicate and allow execution to reach the blocked code. The program flow from input parsing to the predicate check is direct and does not contain any logic that would prevent such a value from reaching the check.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (pc->Height <= 0)` at line 413 (mapped to line 417 in the provided source). The variable being checked is `pc->Height`. The hit count of `1.41k` indicates this predicate is frequently evaluated, but the blocked side is never reached, suggesting the condition `pc->Height <= 0` always evaluates to false.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 414 (mapped to 418, `pc->Height = h;`) is inside an `if` block. To reach this line, the condition `pc->Height <= 0` must evaluate to TRUE.",
+    "[2. Fuzz Target Call Site]: The fuzz target calls the API that leads to the blocker at line 50: `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);`. The `frame_data` is directly from `fdp.ConsumeRemainingBytes<uint8_t>()`, meaning the entire remaining fuzzer input is passed as a single frame.",
+    "[2.5. Materialization Check]: The fuzz target passes the input data to `vpx_codec_decode`. The runtime trace shows this data is processed by `vp8_decode`. Inside `vp8_decode`, the code parses stream information from the input data to populate internal structures, including `pc->Height`. The check on `pc->Height` confirms that the fuzzer input is being materialized and used to drive the logic toward the blocker.",
+    "[3A. Setter / Transition Evidence]: The value of `pc->Height` is determined by the content of the input data. The data flow is as follows:\n1. The fuzzer input `data` is passed to `vp8_decode`.\n2. `vp8_peek_si_internal` is called at line 281 to parse the input data and populate the stream info structure `ctx->si`, including the frame height `ctx->si.h`.\n3. If a resolution change is detected (line 324), `pc->Height` is updated with the new parsed height at line 395: `pc->Height = ctx->si.h;`.\n4. The check `if (pc->Height <= 0)` occurs shortly after at line 417.\nTherefore, `pc->Height` is directly derived from the frame height parsed from the fuzzer's input data. A malformed input could cause `vp8_peek_si_internal` to parse a height that is less than or equal to zero.",
+    "[3B. Survival / Feasibility Check]: The path from the point where `pc->Height` is set (line 395) to where it is checked (line 417) is direct and within the same basic block, inside the `if (resolution_change)` statement. There is no intervening logic that would reset or sanitize `pc->Height` between the assignment and the check. If the fuzzer generates input that results in `ctx->si.h <= 0`, this value will be assigned to `pc->Height` and will survive to the predicate, causing the condition to be met.",
+    "[4. Rule Application]: The predicate variable `pc->Height` holds a semantic property (frame height) that is parsed and derived from the fuzzer's input bytes. The path to the blocker is controlled by the content of the provided frame data. This is a direct application of Rule 2. The blocker is Input Dependent."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

@@ -1,0 +1,32 @@
+{
+  "case_id": "libvpx_vp9_dec_alloc_row_mt_mem_81",
+  "project_name": "libvpx",
+  "function_name": "vp9_dec_alloc_row_mt_mem",
+  "branch_line_number": 81,
+  "blocked_side_line_number": 88,
+  "target_name": "llm_fuzzgen_dedicated_generation_0727001606_033744",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_dedicated_generation_0727001606_033744.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp9_dec_alloc_row_mt_mem_81/symbolic_run/libvpx_vp9_dec_alloc_row_mt_mem_20260728_035340",
+  "historical_reason": "The blocked predicate `if (row_mt_worker_data->recon_sync_cond)` checks the success of a memory allocation performed on line 78. The pointer is NULL because `vpx_malloc` fails. The size of the requested memory is determined by the `num_jobs` variable, which is calculated in the calling function `read_uncompressed_header` based on frame and tile parameters read directly from the fuzzer-provided input bitstream. The fuzzer is generating input that results in an extremely large allocation request, causing `vpx_malloc` to fail. If the fuzzer were to provide input corresponding to a valid bitstream with reasonable dimensions, the allocation would succeed, the pointer would be non-NULL, and the blocked code would be executed. Therefore, the blocker is dependent on the input data.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The predicate is `if (row_mt_worker_data->recon_sync_cond)` at line 81 in `vp9_dec_alloc_row_mt_mem`. The variable being checked is the pointer `row_mt_worker_data->recon_sync_cond`. The branch hit count of `4.95k` indicates this line is frequently executed.",
+    "[1.5. Blocked Side Direction]: The prompt states the blocked line is 88, but this line appears after the `if` block and is not conditional on it. The actual unreachable code is the body of the `if` statement on lines 82-84. To enter this blocked code, the condition must be true, meaning `row_mt_worker_data->recon_sync_cond` must be a non-NULL pointer.",
+    "[2. Fuzz Target Call Site]: The execution path is initiated by the call to `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);` on line 68 of the fuzz target. The runtime stack trace confirms this, showing the call originates from `LLVMFuzzerTestOneInput`.",
+    "[2.5. Materialization Check]: The fuzz target correctly configures the decoder for multi-threading and provides the raw fuzzer data to the `vpx_codec_decode` API. The library consumes this data, parsing it to determine frame and tile parameters, which are directly relevant to the state checked in the predicate. The data is properly materialized and used.",
+    "[3A. Setter / Transition Evidence]: The pointer `row_mt_worker_data->recon_sync_cond` is set by a call to `vpx_malloc` at line 78 of `vp9_dec_alloc_row_mt_mem`. The predicate at line 81 is effectively checking if this memory allocation was successful. Since the branch is never taken, it implies `vpx_malloc` is consistently returning `NULL`. The size of the allocation is determined by the `num_jobs` variable. Tracing this variable back to the caller, `read_uncompressed_header`, shows it is calculated from frame parameters (`cm->mi_rows`, `cm->log2_tile_cols`) that are parsed directly from the fuzzer-provided input bitstream.",
+    "[3B. Survival / Feasibility Check]: The predicate fails because the fuzzer is generating input that, when parsed, results in a very large `num_jobs` value. This leads to a memory allocation request so large that `vpx_malloc` fails. If the fuzzer provided input corresponding to a valid bitstream with reasonable frame/tile dimensions, `num_jobs` would be smaller, `vpx_malloc` would succeed, and `recon_sync_cond` would be non-NULL. This would satisfy the predicate and allow execution to enter the blocked code. There are no other conditions preventing this path.",
+    "[4. Rule Application]: Rule 2, 'Implicit Flow & Semantic Properties', applies. The predicate's outcome depends on a semantic property of the input data: whether the described video frame has dimensions that can be successfully allocated in memory. This property is derived directly from parsing the input bytes. Because different input bytes can change this property and allow the blocked code to be reached, the blocker is Input Dependent."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

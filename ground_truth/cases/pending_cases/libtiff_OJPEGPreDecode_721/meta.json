@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_OJPEGPreDecode_721",
+  "project_name": "libtiff",
+  "function_name": "OJPEGPreDecode",
+  "branch_line_number": 721,
+  "blocked_side_line_number": 723,
+  "target_name": "tiff_read_rgba_fuzzer",
+  "target_source_path": null,
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/OJPEGPreDecode_721/symbolic_run/libtiff_OJPEGPreDecode_20260717_200400",
+  "historical_reason": "The blocker is classified as Input Dependent. The unreachable code at line 723 is guarded by the condition `if (OJPEGReadSecondarySos(tif, s) == 0)`. The function `OJPEGReadSecondarySos` reads and parses a segment of the input TIFF file, which is expected to be a JPEG 'Start of Scan' (SOS) marker. Its return value indicates the success (non-zero) or failure (zero) of this operation. The blocker is not reached because the fuzzer is consistently providing valid data that causes the function to succeed. To unblock this path, the fuzzer must generate input where the data at the expected marker location is malformed, causing `OJPEGReadSecondarySos` to fail and return `0`. This is a direct dependency on the fuzzer's input data.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (OJPEGReadSecondarySos(tif, s) == 0)` at line 722 in `tif_ojpeg.c`. The critical variable is the return value of the `OJPEGReadSecondarySos` function. The provided hit count of `14.0k` for the enclosing condition at line 721 (`if (sp->sos_end[s].log == 0)`) indicates that the outer condition is met and `OJPEGReadSecondarySos` is called frequently.",
+    "[1.5. Blocked Side Direction]: To reach the blocked side at line 723 (`return (0);`), the condition `OJPEGReadSecondarySos(tif, s) == 0` must be true. This requires the function `OJPEGReadSecondarySos` to return `0`. A return value of `0` from this function signifies a failure to read or parse the expected data from the input stream.",
+    "[2. Fuzz Target Call Site]: The fuzz target initiates the execution path that leads to the blocker with the API call: `TIFFReadRGBAImage(tif, w, h, raster, 0);` at line 170 of `contrib/oss-fuzz/tiff_read_rgba_fuzzer.cc`.",
+    "[2.5. Materialization Check]: The `tif` object, which encapsulates the state of the TIFF file, is created by `TIFFStreamOpen` using the raw fuzzer input. The call to `TIFFReadRGBAImage` triggers the decoding process, which is dictated by the file's contents. The function `OJPEGReadSecondarySos` reads from this `tif` object's underlying data stream. Therefore, its behavior is directly tied to the bytes provided by the fuzzer, which are fully materialized and consumed.",
+    "[3A. Setter / Transition Evidence]: The return value of `OJPEGReadSecondarySos` is determined by its internal parsing logic. It reads from the input data stream associated with the `tif` object, expecting to find a valid JPEG 'Start of Scan' (SOS) marker. If it successfully finds and processes the marker, it returns a non-zero value. If the data is missing, malformed, or otherwise invalid, it fails and returns `0`. The fuzzer has full control over the input bytes and can thus influence this return value.",
+    "[3B. Survival / Feasibility Check]: The execution path is direct. If the fuzzer crafts an input that causes `OJPEGReadSecondarySos` to fail and return `0`, the condition at line 722 will be satisfied, and the `return (0);` statement at line 723 will be executed immediately. There are no subsequent checks or state changes on the observed runtime path that would prevent this from happening.",
+    "[4. Rule Application]: Rule 1, 'Direct Data Flow', applies. The branch's direction is determined by the return value of `OJPEGReadSecondarySos`, which directly depends on the success or failure of parsing a structure from the fuzzer-controlled input bytes. The ability to reach the blocked side is contingent on providing input that triggers a parsing failure."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

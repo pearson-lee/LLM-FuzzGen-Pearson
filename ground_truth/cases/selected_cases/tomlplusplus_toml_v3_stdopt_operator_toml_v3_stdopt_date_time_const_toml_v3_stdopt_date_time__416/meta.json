@@ -1,0 +1,49 @@
+{
+  "case_id": "tomlplusplus_toml_v3_stdopt_operator_toml_v3_stdopt_date_time_const_toml_v3_stdopt_date_time__416",
+  "project_name": "tomlplusplus",
+  "function_name": "toml::v3::stdopt::operator<(toml::v3::stdopt::date_time const&, toml::v3::stdopt::date_time const&)",
+  "branch_line_number": 416,
+  "blocked_side_line_number": 417,
+  "target_name": "llm_fuzzgen0727161637",
+  "target_source_path": "external/oss-fuzz/projects/tomlplusplus/llm_fuzzgen0727161637.cc",
+  "source_file": "include/toml++/impl/date_time.hpp",
+  "predicate": "if (lhs.time != rhs.time)",
+  "blocked_side_code": "return lhs.time < rhs.time;",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260806_154151_run_all_fuzzer/blockers/blocker_416_63778a5501ad/symbolic_run/tomlplusplus_blocker_416_63778a5501ad_symbolic_run_20260806_233034",
+  "source_experiment": "20260806_154151_tomlplusplus",
+  "verification_status": "manually_verified",
+  "verification_program": [
+    "verify_poc.cc",
+    "run_verify.sh"
+  ],
+  "ground_truth_label": "Input Dependent",
+  "ground_truth_rule": "Rule 1: Direct Data Flow",
+  "refined_triage_label": "Bounded Extreme Value",
+  "evidence_strength": "A",
+  "include_in_solver_evaluation": true,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙述詞位於 include/toml++/impl/date_time.hpp:416 的 `if (lhs.time != rhs.time)`（位於 `operator<(const date_time&, const date_time&)`，前一行 414 為 `if (lhs.date != rhs.date) return ...;`）。要執行 Line 417 `return lhs.time < rhs.time;`，必須同時滿足 `lhs.date == rhs.date`（通過 414）且 `lhs.time != rhs.time`（416 為 TRUE），即兩個 date_time 物件「日期相同、時間不同」。",
+    "step_2_producer_and_input_control": "harness 第 343–349 行對每個 date_time 節點執行 `*dt < *first_date_time` 與 `*dt >= *first_date_time`（後者內部呼叫 operator<）。兩個運算元皆來自 `toml::parse(toml_string)` 解析出的 date_time 值；toml_string 由第 18 行 `fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange<size_t>(0, 1024))` 取得，fuzzer 可完整控制其內容（Direct Data Flow），並可另外以 ConsumeBool 開關第 50/54 行的硬編碼 ldt/odt 片段。",
+    "step_3_survival_and_path_invariants": "解析後的 date/time 欄位直接存入 value<date_time>，harness 在比較前不做任何改寫；toml::table 為有序 map，走訪時以 stack 反序彈出，第一個彈出的 date_time 成為 first_date_time，其後每個節點與之比較。歷史上 Line 416 被評估 153 次而 417 為 0 的原因已釐清：harness 硬編碼片段中同日期的配對（ldt2 = 1981-02-10T10:00:00 與 odt2 = 1981-02-10T10:00:00-05:00）時間也完全相同，只差 offset，因此 416 恆為 FALSE 並落到 418 的 offset 比較；此為 harness 硬編碼資料的巧合，而非路徑不變量。只要 random string 再提供一個同日期不同時間的 date_time 即可打破。",
+    "step_4_alternative_path_and_feasibility": "不需修改 harness、不需 OOM 或環境失敗，所需值為合法、有限的 TOML local date-time（RFC 3339），屬 bounded 輸入。已建立 verify_poc.cc + run_verify.sh：原封不動 #include fuzz_target.cc（以 clang -ivfsoverlay 將 /src/tomlplusplus 導向本機 source），依 FuzzedDataProvider 消耗語意（字串取自前端、整數與 bool 取自尾端、先取位元組為高位）精確構造 seed，並以 clang source-based coverage 量測。結果：seed0 對照組（僅開啟硬編碼 ldt/odt）416 = 2、417 = 0，重現歷史狀態；seed1（a = 2024-01-01T10:00:00、b = 2024-01-01T12:00:00，120 bytes）416 = 2、417 = 2；seed2（random string 僅 `x = 1979-05-27T08:00:00` 搭配硬編碼 ldt1，117 bytes）416 = 2、417 = 2。歷史求解失敗（兩次 pipeline 共約 49 分鐘）推測源於 FDP 編碼：TOML 文字必須位於 buffer 前端，而約 70 個控制 bool 必須從尾端精確對齊，才能讓走訪迴圈執行到比較運算並開啟 `<`/`>=` 的 ConsumeBool；第一次 pipeline 另在 symcc_harness_generation 階段以 llm_error 中止。",
+    "step_5_final_adjudication": "在不修改目前 fuzz target 的前提下，fuzzer 輸入 bytes 可讓程式抵達並執行 Line 417，已由 coverage 實測證實。歷史 LLM 分類器判為 Input Dependent 屬正確判定（True Positive），其 reason 所舉的例子（同日期不同時間的兩個 date_time）即為可行解。裁決為 Input Dependent（Rule 1: Direct Data Flow），Refined Triage Label 為 Bounded Extreme Value（所需值為合法且有限的 date-time 組合），include_in_solver_evaluation = true。"
+  },
+  "ground_truth_reason": "【判定理由：Input Dependent（True Positive，已以 coverage 實測 POC 證實）】\n\n[Step 1] 阻礙述詞位於 include/toml++/impl/date_time.hpp:416 的 `if (lhs.time != rhs.time)`（位於 `operator<(const date_time&, const date_time&)`，前一行 414 為 `if (lhs.date != rhs.date) return ...;`）。要執行 Line 417 `return lhs.time < rhs.time;`，必須同時滿足 `lhs.date == rhs.date`（通過 414）且 `lhs.time != rhs.time`（416 為 TRUE），即兩個 date_time 物件「日期相同、時間不同」。\n[Step 2] harness 第 343–349 行對每個 date_time 節點執行 `*dt < *first_date_time` 與 `*dt >= *first_date_time`（後者內部呼叫 operator<）。兩個運算元皆來自 `toml::parse(toml_string)` 解析出的 date_time 值；toml_string 由第 18 行 `fdp.ConsumeRandomLengthString(fdp.ConsumeIntegralInRange<size_t>(0, 1024))` 取得，fuzzer 可完整控制其內容（Direct Data Flow），並可另外以 ConsumeBool 開關第 50/54 行的硬編碼 ldt/odt 片段。\n[Step 3] 解析後的 date/time 欄位直接存入 value<date_time>，harness 在比較前不做任何改寫；toml::table 為有序 map，走訪時以 stack 反序彈出，第一個彈出的 date_time 成為 first_date_time，其後每個節點與之比較。歷史上 Line 416 被評估 153 次而 417 為 0 的原因已釐清：harness 硬編碼片段中同日期的配對（ldt2 = 1981-02-10T10:00:00 與 odt2 = 1981-02-10T10:00:00-05:00）時間也完全相同，只差 offset，因此 416 恆為 FALSE 並落到 418 的 offset 比較；此為 harness 硬編碼資料的巧合，而非路徑不變量。只要 random string 再提供一個同日期不同時間的 date_time 即可打破。\n[Step 4] 不需修改 harness、不需 OOM 或環境失敗，所需值為合法、有限的 TOML local date-time（RFC 3339），屬 bounded 輸入。已建立 verify_poc.cc + run_verify.sh：原封不動 #include fuzz_target.cc（以 clang -ivfsoverlay 將 /src/tomlplusplus 導向本機 source），依 FuzzedDataProvider 消耗語意（字串取自前端、整數與 bool 取自尾端、先取位元組為高位）精確構造 seed，並以 clang source-based coverage 量測。結果：seed0 對照組（僅開啟硬編碼 ldt/odt）416 = 2、417 = 0，重現歷史狀態；seed1（a = 2024-01-01T10:00:00、b = 2024-01-01T12:00:00，120 bytes）416 = 2、417 = 2；seed2（random string 僅 `x = 1979-05-27T08:00:00` 搭配硬編碼 ldt1，117 bytes）416 = 2、417 = 2。歷史求解失敗（兩次 pipeline 共約 49 分鐘）推測源於 FDP 編碼：TOML 文字必須位於 buffer 前端，而約 70 個控制 bool 必須從尾端精確對齊，才能讓走訪迴圈執行到比較運算並開啟 `<`/`>=` 的 ConsumeBool；第一次 pipeline 另在 symcc_harness_generation 階段以 llm_error 中止。\n[Step 5] 在不修改目前 fuzz target 的前提下，fuzzer 輸入 bytes 可讓程式抵達並執行 Line 417，已由 coverage 實測證實。歷史 LLM 分類器判為 Input Dependent 屬正確判定（True Positive），其 reason 所舉的例子（同日期不同時間的兩個 date_time）即為可行解。裁決為 Input Dependent（Rule 1: Direct Data Flow），Refined Triage Label 為 Bounded Extreme Value（所需值為合法且有限的 date-time 組合），include_in_solver_evaluation = true。",
+  "historical_reason": "The blocker is Input Dependent. The predicate `if (lhs.time != rhs.time)` compares fields of `date_time` objects that are parsed directly from a fuzzer-controlled input string. To reach the blocked code, two `date_time` objects must have the same date but different times. The fuzz target constructs its input string using `FuzzedDataProvider`, including a call to `ConsumeRandomLengthString`, which allows the fuzzer to generate arbitrary TOML content. The fuzzer can produce a string containing two `date_time` values that satisfy the required condition (e.g., `d1 = 2024-08-06T10:00:00` and `d2 = 2024-08-06T11:00:00`). When these are parsed and compared by the logic in the fuzz target, the condition `lhs.time != rhs.time` will evaluate to true, thus reaching the blocked code.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `lhs.time != rhs.time` at line 416 of `include/toml++/impl/date_time.hpp`. The branch was executed 153 times, indicating that the parent condition (likely `lhs.date == rhs.date`) was met, but the condition `lhs.time != rhs.time` was always false. This means that in all 153 cases, the `time` components of the two `date_time` objects being compared were identical.",
+    "[1.5. Blocked Side Direction]: The blocked side at line 417 is inside an `if` statement. It is reached when the condition `lhs.time != rhs.time` evaluates to TRUE. Therefore, to unblock this path, the fuzzer needs to generate two `toml::date_time` objects that have the same `date` component but different `time` components.",
+    "[2. Fuzz Target Call Site]: The runtime path is initiated by the comparison operators called within the `LLVMFuzzerTestOneInput` function. The specific call sites are in the `else` block where `date_time` objects are compared: `if (fdp.ConsumeBool()) sink += (*dt < *first_date_time); if (fdp.ConsumeBool()) sink += (*dt <= *first_date_time); if (fdp.ConsumeBool()) sink += (*dt > *first_date_time); if (fdp.ConsumeBool()) sink += (*dt >= *first_date_time);` at lines 443-446 of the fuzz target.",
+    "[2.5. Materialization Check]: The fuzz target materializes `date_time` objects by parsing a `toml_string` which is generated by `FuzzedDataProvider`. It then iterates through the parsed nodes, extracts `date_time` values using `view.as_date_time()`, and compares them. The state of these objects, which is derived from the input string, is directly used in the comparisons that lead to the blocker.",
+    "[3A. Setter / Transition Evidence]: The `date_time` objects are created by the `toml::parse` function from the `toml_string`. This string is built from two sources: 1) A random string from `fdp.ConsumeRandomLengthString()`. 2) Conditionally appended hardcoded `date_time` strings like `ldt1 = 1979-05-27T07:32:00`. To satisfy the required condition (`lhs.date == rhs.date && lhs.time != rhs.time`), the parsed TOML must contain at least two such `date_time` values. This can happen if the initial random string contains a `date_time` like `d = 1979-05-27T08:00:00`, which has the same date as the hardcoded `ldt1` but a different time. The fuzzer is capable of generating such a string.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer generates an input string that results in two `date_time` objects with the same date but different times, these objects are extracted and compared directly. There is no intermediate logic in the fuzz target that would alter these values or prevent the comparison from occurring. The path to the blocked branch is feasible with the appropriate input.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The predicate variables `lhs.time` and `rhs.time` are members of `date_time` objects whose values are directly determined by parsing the input string provided by the fuzzer. The fuzzer has control over the string content and can generate the specific values needed to satisfy the branch condition."
+  ]
+}

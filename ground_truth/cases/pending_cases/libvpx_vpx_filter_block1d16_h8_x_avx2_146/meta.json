@@ -1,0 +1,32 @@
+{
+  "case_id": "libvpx_vpx_filter_block1d16_h8_x_avx2_146",
+  "project_name": "libvpx",
+  "function_name": "vpx_filter_block1d16_h8_x_avx2",
+  "branch_line_number": 146,
+  "blocked_side_line_number": 147,
+  "target_name": "llm_fuzzgen_reference_guided_0727011112_353286",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727011112_353286.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vpx_filter_block1d16_h8_x_avx2_146/symbolic_run/libvpx_vpx_filter_block1d16_h8_x_avx2_20260727_144846",
+  "historical_reason": "The blocker is a conditional `if (avg)` inside a filtering function `vpx_filter_block1d16_h8_x_avx2`. In the VP9 video codec, filtering behavior is highly configurable and determined by parameters within the compressed bitstream. The fuzz target feeds its input directly to the decoder via `vpx_codec_decode`. Additionally, the target explicitly sets a loop filter option, `VP9D_SET_LOOP_FILTER_OPT`, using a flag derived from the input data. Therefore, the value of the internal `avg` variable is dependent on the semantic content of the fuzzer input, making the blocker Input Dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (avg)` at line 146 in the function `vpx_filter_block1d16_h8_x_avx2`. The branch hit count of `2.20M` indicates this line is executed frequently, but the condition `avg` is never met.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 147 is within the `if` block, meaning it is reached if the condition `avg` evaluates to true. The required state to unblock the code is `avg != 0`.",
+    "[2. Fuzz Target Call Site]: Although the runtime segment is missing, the fuzz target contains a primary decoding loop that calls `vpx_codec_decode(&codec, data, frame_size, nullptr, 0);`. The function containing the blocker, `vpx_filter_block1d16_h8_x_avx2`, is a filtering function, which is a standard part of the VP9 decoding process initiated by `vpx_codec_decode`.",
+    "[2.5. Materialization Check]: Yes, the fuzz target's input is materially consumed. The main purpose of the target is to pass the input `data` to `vpx_codec_decode`, which interprets it as a VP9 bitstream. Furthermore, the target explicitly uses a byte from the input to configure the decoder's loop filter via `vpx_codec_control(&codec, VP9D_SET_LOOP_FILTER_OPT, enable);`, where `enable` is derived from `data`. This directly links the input to the filtering logic.",
+    "[3A. Setter / Transition Evidence]: The `avg` variable is internal to the library, but its value is likely determined by the properties of the video stream being decoded. The fuzz target controls these properties in two ways: 1) The content of the bitstream passed to `vpx_codec_decode`, which defines filtering parameters according to the VP9 specification. 2) The `enable` flag passed to `VP9D_SET_LOOP_FILTER_OPT`, which is derived directly from the input: `const int enable = (data[IVF_FILE_HDR_SZ] & 0xa0) != 0;`. Both of these are input-controlled mechanisms that affect the decoder's filtering behavior.",
+    "[3B. Survival / Feasibility Check]: There is no evidence to suggest that a state where `avg` is true cannot reach the predicate. The function name implies it is a filtering routine, which would be expected to have different modes (e.g., averaging vs. non-averaging) depending on the configured parameters. The fuzzer is providing valid inputs to the decoder, and it is feasible that a specific, but not yet discovered, combination of bitstream features or configuration flags will set `avg` to true.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The `avg` variable represents a semantic property of the video decoding process (a filtering mode). This property is not set directly from input bytes but is determined by the decoder's internal logic, which in turn is driven by parsing the fuzzer-provided bitstream and an explicit, input-controlled configuration setting (`VP9D_SET_LOOP_FILTER_OPT`)."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

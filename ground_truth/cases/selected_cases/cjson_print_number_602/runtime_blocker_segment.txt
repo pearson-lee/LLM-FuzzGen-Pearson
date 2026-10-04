@@ -1,0 +1,6 @@
+Runtime functions from entry to blocker (Root -> Target, deduplicated):
+  #0 LLVMFuzzerTestOneInput at /src/llm_fuzzgen_reference_guided_0724141917_518251.cc:98
+  #1 print at /src/cjson/cJSON.c:1226
+  #2 print_object at /src/cjson/cJSON.c:1808
+  #3 print_value at /src/cjson/cJSON.c:1430
+  #4 print_number at /src/cjson/cJSON.c:602

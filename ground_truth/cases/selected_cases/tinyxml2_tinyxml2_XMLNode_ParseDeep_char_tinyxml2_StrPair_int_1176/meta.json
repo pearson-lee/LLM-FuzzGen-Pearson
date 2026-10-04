@@ -1,0 +1,45 @@
+{
+  "case_id": "tinyxml2_tinyxml2_XMLNode_ParseDeep_char_tinyxml2_StrPair_int_1176",
+  "project_name": "tinyxml2",
+  "function_name": "tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)",
+  "branch_line_number": 1176,
+  "blocked_side_line_number": 1177,
+  "target_name": "llm_fuzzgen0726233106",
+  "target_source_path": "external/oss-fuzz/projects/tinyxml2/llm_fuzzgen0726233106.cc",
+  "source_file": "tinyxml2.cpp",
+  "predicate": "if ( ele->ClosingType() != XMLElement::OPEN )",
+  "blocked_side_code": "mismatch = true;",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260804_034935_run_all_fuzzer/blockers/tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*, int*)_1176/symbolic_run/tinyxml2_tinyxml2_XMLNode_ParseDeep_char_tinyxml2_StrPair_int_20260804_045703",
+  "source_experiment": "20260804_034935_tinyxml2",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.cc",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants & Rule 4: Internal Invariant Guard / Redundant Defensive Code",
+  "refined_triage_label": "Internal Invariant Guard",
+  "include_in_solver_evaluation": false,
+  "historical_reason": "The blocker checks for a mismatched element during parsing. The condition depends on the `ClosingType` of the current XML element and whether a preceding child element was just closed. Both of these states are determined by the structure of the XML string passed to `doc.Parse()`, which is generated directly from fuzzer input. An input string representing a malformed XML structure, such as `<root><child></child><sibling/></root>`, will cause the parser to encounter a self-closing element (`<sibling/>`) immediately after a closed element (`</child>`), satisfying the predicate `ele->ClosingType() != XMLElement::OPEN` and reaching the blocked code. Since the fuzzer can produce this input, the blocker is Input Dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is at line 1176: `if ( ele->ClosingType() != XMLElement::OPEN )`. The variable `ele` is an `XMLElement` pointer representing the current node being parsed. The `ClosingType()` method returns an enum indicating if the element is an opening tag (`<tag>`), a self-closing tag (`<tag/>`), or a closing tag (`</tag>`). The branch hit count of `15.5k` confirms this condition is frequently evaluated during fuzzing.",
+    "[1.5. Blocked Side Direction]: The blocked side at line 1177, `mismatch = true;`, is executed if the condition at line 1176 is true. This requires `ele->ClosingType()` to be a value other than `XMLElement::OPEN`, i.e., `XMLElement::CLOSED` or `XMLElement::CLOSING`. This check occurs within an `else` block that is only entered if the `endTag` variable is not empty, meaning a nested element has just been closed (e.g., after parsing `...<child>...</child>`).",
+    "[2. Fuzz Target Call Site]: The execution path leading to the blocker is initiated by the call `doc.Parse(xml_string.c_str());` at line 20 in the fuzz target `LLVMFuzzerTestOneInput`.",
+    "[2.5. Materialization Check]: The `xml_string` variable is generated directly from fuzzer input via `fdp.ConsumeRandomLengthString()`. The `doc.Parse` function consumes this string to build a DOM tree. The properties of the nodes in this tree, including `ClosingType`, are determined entirely by the structure and content of the input `xml_string`. The check occurs during this parsing process, so the relevant state is materialized directly from the input.",
+    "[3A. Setter / Transition Evidence]: The value of `ele->ClosingType()` is determined when the parser identifies an element in the input string. The parser sets the type to `OPEN`, `CLOSED`, or `CLOSING` based on the syntax it encounters (e.g., `<...>`, `<.../>`, or `</...>`). The other required state, a non-empty `endTag`, is set when `ParseDeep` recursively finishes parsing a child element that has a distinct closing tag (e.g., `<child>...</child>`). Both of these states are derived from the structure of the fuzzer-provided `xml_string`. No data starvation is present as this is the first major data consumption in the fuzz target.",
+    "[3B. Survival / Feasibility Check]: The blocked path is reachable with a malformed XML input that the fuzzer can easily generate. For example, an input string like `\"<root><child></child><sibling/></root>\"`. 1. The parser is in `ParseDeep` for `<root>`. 2. It recursively calls `ParseDeep` for `<child>`. 3. This call completes after seeing `</child>`, returning 'child' in the `endTag` out-parameter. 4. Back in the context of `<root>`, parsing continues from after `</child>`. 5. The next element identified is `<sibling/>`, for which `ClosingType()` is `CLOSED`. 6. The code enters the `else` block because `endTag` is not empty. 7. The condition `ele->ClosingType() != XMLElement::OPEN` becomes `true` (`CLOSED != OPEN`), and the blocked line 1177 is executed. This path is feasible and not obstructed by other logic.",
+    "[4. Rule Application]: Rule 2 applies. The predicate depends on the structural properties of the XML document being parsed. The `ClosingType` of an element and the state of the `endTag` variable are both semantic properties derived directly from the fuzzer-provided input string. The fuzzer can generate a malformed XML string that creates the specific sequence of element types needed to trigger the blocked condition."
+  ],
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "受阻述詞位於 tinyxml2.cpp:1176 的 `if ( ele->ClosingType() != XMLElement::OPEN )`。要進入 Line 1177 執行 `mismatch = true;`，必須滿足進入外層 else 區塊（`!endTag.Empty()` 為 TRUE）以及當前元素閉合型態非 OPEN（`ele->ClosingType() != XMLElement::OPEN`）。",
+    "step_2_producer_and_input_control": "歷史 LLM 產生嚴重的變數作用域幻覺（Variable Scope Hallucination），誤以為 `<root><child></child><sibling/></root>` 解析 child 產生的 endTag 會保留至下一輪迴圈並污染 sibling。然而，`StrPair endTag;` 宣告於 `while(p && *p)` 迴圈內部，每次迭代皆重新宣告為空，絕不可能跨迴圈迭代污染相鄰兄弟元素。",
+    "step_3_survival_and_path_invariants": "追查 tinyxml2 狀態機不變量：唯一能寫入 parentEndTag 的位置是 `ele->ClosingType() == XMLElement::CLOSING`（此時立即 return p，不走後續檢查）。而當前元素若為自閉合標籤 `CLOSED`（`<tag/>`），`XMLElement::ParseDeep` 在 Line 2100 檢查 `_closingType != OPEN` 直接 return，完全不調用下層 `XMLNode::ParseDeep`，因此傳入的 `endTag` 恆為空，程式只會走 Line 1170 的 if 區塊，絕不可能進入 Line 1175 的 else 區塊。反之，若進入 else 區塊（`!endTag.Empty()`），當前元素的 `_closingType` 在架構上必定為 `OPEN`。因此條件式 `ele->ClosingType() != XMLElement::OPEN` 恆為 FALSE，Line 1177 確證為防禦性死碼。",
+    "step_4_alternative_path_and_feasibility": "歷史實驗中 Line 1176 被評估 108,000 次，Line 1177 命中 0 次。下游符號執行（SymCC）耗時 778 秒全滅失敗。實測插樁與多組極端 XML 解析驗證，證實各類不匹配標籤僅會進入 Line 1180（名稱不符），Line 1177 恆不可達。",
+    "step_5_final_adjudication": "裁決為 Input Independent，適用 Rule 3 (Observed-Path Invariants) 與 Rule 4 (Internal Invariant Guard / Redundant Defensive Code)。Refined Triage Label 為 Internal Invariant Guard，不納入下游求解器評測（include_in_solver_evaluation = false）。"
+  },
+  "ground_truth_reason": "【判定理由：Input Independent（內部架構不變量保護守衛，歷史 LLM 變數作用域誤判案例）】\n\n1. 受阻分支與目標述詞：\n   目標函式為 tinyxml2.cpp:1176 的 tinyxml2::XMLNode::ParseDeep，受阻條件為 Line 1176 的 `if ( ele->ClosingType() != XMLElement::OPEN )`，受阻側為 Line 1177 的 `mismatch = true;`。\n\n2. 歷史 LLM 的誤判根因（變數作用域幻覺）：\n   歷史 LLM 誤以為提供 `<root><child></child><sibling/></root>` 時，解析 child 得到的 endTag 會殘留至 sibling 元素。然而，`StrPair endTag;` 宣告於 `while(p && *p)` 迴圈內部，每次迭代皆重新宣告為空，根本不可能跨元素污染。\n\n3. 狀態機與解析不變量證明：\n   - 當元素為自閉合標籤 `CLOSED`（`<tag/>`）時，`XMLElement::ParseDeep` 在 Line 2100 直接 return，不調用下層遞迴，`endTag` 恆為 empty，只走 Line 1170 的 if 區塊，絕不進入 else 區塊。\n   - 當元素為獨立閉合標籤 `CLOSING`（`</tag>`）時，在 Line 1158 處理後立即 return，不進入 Line 1167 以下的檢查。\n   - 唯有當前元素為 `OPEN` 時，才會將 `endTag` 傳給子層並可能在子層閉合時賦值。因此若進入 Line 1175 的 else 區塊（`!endTag.Empty()`），當前元素的 `ele->ClosingType()` 恆等於 `XMLElement::OPEN`。\n   - 故 `ele->ClosingType() != XMLElement::OPEN` 恆為 FALSE，Line 1177 為標準的內部對稱防禦性死碼。\n\n4. 實體驗證結果：\n   在案例目錄已建立驗證程式 verify_poc.cc，實測各類畸變與嵌套標籤，實證 Line 1177 命中次數恆為 0。歷史執行統計中 108,000 次評估中 Line 1177 命中 0 次，確證為絕對的 Input Independent。"
+}

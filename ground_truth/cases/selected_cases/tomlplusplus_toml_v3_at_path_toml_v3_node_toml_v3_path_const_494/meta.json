@@ -1,0 +1,48 @@
+{
+  "case_id": "tomlplusplus_toml_v3_at_path_toml_v3_node_toml_v3_path_const_494",
+  "project_name": "tomlplusplus",
+  "function_name": "toml::v3::at_path(toml::v3::node&, toml::v3::path const&)",
+  "branch_line_number": 494,
+  "blocked_side_line_number": 505,
+  "target_name": "llm_fuzzgen0727210908",
+  "target_source_path": "external/oss-fuzz/projects/tomlplusplus/llm_fuzzgen0727210908.cc",
+  "source_file": "include/toml++/impl/path.inl",
+  "predicate": "else if (type == path_component_type::key)",
+  "blocked_side_code": "return {};",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260806_154151_run_all_fuzzer/blockers/blocker_494_fa7e286141ef/symbolic_run/tomlplusplus_blocker_494_fa7e286141ef_symbolic_run_20260806_214902",
+  "source_experiment": "20260806_154151_tomlplusplus",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.cc",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants & Rule 4: Internal Invariant Guard / Redundant Defensive Code",
+  "refined_triage_label": "Internal Invariant Guard",
+  "include_in_solver_evaluation": false,
+  "historical_reason": "The blocker is Input Dependent. The execution flow is determined by the `type` of a `toml::path` component. This path object is constructed from a string, `path_str`, which is directly generated from fuzzer input. By providing a malformed path string, the fuzzer can cause the `toml::path` parser to create a component whose type is neither `key` nor `array_index`. This will cause the `else` branch in `at_path` to be taken, executing the blocked code. The fuzz target correctly sets up and calls the API with fuzzer-generated data, making this scenario directly controllable by the input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is at line 494: `else if (type == path_component_type::key)`. The branch hit count is 893, indicating this line is frequently executed. The predicate variable is `type`, which holds the value of `component.type()` for each component in a `toml::path`.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 505, `return {};`, is inside the final `else` block of an if-else-if-else chain. To reach this block, the condition `type == path_component_type::array_index` (line 485) and the condition `type == path_component_type::key` (line 494) must both be false. Therefore, the required state is that the `type` of a path component must be something other than `array_index` or `key`.",
+    "[2. Fuzz Target Call Site]: The runtime path is initiated by the call `(void)tbl[p];` at line 101 of the fuzz target code.",
+    "[2.5. Materialization Check]: The fuzz target correctly materializes and uses the necessary objects. It parses a fuzzer-generated string into a `toml::table tbl`. It then generates a second string, `path_str`, from fuzzer data and constructs a `toml::path p` from it. Finally, it invokes the path-based access operator `tbl[p]`, which directly uses the fuzzer-controlled path object to navigate the fuzzer-controlled table object.",
+    "[3A. Setter / Transition Evidence]: The value of the `type` variable is determined by the `toml::path` constructor, which parses the `path_str` string. `path_str` is directly generated from fuzzer input via `std::string path_str = fdp.ConsumeRandomLengthString(50);`. The `toml::path` parser is responsible for interpreting this string and assigning a `path_component_type` to each segment. It is expected that a malformed or invalid path string provided by the fuzzer would lead the parser to generate a component whose type is neither `key` nor `array_index`, thus satisfying the condition to enter the `else` block.",
+    "[3B. Survival / Feasibility Check]: The path to the blocker is clear. The `at_path` function iterates through the components of the fuzzer-provided path. If any component has a type that is not `array_index` or `key`, the `else` branch at line 504 is taken, which leads to an immediate `return {}` at line 505. The early exits at the beginning of the function check if the root node is empty, but the fuzzer can easily generate non-empty TOML to bypass these. There are no other intermediate checks that would prevent an invalid component type from triggering the blocked code.",
+    "[4. Rule Application]: Rule 2, 'Implicit Flow & Semantic Properties', applies. The predicate depends on the `type` of a path component, which is a semantic property derived from parsing the fuzzer-controlled input string `path_str`. The fuzzer's ability to provide arbitrary string data to the `toml::path` constructor makes it possible to influence this semantic property and reach the blocked code."
+  ],
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "受阻述詞位於 path.inl:494（單標頭檔 toml.hpp:11760）的 `else if (type == path_component_type::key)`。要進入 Line 505 / 11771 執行 `return {};`，必須使 `type == path_component_type::array_index` 與 `type == path_component_type::key` 兩者皆為 FALSE，即 `component.type()` 既非 array_index 也非 key。",
+    "step_2_producer_and_input_control": "歷史 LLM 產生型別解析幻覺（Enum Extensibility Hallucination），誤以為提供語法錯誤的路徑字串時，解析器會建立型別未知的非法組件。然而，toml++ 採用 C++ 封閉列舉（TOML_CLOSED_ENUM），且解析器在語法錯誤時直接回滾返回 false，組件數歸零，根本不生成任何無效型別組件。",
+    "step_3_survival_and_path_invariants": "追查 toml++ 型別系統與路徑狀態機不變量：1. `enum class path_component_type : uint8_t` 嚴格僅定義 `key = 0x1` 與 `array_index = 0x2` 兩種值。2. `path_component` 的所有建構子保證 `type_` 只能為此二者之一，全庫無任何 API 可賦予第三種數值。3. 解析器 `impl::parse_path` 在遭遇語法錯誤時直接返回 false 並清除已解析組件，絕不建立未知型別組件。因此進入 `at_path` 迴圈的任何組件，其型別必命中 array_index 或 key。Line 505 的 else 區塊純屬作者為防範未知型別所寫下的防禦性死碼。",
+    "step_4_alternative_path_and_feasibility": "歷史實驗中 Line 494 評估 4,960 次，Line 505 命中 0 次。下游符號執行（SymCC）耗費 1,175 秒歷經 5 輪全滅失敗。實測驗證覆蓋 12 種各類正常、畸變與極端路徑字串，證實組件型別嚴格為 key 或 array_index，Line 505 恆不可達。",
+    "step_5_final_adjudication": "裁決為 Input Independent，適用 Rule 3 (Observed-Path Invariants) 與 Rule 4 (Internal Invariant Guard / Redundant Defensive Code)。Refined Triage Label 為 Internal Invariant Guard，不納入下游求解器評測（include_in_solver_evaluation = false）。"
+  },
+  "ground_truth_reason": "【判定理由：Input Independent（內部型別系統不變量保護守衛，歷史 LLM 型別解析誤判案例）】\n\n1. 受阻分支與目標述詞：\n   目標函式為 include/toml++/impl/path.inl:494（單標頭檔 toml.hpp:11760）的 toml::v3::at_path，受阻條件為 Line 494 的 `else if (type == path_component_type::key)`，受阻側為 Line 505 的 `return {};`（位於 else 分支）。\n\n2. 歷史 LLM 的誤判根因（型別解析幻覺）：\n   歷史 LLM 誤以為提供畸變或語法錯誤的路徑字串（如未閉合括號等）時，`toml::path` 解析器會構造出一個既非 key 也非 array_index 的未知型態組件。然而，`path_component_type` 為封閉列舉（TOML_CLOSED_ENUM），且解析器在語法錯誤時直接返回 false 並回滾組件列表，組件數歸零，根本不生成任何無效型態組件。\n\n3. 型別系統與狀態機不變量證明：\n   - `enum class path_component_type : uint8_t` 全庫嚴格僅定義 `key = 0x1` 與 `array_index = 0x2` 兩種枚舉值。\n   - `path_component` 的全部建構子保證 `type_` 嚴格為 key 或 array_index，全代碼庫無任何 API 可賦值其他數值。\n   - 路徑解析器 `impl::parse_path` 遇到語法錯誤時直接返回 false 並回滾組件，組件數歸零，絕不建立無效型態組件。\n   - 因此遍歷 `path` 中的每一個組件時，其 `type` 必命中 array_index 或 key。Line 505 的 else 區塊（`// Error: invalid component`）在型別系統與狀態機架構下恆不可達，確證為內部防禦性死碼。\n\n4. 實體驗證結果：\n   在案例目錄已建立驗證程式 verify_poc.cc，實測各類正常、空路徑、連續小數點、畸變括號等 12 組路徑字串，證實組件型別嚴格為 key 或 array_index，Line 505 命中次數恆為 0。歷史執行統計中 4,960 次評估中 Line 505 命中 0 次，確證為絕對的 Input Independent。"
+}

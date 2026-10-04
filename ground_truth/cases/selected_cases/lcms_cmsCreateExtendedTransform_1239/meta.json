@@ -1,0 +1,47 @@
+{
+  "case_id": "lcms_cmsCreateExtendedTransform_1239",
+  "project_name": "lcms",
+  "function_name": "cmsCreateExtendedTransform",
+  "branch_line_number": 1239,
+  "blocked_side_line_number": 1242,
+  "target_name": "llm_fuzzgen0625160001",
+  "target_source_path": "external/oss-fuzz/projects/lcms/llm_fuzzgen0625160001.c",
+  "source_file": "src/cmsxform.c",
+  "predicate": "if (cmsIsTag(hProfiles[nProfiles-1], cmsSigColorantTableOutTag))",
+  "blocked_side_code": "xform ->OutputColorant = cmsDupNamedColorList((cmsNAMEDCOLORLIST*) cmsReadTag(hProfiles[nProfiles-1], cmsSigColorantTableOutTag));",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260707_000202_run_all_fuzzer/blockers/cmsCreateExtendedTransform_1239/symbolic_run/lcms_cmsCreateExtendedTransform_20260707_165226",
+  "source_experiment": "20260707_000202_lcms",
+  "verification_status": "manually_verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants & Rule 5: Fuzz Target Hardcoded Logic & Incomplete Scope",
+  "refined_triage_label": "Structurally Unreachable API Path",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙條件位於 cmsxform.c:1239：`if (cmsIsTag(hProfiles[nProfiles-1], cmsSigColorantTableOutTag))`。要進入第 1242 行未覆蓋目標程式碼，必須同時滿足兩項條件：(1) 外層守衛（Line 1236）要求 `cmsGetDeviceClass(hProfiles[nProfiles-1]) == cmsSigLinkClass`（必須為 DeviceLink Profile）；(2) 目標條件要求 `cmsIsTag` 回傳 TRUE，即最後一個 profile 必須註冊有 `cmsSigColorantTableOutTag`（'clot'）標籤。",
+    "step_2_producer_and_input_control": "在 Fuzz Target（llm_fuzzgen0625160001.c）中，唯一能滿足外層 DeviceLink 守衛的呼叫點在第 240 行：`cmsCreateTransform(hIT8Profile, TYPE_RGB_8, NULL, ...)`。此時 `nProfiles=1`，`hProfiles[0]` 即為 `hIT8Profile`。追蹤其生產者（第 228 行），該物件由 `cmsCreateDeviceLinkFromCubeFileTHR(ctx, filename)` 建立，輸入資料為 Fuzzer 寫入暫存檔之原始 bytes。",
+    "step_3_survival_and_path_invariants": "深入查驗 cmscgats.c:3206 的 `cmsCreateDeviceLinkFromCubeFileTHR` 實作：該函式專門解析 Adobe .cube（3D LUT）格式。在 ParseCube 成功後，使用 `cmsCreateProfilePlaceholder` 建立全新空白 Profile，並硬編碼設置屬性 `cmsSetDeviceClass(hProfile, cmsSigLinkClass)`，且程式碼中硬編碼僅寫入兩個 Tag：`cmsSigProfileDescriptionTag`（Line 3264）與 `cmsSigAToB0Tag`（Line 3265）。.cube 檔案格式規範本身純屬 LUT 數據表，根本無任何 ICC Tag 概念；函式庫實作亦絕無寫入任何其他標籤的邏輯。因此在該生成路徑上，標籤集合恆為 `{Description, AToB0}`，`cmsIsTag(..., cmsSigColorantTableOutTag)` 恆為 False，屬於確定性不可打破之路徑不變量（Observed-Path Invariant）。",
+    "step_4_alternative_path_and_feasibility": "在當前 Target 範圍（L1: current-target input-only）下，任意變異輸入 bytes 皆絕對無法使該條件成立。歷史 LLM 產生模式匹配幻覺（誤以為只要是由輸入檔案建立的 Profile 即可隨意構造任意 Tag），導致 False Positive。若要觸發該分支，必須在 Target 修改（L2/L3）層面改用 `cmsOpenProfileFromFile` 載入真實 ICC DeviceLink 檔案或顯式呼叫 `cmsWriteTag` 寫入 clot 標籤，屬於典型 Target 範疇不全（Target Gap）。",
+    "step_5_final_adjudication": "在當前 Fuzz Target 呼叫序列與觀測路徑下，該分支為結構性死碼。裁決為 Input Independent（Rule 3 & Rule 5），Refined Triage Label 為 Structurally Unreachable API Path（種子層級不可達），include_in_solver_evaluation: false。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 1242 行需外層 DeviceClass 為 cmsSigLinkClass 且最後一個 profile 包含 cmsSigColorantTableOutTag。\n[Step 2: 生產者] Profile 由 cmsCreateDeviceLinkFromCubeFileTHR 載入 Fuzzer 輸入之 .cube 檔案建立。\n[Step 3: 路徑不變量] cmscgats.c:3206 顯示該函式硬編碼僅掛載 Description 與 AToB0 兩個 Tag；.cube 格式亦無 ICC 標籤語法。標籤集合恆不含 ColorantTableOutTag，cmsIsTag 恆為 False。\n[Step 4: 替代路徑] 需改寫 Target 呼叫通用 ICC 載入器方可達，現有 Target 下任意輸入皆不可達。\n[Step 5: 裁決] Input Independent（Rule 3: Observed-Path Invariants & Rule 5: Target Hardcoded Logic）；Refined Label: Structurally Unreachable API Path；include_in_solver_evaluation: false。",
+  "historical_reason": "The blocker's reachability depends on two conditions checked on a profile handle (`hIT8Profile`): its device class must be `cmsSigLinkClass`, and it must contain a `cmsSigColorantTableOutTag`. The fuzz target creates this profile handle by calling `cmsCreateDeviceLinkFromCubeFileTHR` on a file whose contents are the raw fuzzer input. Therefore, the fuzzer can craft an input file that, when parsed, generates a profile satisfying both conditions. This makes the blocker dependent on the fuzzer's input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is at `cmsxform.c:1239`, within the function `cmsCreateExtendedTransform`. The condition is `if (cmsIsTag(hProfiles[nProfiles-1], cmsSigColorantTableOutTag))`. The branch was executed 57 times, indicating the predicate is reachable and evaluated, but the condition for entering the blocked side was never met.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 1242 is inside the `if` statement at line 1239. To reach it, the condition `cmsIsTag(hProfiles[nProfiles-1], cmsSigColorantTableOutTag)` must evaluate to `TRUE`. Additionally, a preceding condition at line 1236, `if (cmsGetDeviceClass(hProfiles[nProfiles-1]) == cmsSigLinkClass)`, must also be true.",
+    "[2. Fuzz Target Call Site]: The dynamic evidence shows the call chain starts from `LLVMFuzzerTestOneInput`. The specific call in the fuzz target that triggers this path is at line 240: `cmsHTRANSFORM hTransform = cmsCreateTransform(hIT8Profile, TYPE_RGB_8, NULL, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);`.",
+    "[2.5. Materialization Check]: The fuzz target materializes a profile from the fuzzer input. It writes the input `data` to a file, then calls `cmsCreateDeviceLinkFromCubeFileTHR(ctx, filename)` to create `hIT8Profile`. This profile handle is then passed to `cmsCreateTransform`, where its internal properties, such as device class and tags, are inspected by the conditions leading to the blocker. The state derived from the input is directly used.",
+    "[3A. Setter / Transition Evidence]: The two conditions for reaching the blocked code depend on the properties of the `hIT8Profile` object. First, `cmsGetDeviceClass` must return `cmsSigLinkClass`. The profile is created with `cmsCreateDeviceLinkFromCubeFileTHR`, which is designed to create device link profiles, so this condition is satisfiable. Second, `cmsIsTag` must find the `cmsSigColorantTableOutTag`. The tags present in a profile are determined by the content of the file it was created from. Since the file content is the raw fuzzer input, the fuzzer can construct a file that contains this tag.",
+    "[3B. Survival / Feasibility Check]: The runtime path shows a direct sequence of calls from the fuzz target to the blocker function. In `cmsCreateTransformTHR`, `nProfiles` is set to 1, and `hProfiles[0]` becomes `hIT8Profile`. In `cmsCreateExtendedTransform`, the checks are performed on `hProfiles[0]`. If the fuzzer provides an input file that defines a device link profile containing a `cmsSigColorantTableOutTag`, both conditions at lines 1236 and 1239 will be met, and execution will reach the blocked code at line 1242. There are no other logical paths or early exits in the provided code that would prevent this.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The predicate depends on semantic properties (the device class and the presence of a specific tag) of a profile object. These properties are not a direct copy of the input bytes but are derived from the structure and content of the input file parsed by the library. Since the input file's content is fully controlled by the fuzzer, the blocker is input-dependent."
+  ]
+}

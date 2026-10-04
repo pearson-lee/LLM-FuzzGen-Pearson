@@ -1,0 +1,32 @@
+{
+  "case_id": "tomlplusplus_toml_v3_stdopt_operator_toml_v3_stdopt_date_time_const_toml_v3_stdopt_date_time__427",
+  "project_name": "tomlplusplus",
+  "function_name": "toml::v3::stdopt::operator<=(toml::v3::stdopt::date_time const&, toml::v3::stdopt::date_time const&)",
+  "branch_line_number": 427,
+  "blocked_side_line_number": 428,
+  "target_name": "llm_fuzzgen0727161637",
+  "target_source_path": "external/oss-fuzz/projects/tomlplusplus/llm_fuzzgen0727161637.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_generation",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target"
+  ],
+  "pipeline_output_dir": "experiments/20260806_154151_run_all_fuzzer/blockers/blocker_427_2fcb6d9e7727/symbolic_run/tomlplusplus_blocker_427_2fcb6d9e7727_symbolic_run_20260806_231438",
+  "historical_reason": "The blocker is Input Dependent. The predicate `if (lhs.time != rhs.time)` compares fields of `date_time` objects that are parsed directly from the fuzzer-generated input string. To unblock the branch, the input TOML must contain at least two `date_time` values that share the same date but have different times (e.g., `arr = [2024-08-06T10:00:00, 2024-08-06T11:00:00]`). The current fuzz target's use of `FuzzedDataProvider::ConsumeRandomLengthString` is capable of generating such input. The reason the branch is blocked is simply that the fuzzer has not yet produced this specific data format. The program logic does not inherently prevent this condition from being met.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (lhs.time != rhs.time)` at line 427 in the function `toml::v3::stdopt::operator<=(toml::v3::stdopt::date_time const&, toml::v3::stdopt::date_time const&)`. The branch hit count is 162, indicating that this line of code is executed. The blocked side at line 428 is never reached, which means the condition `lhs.time != rhs.time` always evaluates to false. This implies that for the 162 times execution reached this point, it was always the case that `lhs.time == rhs.time`. The fact that this line is reached at all suggests that a preceding condition, likely `lhs.date == rhs.date`, must have been true in those 162 cases.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 428 is the body of the `if` statement at line 427. To reach it, the condition `lhs.time != rhs.time` must evaluate to `true`. Therefore, the goal is to have two `date_time` objects, `lhs` and `rhs`, where their `date` components are equal, but their `time` components are different.",
+    "[2. Fuzz Target Call Site]: The runtime evidence points to line 348 in the fuzz target `llm_fuzzgen0727161637.cc` as the origin of the call chain. The specific line is: `if (fdp.ConsumeBool()) sink += (*dt <= *first_date_time);`. This code is executed within a loop that traverses the nodes of a TOML structure parsed from an input string.",
+    "[2.5. Materialization Check]: The fuzz target correctly materializes and consumes the state relevant to the blocker. It first parses a TOML string using `toml::parse`. It then traverses the resulting node graph. The `view.as_date_time()` method extracts `toml::date_time` objects. The first such object is stored in `first_date_time`, and subsequent objects (`dt`) are compared against it using the `<=` operator, directly triggering the blocked function. The `date` and `time` members that are compared in the predicate are derived directly from this materialized state.",
+    "[3A. Setter / Transition Evidence]: The `lhs` and `rhs` `date_time` objects are created and populated by the `toml::parse` function based on the content of `toml_string`. The primary source of this string is `fdp.ConsumeRandomLengthString(...)`, which can produce arbitrary text. A valid TOML input, such as `arr = [2024-01-01T10:00:00, 2024-01-01T11:00:00]`, would create two `date_time` objects with the same date but different times. The fuzzer is capable of generating this input. The hardcoded `date_time` values appended by the fuzzer have different dates and thus are not relevant to reaching the specific blocked predicate, but they do not prevent the random data from doing so. No data starvation is detected.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides an input string that defines two `date_time` objects with the same date but different times, the `toml::parse` function will create these objects. The fuzzer's node traversal logic will then find them and pass them to the `<=` operator. There is no logic between parsing and comparison that would alter the values or prevent the comparison from happening. The required state (`lhs.date == rhs.date` and `lhs.time != rhs.time`) can be created from the input and will survive to the predicate check.",
+    "[4. Rule Application]: Rule 1 (Direct Data Flow) applies. The values of `lhs.time` and `rhs.time` in the predicate are directly determined by parsing the input string provided by the fuzzer. The fuzzer is capable of generating input that would make the predicate true, but it has not yet found the specific byte sequence to do so."
+  ],
+  "source_experiment": "20260806_154151_tomlplusplus",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

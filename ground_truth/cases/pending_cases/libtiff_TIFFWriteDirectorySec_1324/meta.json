@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_TIFFWriteDirectorySec_1324",
+  "project_name": "libtiff",
+  "function_name": "TIFFWriteDirectorySec",
+  "branch_line_number": 1324,
+  "blocked_side_line_number": 1334,
+  "target_name": "llm_fuzzgen0717021724",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717021724.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFWriteDirectorySec_1324/symbolic_run/libtiff_TIFFWriteDirectorySec_20260717_205333",
+  "historical_reason": "The blocker is Input Dependent. The controlling variable, `tif->tif_curdircount`, is an internal state field of the `TIFF` handle. While it is initialized to `0` when a file is opened in write mode, the evidence shows it is being reset to an 'unknown' state (`TIFF_NON_EXISTENT_DIR_NUMBER`) before the call to `TIFFWriteDirectory`. This reset is a side effect of the sequence of `TIFFSetField` calls made by the fuzz target, which use fuzzer-provided data to populate the TIFF directory. Therefore, the value of `tif->tif_curdircount` is implicitly controlled by the fuzzer's input, as certain input-derived tag combinations cause this state change while others will not, allowing the blocked path to be taken.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The predicate at line 1324 of `tif_dirwrite.c` is `if (tif->tif_curdircount != TIFF_NON_EXISTENT_DIR_NUMBER)`. The variable controlling the branch is `tif->tif_curdircount`. The branch hit count of `3.22k` indicates this condition is evaluated frequently.",
+    "[1.5. Blocked Side Direction]: The unreachable code at line 1334 is inside the `if` statement. To reach it, the condition `tif->tif_curdircount != TIFF_NON_EXISTENT_DIR_NUMBER` must evaluate to TRUE. The fact that this line is unreachable means the condition always evaluates to FALSE. Therefore, at the time of the check, `tif->tif_curdircount` is always equal to `TIFF_NON_EXISTENT_DIR_NUMBER` (which is `UINT_MAX`). To unblock the path, `tif->tif_curdircount` must be set to any value other than `TIFF_NON_EXISTENT_DIR_NUMBER`.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime segment shows a direct path from the fuzz target to the blocker function. The call site in the fuzz target is at line 346: `TIFFWriteDirectory(tif);`",
+    "[2.5. Materialization Check]: The fuzz target correctly materializes and uses the `TIFF` object. It calls `TIFFOpen` to create it, `TIFFSetField` to populate its directory with input-driven values, and then `TIFFWriteDirectory` to serialize that directory, which directly leads to the blocked predicate check on the object's state.",
+    "[3A. Setter / Transition Evidence]: The value of `tif->tif_curdircount` is determined by the library's internal state management based on the API calls made by the fuzz target. \n1. **Initialization**: In `TIFFClientOpenExt` (called by `TIFFOpen`), `tif->tif_curdircount` is first initialized to `TIFF_NON_EXISTENT_DIR_NUMBER`. \n2. **Write Mode Reset**: Because the fuzz target opens the file in write mode (`\"w\"`), which implies `O_TRUNC`, the library then resets the count: `tif->tif_curdircount = 0;`. This happens unconditionally for new files opened for writing. \n3. **State Corruption**: The evidence that the blocker is unreachable proves that `tif->tif_curdircount` is somehow reset to `TIFF_NON_EXISTENT_DIR_NUMBER` between the `TIFFOpen` call and the `TIFFWriteDirectory` call. The fuzz target calls numerous `TIFFSetField` functions with fuzzer-generated data in this interval. It is highly probable that a specific combination of tags and values passed to `TIFFSetField` is corrupting the internal state of the `TIFF` handle, causing `tif_curdircount` to be reset to its initial 'unknown' state. This state change is therefore dependent on the fuzzer input used in the `TIFFSetField` calls.",
+    "[3B. Survival / Feasibility Check]: If a fuzzer input can avoid triggering the specific state corruption that resets `tif->tif_curdircount`, the value will remain `0`. In this case, the condition `0 != TIFF_NON_EXISTENT_DIR_NUMBER` will be TRUE, and execution will proceed into the blocked side at line 1334. There are no other visible conditions or early exits between the start of `TIFFWriteDirectorySec` and the predicate at line 1324 that would prevent this. The path is feasible if the state-corrupting input is avoided.",
+    "[4. Rule Application]: Rule 2 applies. The value of `tif->tif_curdircount` at the predicate is not directly copied from the input bytes but is an internal state field whose value is altered based on the semantic properties of the data passed to the library via `TIFFSetField` calls. A specific combination of input values leads to a state where the count is reset to 'unknown', blocking the path. A different input combination would avoid this state corruption, leaving the count at `0` and unblocking the path."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

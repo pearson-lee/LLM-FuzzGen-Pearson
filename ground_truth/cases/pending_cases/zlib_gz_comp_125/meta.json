@@ -1,0 +1,33 @@
+{
+  "case_id": "zlib_gz_comp_125",
+  "project_name": "zlib",
+  "function_name": "gz_comp",
+  "branch_line_number": 125,
+  "blocked_side_line_number": 126,
+  "target_name": "llm_fuzzgen0713210828",
+  "target_source_path": "external/oss-fuzz/projects/zlib/llm_fuzzgen0713210828.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight"
+  ],
+  "pipeline_output_dir": "experiments/20260714_035206_run_all_fuzzer/blockers/gz_comp_125/symbolic_run/zlib_gz_comp_20260714_074111",
+  "historical_reason": "The fuzz blocker is classified as **Input Dependent**. The blocked branch is taken if the `deflate` function returns `Z_STREAM_ERROR`. The return value of `deflate` depends on its internal stream state. This state is constructed and modified based on a sequence of API calls (`gzwrite`, `gzsetparams`) whose arguments, including the data to be compressed, are derived from the fuzzer input. Therefore, the fuzzer's input data semantically controls the conditions that could lead to the `Z_STREAM_ERROR` state, making the blocker dependent on the input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (ret == Z_STREAM_ERROR)` at line 125 in `gz_comp`. The variable `ret` is assigned the return value of the `deflate(strm, flush)` call on the preceding line, 124. The branch condition is executed 71.4k times, indicating that the `deflate` function is called frequently, but it has never returned `Z_STREAM_ERROR` in this context.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 126, `gz_error(state, Z_STREAM_ERROR, ...)`, is executed if the condition `ret == Z_STREAM_ERROR` evaluates to TRUE. Therefore, the goal is to make the `deflate()` function return `Z_STREAM_ERROR`.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime trace shows that the execution path originates in `LLVMFuzzerTestOneInput`. Specifically, the call that initiates the sequence leading to the blocker is `gzflush(file, Z_SYNC_FLUSH);` at line 148 of the fuzz target code.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes and consumes the state required to influence the blocker. It creates a `gzFile` handle, which contains the compression stream state (`z_stream`). It then modifies this state by writing fuzzer-controlled data (`gzwrite(file, data, size)`) and setting fuzzer-controlled parameters (`gzsetparams(file, data[1], data[2])`). The subsequent call to `gzflush` consumes this modified state, leading to the call to `deflate`, whose behavior is dependent on that state.",
+    "[3A. Setter / Transition Evidence]: The target variable `ret` is set by `ret = deflate(strm, flush)`. The return value of `deflate` is dependent on the internal state of the compression stream (`strm->state`) and the `flush` parameter. The `flush` parameter is hardcoded to `Z_SYNC_FLUSH` in the fuzz target. The stream state, however, is a direct result of previous operations driven by fuzzer input. The `deflate` function can return `Z_STREAM_ERROR` if the stream is in an inconsistent state (e.g., as checked by `deflateStateCheck` or other internal logic like `s->status == FINISH_STATE && flush != Z_FINISH`). This internal status is not directly set but is a semantic property derived from the entire history of input data processed via `gzwrite` and parameters set via `gzsetparams`. A specific sequence and content of input bytes can theoretically drive the compression state machine into a configuration that is considered invalid or corrupt, causing `deflate` to return `Z_STREAM_ERROR`.",
+    "[3B. Survival / Feasibility Check]: If the call to `deflate` at line 124 returns `Z_STREAM_ERROR`, the value is immediately used in the `if` condition at line 125. There are no intermediate assignments, function calls, or control flow statements that could alter the value of `ret` before the check. Therefore, if the required value can be produced, it will survive to the predicate, and the blocked branch will be taken.",
+    "[4. Rule Application]: The blocker's reachability depends on the return value of the `deflate` function. This function's behavior is governed by an internal state machine whose state is a complex, semantic property of the input data it has processed. The fuzzer supplies the input data via `gzwrite` and influences the state machine's configuration via `gzsetparams`. Because the predicate depends on a state derived from processing the fuzzer's input, the blocker is Input Dependent (Rule 2)."
+  ],
+  "source_experiment": "20260714_035206_zlib",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

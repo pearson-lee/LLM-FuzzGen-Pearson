@@ -1,0 +1,48 @@
+{
+  "case_id": "libpcap_gen_scode_7226",
+  "project_name": "libpcap",
+  "function_name": "gen_scode",
+  "branch_line_number": 7226,
+  "blocked_side_line_number": 7229,
+  "target_name": "llm_fuzzgen0710214309",
+  "target_source_path": "external/oss-fuzz/projects/libpcap/llm_fuzzgen0710214309.c",
+  "source_file": "gencode.c",
+  "predicate": "if (eaddr == NULL)",
+  "blocked_side_code": "b = gen_ipfchostop(cstate, eaddr, dir);",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260720_232522_run_all_fuzzer/blockers/gen_scode_7226/symbolic_run/libpcap_gen_scode_20260722_150044",
+  "source_experiment": "20260720_232522_libpcap",
+  "verification_status": "manually_verified",
+  "verification_program": "verify_poc.c",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 6: System Resource Failure / External Environment Dependency & Rule 3: Observed-Path Invariants",
+  "refined_triage_label": "External Resource Failure",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "阻礙條件位於 gencode.c:7226：`if (eaddr == NULL)`。要進入第 7229 行未覆蓋目標程式碼（`b = gen_ipfchostop(cstate, eaddr, dir);`），條件式必須 evaluate 為 FALSE（亦即指標 `eaddr != NULL`），以避開第 7227 行呼叫 `bpf_error` 執行 longjmp 中斷編譯。",
+    "step_2_producer_and_input_control": "指標 `eaddr` 於第 7225 行被賦值：`eaddr = pcap_ether_hostton(name);`。在 Fuzz Target（llm_fuzzgen0710214309.c）中，`data[0]` 被用於指定 linktype（DLT_IP_OVER_FC = 122），過濾字串由 `data+2` 拷貝為 `filter_string` 傳入 `pcap_compile`。當輸入為 `ether host <name>` 時，Parser 將主機名稱字串傳入 `gen_scode`。",
+    "step_3_survival_and_path_invariants": "深入追查 nametoaddr.c:859-910 之 `pcap_ether_hostton` 實作：該函式完全依賴系統靜態檔案 PCAP_ETHERS_FILE（即 `/etc/ethers`）。但在標準 Linux 系統與 OSS-Fuzz Docker 容器環境中，`/etc/ethers` 檔案預設根本不存在。當該檔案缺失時，`fopen` 恆回傳 NULL（glibc `ether_hostton` 亦回傳 -1），導致 `pcap_ether_hostton` 對於全域任何輸入字串恆回傳 NULL。此外，若輸入為實體 MAC 位址（如 00:11:22:33:44:55），Lexer 會將其識別為 EID 並由 Bison 語法規則路由至 `gen_ecode`（gencode.c:7731），完全不會進入 `gen_scode`。因此在任何能進入 `gen_scode` 的路徑上，`eaddr` 恆為 NULL，第 7226 行恆為 TRUE，目標行 7229 在現行環境下為絕對死碼。",
+    "step_4_alternative_path_and_feasibility": "歷史 LLM 產生模式匹配幻覺（誤以為只要輸入猜中主機名稱即可解鎖），將其誤判為 Input Dependent。這導致下游的 LLM 種子生成器、SymCC 探針與多輪 replan 耗費大量算力反覆嘗試求解，最終全數失敗。該阻擋點本質係因缺失外部環境資料庫，非種子生成或目標變異能力所能解決。",
+    "step_5_final_adjudication": "在現行執行環境下，任何 Fuzzer 輸入皆不可能使 `pcap_ether_hostton` 回傳非空指標。裁決為 Input Independent（Rule 6: System Resource Failure & Rule 3: Observed-Path Invariants），Refined Triage Label 為 External Resource Failure（缺失外部環境檔案 /etc/ethers），include_in_solver_evaluation: false。"
+  },
+  "ground_truth_reason": "[Step 1: 目標條件] 進入第 7229 行（b = gen_ipfchostop(...)）需滿足 eaddr != NULL（if (eaddr == NULL) 評定為 FALSE）。\n[Step 2: 生產者] eaddr 來自 pcap_ether_hostton(name)，而 name 來自輸入經 Bison 解析之主機名稱 token。\n[Step 3: 存活與路徑不變量] pcap_ether_hostton 嚴格依賴系統檔案 /etc/ethers，但在標準 Linux/Fuzzing 環境中該檔案預設不存在（fopen 恆失敗），使函式對任何字串輸入恆回傳 NULL。若輸入為實體 MAC 位址則會被語法規則分流至 gen_ecode，永不進入 gen_scode。因此 eaddr == NULL 為路徑不變量，第 7229 行恆不可達。\n[Step 4: 歷史誤判分析] 歷史 LLM 產生模式匹配偏誤誤判為 Dependent，導致下游 5 種求解方法全數失敗，浪費大量計算資源。\n[Step 5: 裁決] Input Independent（Rule 6: External Environment Dependency & Rule 3: Observed-Path Invariants）；Refined Label: External Resource Failure；include_in_solver_evaluation: false。",
+  "historical_reason": "The blocker predicate `if (eaddr == NULL)` depends on the return value of `pcap_ether_hostton(name)`. The `name` parameter is parsed directly from the fuzzer-provided `filter_string`. The `pcap_ether_hostton` function returns a non-NULL pointer if `name` matches a hostname in the system's `/etc/ethers` file. To unblock the predicate, the fuzzer must provide a `filter_string` containing a valid hostname and set the first byte of the input to `DLT_IP_OVER_FC` (122) to select the correct `linktype`. Since the fuzzer can generate arbitrary strings, it is capable of producing an input that matches a valid hostname, making the blocker input-dependent.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The target variable is `eaddr`, a `u_char *` pointer, checked in the predicate `if (eaddr == NULL)` at line `7226` of `/src/libpcap/gencode.c`. The branch hit count is `1`, indicating the predicate was reached, but the blocked side was not, meaning `eaddr` was `NULL` in the single execution that reached this line.",
+    "[1.5. Blocked Side Direction]: The blocked side, `b = gen_ipfchostop(cstate, eaddr, dir);` at line `7229`, is within the `if` statement's body. However, the logic is inverted: the `if` block contains an error-handling path (`bpf_error(...)`), and the code that follows is the success path. The `bpf_error` call uses `longjmp`, so it does not return. Therefore, to reach line `7229`, the condition `eaddr == NULL` at line `7226` must evaluate to **FALSE**. This requires `eaddr` to be a non-NULL pointer.",
+    "[2. Fuzz Target Call Site]: The fuzz target initiates the execution path via the call to `pcap_compile` at line `68` of `llm_fuzzgen0710214309.c`: `if (pcap_compile(p, &fcode, filter_string, optimize, PCAP_NETMASK_UNKNOWN) == 0)`. The `filter_string` argument is derived directly from the fuzzer input `data`, and the `pcap_t *p` handle is created with a `linktype` also derived from `data`.",
+    "[2.5. Materialization Check]: The fuzz target's input `filter_string` is parsed by `pcap_compile`. The runtime stack shows that `pcap_parse` calls `gen_scode`, and the grammar file (`grammar.y:451`) confirms that a token from the filter string is passed as the `name` argument to `gen_scode`. Inside `gen_scode`, this `name` is passed to `pcap_ether_hostton`, and the return value is assigned to `eaddr`, which is the variable in the blocked predicate. The input is fully materialized and consumed.",
+    "[3A. Setter / Transition Evidence]: The variable `eaddr` is assigned at `gencode.c:7225`: `eaddr = pcap_ether_hostton(name);`. This assignment occurs on the observed runtime path. For this path to be taken, `cstate->linktype` must be `DLT_IP_OVER_FC` (value 122), which is controlled by `data[0]` in the fuzz target. The `name` argument is part of the fuzzer-controlled `filter_string`. The function `pcap_ether_hostton` (in `nametoaddr.c`) attempts to open `/etc/ethers` and searches for an entry whose name matches the `name` parameter. If a match is found, it allocates memory for the corresponding ethernet address and returns a non-NULL pointer. If the file cannot be opened or no match is found, it returns `NULL`.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides a `filter_string` containing a hostname that exists in the `/etc/ethers` file of the fuzzing environment, `pcap_ether_hostton` will return a non-NULL pointer. This non-NULL value will be assigned to `eaddr`. The subsequent check `if (eaddr == NULL)` will be false, causing execution to bypass the `bpf_error` call and proceed directly to the blocked code at line `7229`. There are no other conditions or early exits between the assignment to `eaddr` and the check that would prevent a non-NULL value from reaching the predicate.",
+    "[4. Rule Application]: The value of the predicate variable `eaddr` is determined by the return value of `pcap_ether_hostton`, which takes the fuzzer-controlled `name` string as input. Although the function's success depends on an environmental factor (the contents of `/etc/ethers`), the key used for the lookup is directly supplied by the fuzzer input. The fuzzer can generate arbitrary strings, including one that matches a valid hostname in the environment. This constitutes a direct data flow from the input to the predicate. Therefore, the blocker is **Input Dependent** under **Rule 1: Direct Data Flow**."
+  ]
+}

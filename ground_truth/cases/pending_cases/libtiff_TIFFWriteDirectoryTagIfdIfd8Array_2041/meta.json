@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_TIFFWriteDirectoryTagIfdIfd8Array_2041",
+  "project_name": "libtiff",
+  "function_name": "TIFFWriteDirectoryTagIfdIfd8Array",
+  "branch_line_number": 2041,
+  "blocked_side_line_number": 2042,
+  "target_name": "llm_fuzzgen0717053529",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717053529.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFWriteDirectoryTagIfdIfd8Array_2041/symbolic_run/libtiff_TIFFWriteDirectoryTagIfdIfd8Array_20260718_190449",
+  "historical_reason": "The blocked predicate checks if the `TIFF_BIGTIFF` flag is set in the `tif->tif_flags` field. This flag is set by the `TIFFOpen` function based on the header of the TIFF file being processed. The fuzz target creates the TIFF file directly from the raw fuzzer input bytes. Therefore, by providing input that represents a valid BigTIFF file header, the fuzzer can control the value of the `TIFF_BIGTIFF` flag, satisfying the condition and reaching the blocked code. This establishes a direct data dependency.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (tif->tif_flags & TIFF_BIGTIFF)` at line 2041 in `tif_dirwrite.c`. The target variable is the `tif_flags` field of the `TIFF` structure, specifically the `TIFF_BIGTIFF` bit. The branch hit count of 1 indicates the condition was evaluated, but for the given seed, it evaluated to false.",
+    "[1.5. Blocked Side Direction]: The blocked side, starting at line 2042 with the call to `TIFFWriteDirectoryTagCheckedIfd8Array`, is inside the `if` statement. To reach this line, the condition `tif->tif_flags & TIFF_BIGTIFF` must evaluate to true, meaning the `TIFF_BIGTIFF` flag must be set in `tif->tif_flags`.",
+    "[2. Fuzz Target Call Site]: The `tif` object is initialized via `TIFF *tif = TIFFOpen(filename, \"r+\");` at line 31 of the fuzz target. The content of the file opened here is derived directly from the fuzzer input. The execution path leading to the blocker is initiated by the call to `TIFFWriteDirectory(tif);` at line 48.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes the state required. It writes fuzzer data to a file, then calls `TIFFOpen` which parses this data to initialize the `tif` object, including its `tif_flags`. This `tif` object, with its flags now set based on the input file content, is then passed to `TIFFWriteDirectory`, which leads to the blocker. The state is created from input and directly consumed by the function path containing the blocker.",
+    "[3A. Setter / Transition Evidence]: The `TIFF_BIGTIFF` flag is set within `TIFFClientOpenExt` (called by `TIFFOpen`). The static source code for `TIFFClientOpenExt` shows that it reads the TIFF header from the file. If the header version is `TIFF_VERSION_BIG`, it sets `tif->tif_flags |= TIFF_BIGTIFF;` (line 431 of `tif_open.c`). The fuzz target writes the raw fuzzer input to the file that `TIFFOpen` reads: `const std::vector<uint8_t> tiff_data = fdp.ConsumeRemainingBytes<uint8_t>(); ... fwrite(tiff_data.data(), 1, tiff_data.size(), fp);`. Therefore, the fuzzer input directly controls the header bytes that determine whether the `TIFF_BIGTIFF` flag is set. No data starvation occurs.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides input that constitutes a valid BigTIFF header, `TIFFOpen` will set the `TIFF_BIGTIFF` flag on the `tif` object. This flag is part of the core `tif` struct and persists for the lifetime of the object. The fuzz target performs no operations between `TIFFOpen` and `TIFFWriteDirectory` that would unset this flag. Therefore, the state set by the input-controlled header will survive to the predicate check at line 2041.",
+    "[4. Rule Application]: Rule 1: Direct Data Flow. The predicate variable `tif->tif_flags` is determined by parsing a file header. The bytes of this file header are directly copied from the fuzzer's input buffer. This is a direct data flow from the input to the state checked in the predicate."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

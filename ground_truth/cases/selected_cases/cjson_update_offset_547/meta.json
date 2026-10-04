@@ -1,0 +1,28 @@
+{
+  "case_id": "cjson_update_offset_547",
+  "project_name": "cjson",
+  "function_name": "update_offset",
+  "branch_line_number": 547,
+  "blocked_side_line_number": 549,
+  "target_name": "llm_fuzzgen0721221311",
+  "target_name_eval": "llm_fuzzgen_reference_guided_0725092654_414996",
+  "target_source_path": "external/oss-fuzz/projects/cjson/llm_fuzzgen0721221311.cc",
+  "source_file": "/src/cjson/cJSON.c",
+  "predicate": "if ((buffer == NULL) || (buffer->buffer == NULL))",
+  "blocked_side_code": "return;",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants",
+  "refined_triage_label": "Internal Invariant Guard",
+  "include_in_solver_evaluation": false,
+  "verification_status": "manually_verified",
+  "verified_in_experiment": "experiments/20260724_025850_cjson",
+  "historical_fp_experiment": "experiments/20260912_204239_run_all_fuzzer",
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "Blocked side (line 549: return;) requires `buffer == NULL` or `buffer->buffer == NULL`.",
+    "step_2_producer_and_input_control": "`buffer` is allocated on the stack of `print()`, so `buffer != NULL`. `buffer->buffer` is allocated via `hooks->allocate`.",
+    "step_3_survival_and_path_invariants": "If allocation fails, line 1218 executes `if (buffer->buffer == NULL) goto fail;` and exits `print()` immediately without calling `update_offset()`. Furthermore, all intermediate calls to `ensure()` check reallocation failure and branch to `goto fail;`, strictly guarding all invocations of `update_offset(buffer)`.",
+    "step_4_alternative_path_and_feasibility": "No public API route allows passing a NULL buffer to `update_offset`, as it is an internal static formatting helper.",
+    "step_5_final_adjudication": "Whenever execution reaches line 547, `buffer->buffer` is mathematically guaranteed to be non-NULL. Blocked side is unreachable dead code on the observed path. Classified as Input Independent (Rule 3); Refined Label: Internal Invariant Guard; include_in_solver_evaluation: false."
+  },
+  "ground_truth_reason": "[Step 1: Predicate] Reaching line 549 requires `buffer == NULL` or `buffer->buffer == NULL`.\n[Step 2: Producer] `buffer` is on the stack of `print()` (never NULL). `buffer->buffer` is allocated via `hooks->allocate`.\n[Step 3: Survival] If allocation fails, line 1218 immediately executes `goto fail;` and exits `print()`, never calling `update_offset()`. Inner `ensure()` reallocations also branch to `goto fail;` upon failure.\n[Step 4: Alternative Path] `update_offset` is an internal static helper without external direct call sites.\n[Step 5: Adjudication] Input Independent (Rule 3: Observed-Path Invariants); Refined Label: Internal Invariant Guard; include_in_solver_evaluation: false."
+}

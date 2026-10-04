@@ -1,0 +1,33 @@
+{
+  "case_id": "zlib_inflateBack_540",
+  "project_name": "zlib",
+  "function_name": "inflateBack",
+  "branch_line_number": 540,
+  "blocked_side_line_number": 541,
+  "target_name": "llm_fuzzgen0713203258",
+  "target_source_path": "external/oss-fuzz/projects/zlib/llm_fuzzgen0713203258.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight"
+  ],
+  "pipeline_output_dir": "experiments/20260714_035206_run_all_fuzzer/blockers/inflateBack_540/symbolic_run/zlib_inflateBack_20260714_210639",
+  "historical_reason": "The blocker is Input Dependent. The predicate `(here.op & 0xf0) == 0` in `inflateBack` checks a property of a Huffman decoding code, `here`. This code is read from the `lencode` table, which is dynamically constructed based on code lengths read from the fuzzer-provided input stream. Therefore, the value of `here.op` is directly controlled by the semantic content of the input data. By providing a correctly formatted compressed stream, the fuzzer can generate a Huffman table that includes codes satisfying the predicate, allowing execution to reach the blocked side at line 541.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if ((here.op & 0xf0) == 0)` at line 540 in the function `inflateBack`. The target variable is `here.op`. The branch has been executed 21.3k times, indicating the predicate is frequently evaluated, but the condition for entering the blocked side has never been met.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 541, `last = here;`, is executed if the condition `(here.op & 0xf0) == 0` evaluates to TRUE. This requires the upper four bits of the `here.op` variable to be zero.",
+    "[2. Fuzz Target Call Site]: The runtime path shows that `inflateBack` is called from `LLVMFuzzerTestOneInput`. The specific call site is in the fuzz target at line 81: `inflateBack(&strm, fuzz_in_func, &fuzz_data, fuzz_out_func, NULL);`.",
+    "[2.5. Materialization Check]: The fuzz target correctly materializes the input. It passes the raw fuzzer input `data` to the `inflateBack` function via the `fuzz_in_func` callback. The `inflateBack` function then processes this data as a compressed stream. The variable `here` and its `op` field are derived from decoding this input stream.",
+    "[3A. Setter / Transition Evidence]: The value of `here` is assigned at line 536: `here = state->lencode[BITS(state->lenbits)];`. The `here` variable is a `code` struct read from the `lencode` table, which serves as the Huffman decoding table for literal/length codes. This table is constructed within the `TABLE` case of the function's main switch statement (lines 325-456). Specifically, the call to `inflate_table` at line 440 populates `state->lencode`. The data used to build this table, `state->lens`, is read directly from the fuzzer-provided input stream in the preceding loops (e.g., lines 382-423). Therefore, the `op` field of the `here` struct is entirely determined by the content of the compressed data provided by the fuzzer.",
+    "[3B. Survival / Feasibility Check]: If the condition `(here.op & 0xf0) == 0` is satisfied, execution enters the `if` block at line 540. The code within this block proceeds to perform a second-level table lookup. There are no early returns, `goto` statements, or other control flow mechanisms that would prevent the execution of line 541. The ability to satisfy the condition is solely dependent on the fuzzer generating an input stream that results in a Huffman table with the necessary `op` code structure. There is no visible invariant preventing this.",
+    "[4. Rule Application]: Rule 2 applies. The predicate `(here.op & 0xf0) == 0` depends on `here.op`, a value that represents a structural or semantic property of the compressed input data. The `op` field is part of a Huffman decoding table that is dynamically built from the input stream. Crafting the input bytes to form a specific Huffman table structure can satisfy the condition."
+  ],
+  "source_experiment": "20260714_035206_zlib",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

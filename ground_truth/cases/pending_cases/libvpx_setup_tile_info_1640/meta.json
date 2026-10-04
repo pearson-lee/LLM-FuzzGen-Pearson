@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_setup_tile_info_1640",
+  "project_name": "libvpx",
+  "function_name": "setup_tile_info",
+  "branch_line_number": 1640,
+  "blocked_side_line_number": 1641,
+  "target_name": "llm_fuzzgen_reference_guided_0727004829_707547",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727004829_707547.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/setup_tile_info_1640/symbolic_run/libvpx_setup_tile_info_20260727_082241",
+  "historical_reason": "The blocker is classified as 'Input Dependent'. The predicate `if (cm->log2_tile_cols > 6)` in the `setup_tile_info` function is controlled by the variable `cm->log2_tile_cols`. The source code for this function reveals that the value of `cm->log2_tile_cols` is calculated based on bits read from the input stream via `vpx_rb_read_bit(rb)`. Since the bitstream buffer `rb` is populated with data from the fuzzer's input, the fuzzer can directly control the value of `cm->log2_tile_cols` by providing a crafted bit pattern. This allows the fuzzer to make the condition true and reach the blocked code.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (cm->log2_tile_cols > 6)` at line 1640 in the function `setup_tile_info`. The target variable is `cm->log2_tile_cols`. The branch hit count of `33.7k` confirms that this line of code is executed, but the condition required to enter the blocked side is never met.",
+    "[1.5. Blocked Side Direction]: The blocked side, an error-handling call at line 1641, is executed if the condition `cm->log2_tile_cols > 6` evaluates to TRUE. Therefore, the analysis must determine if the fuzzer input can cause `cm->log2_tile_cols` to become greater than 6.",
+    "[2. Fuzz Target Call Site]: The runtime trace shows the execution path starts from `LLVMFuzzerTestOneInput` and enters the library via `vpx_codec_decode`. The corresponding line in the fuzz target is `err = vpx_codec_decode(&codec, fuzzer_data_ptr, frame_size, nullptr, 0);` at line 179.",
+    "[2.5. Materialization Check]: The fuzz target passes the input data to `vpx_codec_decode`. The runtime trace confirms this data is processed as a video frame, leading through `vp9_decode_frame` and `read_uncompressed_header` to the `setup_tile_info` function. This demonstrates that the input data is being fully materialized and parsed by the code path containing the blocker.",
+    "[3A. Setter / Transition Evidence]: The value of `cm->log2_tile_cols` is determined within the `setup_tile_info` function itself. The source code shows its value is set by the following logic: `cm->log2_tile_cols = min_log2_tile_cols; while (max_ones-- && vpx_rb_read_bit(rb)) cm->log2_tile_cols++;`. The function `vpx_rb_read_bit(rb)` reads a single bit from the input buffer `rb`. The runtime stack shows that `rb` is initialized from the fuzzer input data passed to `vpx_codec_decode`. Consequently, the final value of `cm->log2_tile_cols` is directly controlled by the sequence of bits present in the fuzzer-provided data.",
+    "[3B. Survival / Feasibility Check]: The check `if (cm->log2_tile_cols > 6)` occurs immediately after the `while` loop that sets the value of `cm->log2_tile_cols`, within the same function. There is no intervening code that could modify this value. If the input data contains a specific bit pattern that causes the `while` loop to increment `cm->log2_tile_cols` to a value greater than 6, the condition will be satisfied. The path is feasible and the value survives to the check.",
+    "[4. Rule Application]: Rule 1 applies. The predicate variable `cm->log2_tile_cols` is directly computed by parsing bits from the fuzzer's input buffer. This represents a direct data flow from the input to the predicate, making the blocker input-dependent."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

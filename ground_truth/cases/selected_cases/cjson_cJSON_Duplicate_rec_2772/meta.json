@@ -1,0 +1,38 @@
+{
+  "case_id": "cjson_cJSON_Duplicate_rec_2772",
+  "project_name": "cjson",
+  "function_name": "cJSON_Duplicate_rec",
+  "branch_line_number": 2772,
+  "blocked_side_line_number": 2774,
+  "target_name": "llm_fuzzgen_reference_guided_0724141917_518251",
+  "target_source_path": "external/oss-fuzz/projects/cjson/llm_fuzzgen_reference_guided_0724141917_518251.cc",
+  "source_file": "/src/cjson/cJSON.c",
+  "predicate": "if (!newitem->valuestring)",
+  "blocked_side_code": "goto fail;",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260724_025850_run_all_fuzzer/blockers/cJSON_Duplicate_rec_2772/symbolic_run/cjson_cJSON_Duplicate_rec_20260725_093029",
+  "source_experiment": "20260724_025850_cjson",
+  "verification_status": "manually_verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 3: Observed-Path Invariants & Rule 6: System Resource Failure",
+  "refined_triage_label": "Resource-Exhaustion Guard",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason_steps": {
+    "step_1_predicate_and_target_state": "Blocked side (line 2774: goto fail;) requires `newitem->valuestring == NULL`. Because line 2769 already guards `if (item->valuestring)`, `cJSON_strdup` returns NULL if and only if `hooks->allocate` fails.",
+    "step_2_producer_and_input_control": "Memory allocation is hooked to `failing_malloc`, gated by `out_of_memory = fdp.ConsumeBool()`. If false, allocation falls back to libc malloc for <=100 bytes.",
+    "step_3_survival_and_path_invariants": "Double Lockout on observed path: (a) If out_of_memory==true, `generate_random_json` fails to allocate any JSON item, returning root=NULL; line 96 `if (root)` evaluates to false, skipping `cJSON_Duplicate` entirely. Even if reached, line 2760 `newitem = cJSON_New_Item` fails first and exits via line 2763 `goto fail;` before line 2771 is executed. (b) If out_of_memory==false, small allocation (<=101 bytes) cannot fail under normal execution.",
+    "step_4_alternative_path_and_feasibility": "Reaching line 2774 requires the prerequisite allocation at line 2760 to succeed while the allocation at line 2771 fails 10 lines later. No fuzzer input or valid API sequence can induce differential allocation failure on small buffers without external fault injection or system-level OOM.",
+    "step_5_final_adjudication": "The blocked side is unreachable via fuzzer input on the observed path. Classified as Input Independent (Rule 3 & Rule 6); Refined Label: Resource-Exhaustion Guard; include_in_solver_evaluation: false."
+  },
+  "ground_truth_reason": "[Step 1: Predicate] Reaching line 2774 requires `newitem->valuestring == NULL`, which occurs if and only if `hooks->allocate` fails inside `cJSON_strdup`.\n[Step 2: Producer] Allocations route through `failing_malloc` controlled by `out_of_memory = fdp.ConsumeBool()`.\n[Step 3: Survival (Double Lockout)] (a) If out_of_memory==true: `generate_random_json` returns NULL causing line 96 `if (root)` to skip `cJSON_Duplicate`; internally, line 2760 `newitem = cJSON_New_Item` fails first and exits at line 2763 `goto fail;`, never reaching line 2771. (b) If out_of_memory==false: standard malloc for <=101 bytes does not fail.\n[Step 4: Alternative Path] Inducing line 2760 success followed by line 2771 failure requires external allocator fault injection, which is outside the input domain.\n[Step 5: Adjudication] Input Independent (Rule 3 & Rule 6); Refined Label: Resource-Exhaustion Guard; include_in_solver_evaluation: false.",
+  "historical_reason": "The blocker is Input Dependent. The predicate `if (!newitem->valuestring)` at line 2772 becomes true if a memory allocation fails within the `cJSON_strdup` function. The fuzz target installs a custom memory allocation function, `failing_malloc`, which is designed to fail (return NULL) when a global flag `out_of_memory` is set. This flag is directly controlled by the fuzzer input via the call `out_of_memory = fdp.ConsumeBool();`. Therefore, by providing an input that sets this flag to true and also creates a JSON object with a string, the fuzzer can cause the allocation failure and reach the blocked code path."
+}

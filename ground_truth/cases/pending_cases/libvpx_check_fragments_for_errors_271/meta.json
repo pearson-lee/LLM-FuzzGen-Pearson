@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_check_fragments_for_errors_271",
+  "project_name": "libvpx",
+  "function_name": "check_fragments_for_errors",
+  "branch_line_number": 271,
+  "blocked_side_line_number": 278,
+  "target_name": "vpx_dec_fuzzer_vp8",
+  "target_source_path": null,
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/check_fragments_for_errors_271/symbolic_run/libvpx_check_fragments_for_errors_20260727_210523",
+  "historical_reason": "The blocker is Input Dependent. The predicate `!pbi->ec_active && pbi->fragments.count <= 1 && pbi->fragments.sizes[0] == 0` checks fields of the `pbi->fragments` struct. This struct's state is determined by the `update_fragments` function, which processes the `data` and `data_sz` arguments passed down from the `vpx_codec_decode` API call in the fuzz target. The fuzzer directly controls these arguments by reading a frame size from the input buffer. By providing a frame size of zero, the fuzzer can cause `data_sz` to be zero, which is expected to produce the state (`fragments.count <= 1` and `fragments.sizes[0] == 0`) required to satisfy the predicate and reach the blocked code path.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is at line 271 in `check_fragments_for_errors`: `!pbi->ec_active && pbi->fragments.count <= 1 && pbi->fragments.sizes[0] == 0`. The branch hit count is `14.0k`, indicating this condition is frequently evaluated but always returns false, preventing execution from entering the `if` block. The key variables are `pbi->ec_active`, `pbi->fragments.count`, and `pbi->fragments.sizes[0]`.",
+    "[1.5. Blocked Side Direction]: To reach the blocked side at line 278, the `if` condition at line 271 must evaluate to `true`. This requires the following state: `pbi->ec_active` must be `false`, `pbi->fragments.count` must be less than or equal to 1, and `pbi->fragments.sizes[0]` must be 0.",
+    "[2. Fuzz Target Call Site]: The fuzz target initiates the execution path by calling `vpx_codec_decode` within a loop: `err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);` at line 119 of `examples/vpx_dec_fuzzer.cc`.",
+    "[2.5. Materialization Check]: The fuzz target reads a frame size from the input data (`frame_size = mem_get_le32(data)`) and passes that chunk of data to the `vpx_codec_decode` API. The library then processes this data. Specifically, in `vp8_decode`, the `update_fragments` function is called with the fuzzer-provided data, which populates the `ctx->fragments` structure. This structure is then copied to `pbi->fragments` and its fields (`count`, `sizes`) are directly used in the predicate. This shows the fuzzer input is materialized into the state checked by the blocker.",
+    "[3A. Setter / Transition Evidence]: The predicate variables are controlled as follows:\n- `pbi->fragments`: In `vp8_decode`, `pbi->fragments` is assigned the value of `ctx->fragments`. `ctx->fragments` is populated by `update_fragments(ctx, data, data_sz, &res)`. The arguments `data` and `data_sz` are derived directly from the fuzzer's input buffer. By providing input that results in a `frame_size` of 0, the fuzzer can call `vpx_codec_decode` with `data_sz = 0`, which should logically lead to `fragments.count <= 1` and `fragments.sizes[0] == 0` to represent an empty/missing frame.\n- `pbi->ec_active`: This flag is related to error concealment. The fuzz target calls `vpx_codec_dec_init` with flags set to `0`, which disables error concealment. Therefore, `pbi->ec_active` is expected to be `false`, satisfying that part of the condition.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer generates a 0 for the 4-byte frame size, `vpx_codec_decode` will be called with `data_sz=0`. This value flows down to `update_fragments`. Assuming this function correctly sets the fragment count and size to reflect an empty frame, the state is copied to `pbi->fragments` inside `vp8_decode`. The runtime trace shows that the next function called is `vp8dx_receive_compressed_data`, which immediately calls `check_fragments_for_errors`. There are no intervening operations that would alter `pbi->fragments` between the assignment and the check. Therefore, the input-derived state survives to the predicate.",
+    "[4. Rule Application]: Rule 2 applies. The predicate depends on semantic properties of the input data. The `pbi->fragments` struct, specifically its `count` and `sizes` fields, represents the parsed structure of the video frame data provided by the fuzzer. The predicate is checking for a specific structural property (an empty frame) that is derived directly from the fuzzer's input byte stream."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

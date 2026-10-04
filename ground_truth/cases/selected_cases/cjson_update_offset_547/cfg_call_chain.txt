@@ -1,0 +1,9 @@
+Call chain (Root -> Target):
+-> depth=0 demangled=LLVMFuzzerTestOneInput file=/src/llm_fuzzgen_reference_guided_0725092654_414996.cc line=-1
+  -> depth=1 demangled=cJSON_PrintUnformatted file=/src/cjson/cJSON.c line=98
+    -> depth=2 demangled=print file=/src/cjson/cJSON.c line=1282
+      -> depth=3 demangled=print_value file=/src/cjson/cJSON.c line=1226
+        -> depth=4 demangled=print_array file=/src/cjson/cJSON.c line=1454
+          -> depth=5 demangled=print_value file=/src/cjson/cJSON.c line=1588
+            -> depth=6 demangled=print_object file=/src/cjson/cJSON.c line=1457
+              -> depth=7 demangled=update_offset file=/src/cjson/cJSON.c line=1792

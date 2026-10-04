@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_TIFFHashSetRemoveInternal_520",
+  "project_name": "libtiff",
+  "function_name": "TIFFHashSetRemoveInternal",
+  "branch_line_number": 520,
+  "blocked_side_line_number": 522,
+  "target_name": "llm_fuzzgen_reference_guided_0717223405_483741",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen_reference_guided_0717223405_483741.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFHashSetRemoveInternal_520/symbolic_run/libtiff_TIFFHashSetRemoveInternal_20260718_060326",
+  "historical_reason": "The blocker is classified as Input Dependent. The predicate `set->nIndiceAllocatedSize > 0 && set->nSize <= set->nAllocatedSize / 2` depends on the state of a hash table used to manage TIFF directories. To satisfy the condition, the hash table must first grow (incrementing `nIndiceAllocatedSize`) and then shrink (decreasing `nSize`). The fuzz target contains the necessary API calls (`TIFFWriteDirectory`, `TIFFUnlinkDirectory`, `TIFFCheckpointDirectory`) to both create and remove directories. The decision to perform these actions is controlled by `fdp.ConsumeBool()`. Therefore, a specific sequence of fuzzer inputs can drive the hash table into the required state, making the blocked code reachable without any modification to the fuzz target.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `set->nIndiceAllocatedSize > 0 && set->nSize <= set->nAllocatedSize / 2` at line 520 in `tif_hash_set.c`. The branch is executed frequently (13.0k times), but the condition always evaluates to false, as the blocked side at line 522 is never reached. The variables `nIndiceAllocatedSize`, `nSize`, and `nAllocatedSize` are internal state of a `TIFFHashSet` instance, which, based on the runtime trace, is a map used to track TIFF directories.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 522 is inside an `if` block. To reach it, the condition at line 520 must be `TRUE`. This requires two sub-conditions to be met simultaneously: `set->nIndiceAllocatedSize` must be greater than 0, AND `set->nSize` must be less than or equal to half of `set->nAllocatedSize`.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime trace shows the execution path to the blocker starts at `LLVMFuzzerTestOneInput` line 160, with the call `TIFFCheckpointDirectory(tif);`. This API call, when invoked on a TIFF handle where a directory has already been written, can trigger a directory rewrite, which involves removing the old directory's entry from the internal hash maps. Other calls like `TIFFWriteDirectory` and `TIFFUnlinkDirectory` also modify this state and are controlled by fuzzer input.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes the state required to affect the predicate. It creates, writes, and modifies TIFF directories using `TIFFCheckpointDirectory`, `TIFFWriteDirectory`, and `TIFFUnlinkDirectory`. These operations directly add and remove entries from the internal `TIFFHashSet` objects that manage directory offsets, thereby modifying the `nSize` and potentially the other predicate variables.",
+    "[3A. Setter / Transition Evidence]: The state of the `TIFFHashSet` (`set`) is determined by the history of directory operations. `set->nSize` (the number of elements) is increased by calls that create directories (e.g., `TIFFWriteDirectory`) and decreased by calls that remove them (e.g., `TIFFUnlinkDirectory`, or `TIFFRewriteDirectorySec` as seen in the trace). The variable `set->nIndiceAllocatedSize` is likely a counter for how many times the hash table has been resized upwards. For it to become greater than 0, the number of directories created (`set->nSize`) must exceed the table's initial capacity (`set->nAllocatedSize`), forcing a growth operation. All these directory operations are gated by `fdp.ConsumeBool()` in the fuzz target, meaning the sequence of insertions and removals is controlled by the fuzzer input. No data starvation is evident.",
+    "[3B. Survival / Feasibility Check]: A sequence of inputs can satisfy the condition. First, the fuzzer needs to provide input that causes enough directories to be created to trigger a hash table growth, which would set `set->nIndiceAllocatedSize > 0`. The fuzz target's structure allows for creating multiple directories. Second, the fuzzer needs to provide subsequent input that causes directories to be removed (e.g., via `TIFFUnlinkDirectory` or `TIFFCheckpointDirectory` rewrites), reducing `set->nSize` until `set->nSize <= set->nAllocatedSize / 2`. When the next removal is triggered, both conditions will be met. The state `nIndiceAllocatedSize > 0` is persistent and will survive from the growth phase to the removal phase. This entire scenario is feasible and depends only on the fuzzer generating the correct sequence of input bytes.",
+    "[4. Rule Application]: Rule 2, 'Implicit Flow & Semantic Properties', applies. The predicate variables `set->nIndiceAllocatedSize` and `set->nSize` are not directly copied from input bytes but represent semantic properties (the history of hash table growth and its current fill level) that are entirely derived from the sequence of directory creation and deletion operations. This sequence is, in turn, driven by the fuzzer input data consumed by `FuzzedDataProvider`."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

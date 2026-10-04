@@ -1,0 +1,45 @@
+{
+  "case_id": "libtiff_JPEGPreDecode_1303",
+  "project_name": "libtiff",
+  "function_name": "JPEGPreDecode",
+  "branch_line_number": 1303,
+  "blocked_side_line_number": 1311,
+  "target_name": "llm_fuzzgen0717154312",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen0717154312.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/JPEGPreDecode_1303/symbolic_run/libtiff_JPEGPreDecode_20260718_160939",
+  "historical_reason": "The blocker is Input Dependent. The predicate `TIFFjpeg_has_multiple_scans(sp)` checks if the JPEG data being decoded contains multiple scans (a property of progressive JPEGs). The runtime trace shows that the execution path leading to this check is triggered by `TIFFReadScanline` in the fuzz target. This function reads a TIFF file that was previously written by the same target. The raw image data for this file is supplied by `fdp.ConsumeData()`. Therefore, the structure of the JPEG data, including whether it has multiple scans, is directly controlled by the fuzzer's input bytes. The blocker is not reached because the fuzzer has not yet randomly generated the specific byte sequence for a valid multi-scan JPEG, but it is possible to do so with the correct input.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (TIFFjpeg_has_multiple_scans(sp))` at line 1303 in `tif_jpeg.c`. The branch hit count of `1.72k` confirms this condition is frequently evaluated. The variable `sp` is a `JPEGState` pointer, holding the state of the JPEG decompressor. The function `TIFFjpeg_has_multiple_scans` checks a property of the JPEG data stream being processed.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 1311 is within the `if` block. To reach the blocked side, the condition `TIFFjpeg_has_multiple_scans(sp)` must evaluate to TRUE. This implies the JPEG data being decoded must be structured in a way that it contains multiple scans, a characteristic of progressive JPEGs.",
+    "[2. Fuzz Target Call Site]: The dynamic evidence shows the execution path originates from the fuzz target's read phase. The specific API call launching the path is `TIFFReadScanline(tif, read_buf, i, 0)` at line 159 of the fuzz target source code.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes the necessary state. It first writes a TIFF file to disk, where the compression type can be set to JPEG and the image data is supplied by `fdp.ConsumeData()`. It then re-opens this file and reads it using `TIFFReadScanline`. This read operation triggers the JPEG decoder, which parses the image data written in the first phase. The state `sp` is derived directly from this parsed data, meaning the relevant object state is fully materialized and consumed.",
+    "[3A. Setter / Transition Evidence]: The state of `sp` is populated by `TIFFjpeg_read_header(sp, TRUE)` at line 1211 within `JPEGPreDecode`. This function parses the header of the JPEG data stream. The data stream itself is read from the TIFF file strip. The contents of this strip are determined by the first half of the fuzz target, specifically the call to `TIFFWriteScanline` which writes data from a buffer filled by `fdp.ConsumeData(scanline, scanline_size)`. Therefore, the fuzzer's input bytes directly form the JPEG data stream. A multi-scan JPEG is a valid structure according to the JPEG standard, and the fuzzer has the capability to generate such a byte stream. No data starvation is present.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides bytes that constitute a valid multi-scan JPEG stream, `TIFFjpeg_read_header` will correctly parse this property into the `sp` state. The subsequent call to `TIFFjpeg_has_multiple_scans(sp)` will then return TRUE. The code path from the header read to the conditional check is direct, with no intervening logic that would reset or invalidate this state. The blocker is not reached simply because generating a structurally correct multi-scan JPEG from random bytes is improbable but not impossible. The path is feasible given the correct input.",
+    "[4. Rule Application]: Rule 1 (Direct Data Flow) applies. The predicate `TIFFjpeg_has_multiple_scans(sp)` depends on a property derived from parsing the JPEG image data. This data is read from a file whose raw bytes are directly supplied by the fuzzer's input via `fdp.ConsumeData()`. The condition is therefore directly dependent on the fuzzer's input bytes."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "branch_hit_count": 10100,
+  "blocked_side_hit_count": 0,
+  "verification_status": "verified",
+  "ground_truth_label": "Input Independent",
+  "ground_truth_rule": "Rule 5: Structurally Unreachable API Path / Harness Architectural Limitation & Rule 3: Observed-Path Invariants",
+  "refined_triage_label": "Structurally Unreachable API Path",
+  "include_in_solver_evaluation": false,
+  "ground_truth_reason": "【Protocol 5 步審查因果推導與證明】\n- Step 1: Predicate & Target State（目標條件與分支方向）：阻礙條件位於 tif_jpeg.c:1303 的 if (TIFFjpeg_has_multiple_scans(sp))。要進入第 1311 行未覆蓋目標程式碼（toff_t nRequiredMemory = 1024 * 1024;），條件式必須 evaluate 為 TRUE（非 0）。\n- Step 2: Producer & Input Control（生產者與資料流追蹤）：TIFFjpeg_has_multiple_scans(sp) 呼叫 libjpeg-turbo 的 jpeg_has_multiple_scans(&sp->cinfo.d)，該函式依據 jdinput.c:153-156 的 (cinfo->comps_in_scan < cinfo->num_components || cinfo->progressive_mode) 決定。唯有解碼到 Progressive JPEG（SOF2 Marker）或多重掃描 SOS 時才會回傳 TRUE。\n- Step 3: Survival & Path Invariants（規格不變量與 Harness 架構限制證明）：Harness (llm_fuzzgen0717154312.cc) 採用自產自銷的寫入後讀取模式。Fuzzer 輸入經由 fdp.ConsumeData 傳遞給 TIFFWriteScanline，此 buffer 乃未壓縮的光柵像素矩陣，而非壓縮後的 JPEG 位元流！TIFFWriteScanline 會呼叫 libtiff 內建的 JPEGEncode 與 libjpeg 編碼器。依據 TIFF 6.0 與 Tech Note 2 規範，漸進式 JPEG 在 TIFF 檔案中是非法的；libtiff 在 tif_jpeg.c:1975-1992 (JPEGSetupEncode) 中硬性寫死 sp->cinfo.c.num_scans = 0; sp->cinfo.c.scan_info = NULL;，強制禁止 Progressive JPEG 編碼。因此 libtiff 寫入的 JPEG strip 恆為 Baseline 單一掃描（SOF0），在讀取端 TIFFReadScanline 解析時 TIFFjpeg_has_multiple_scans(sp) 恆為 0 (FALSE)。\n- Step 4: Alternative Path & Solver 失敗分析（歷史求解器全滅根因）：歷史 LLM 產生嚴重語意幻覺（誤以為 scanline 像素資料即為 JPEG 封包位元流），誤判為 Input Dependent。下游 SymCC 探針與種子生成器耗時 1,460 秒、進行 5 輪求解全數失敗（10,100 次分支命中，目標行 0 次命中）。編碼器程式碼路徑根本不存在生成 SOF2 或多重掃描的分支，路徑約束無解。\n- Step 5: Final Adjudication & Triage Decision（最終裁決與評測判定）：在該 Harness 的生命週期與調用拓撲下，第 1311 行為結構性不可達死碼。裁決為 Input Independent，Refined Triage Label 為 Structurally Unreachable API Path，不納入下游求解器評測（include_in_solver_evaluation = false）。",
+  "verification_details": {
+    "verification_method": "source_code_inspection_and_executable_poc_with_gdb",
+    "poc_path": "verify_poc.c",
+    "gdb_breakpoint_evidence": "Breakpoint at tif_jpeg.c:1303 confirmed TIFFjpeg_has_multiple_scans(sp) == 0 ($1 = 0).",
+    "poc_execution_result": "Executed verify_poc across 5 diverse pixel patterns (0x00, 0x55, 0xAA, 0xFF, 0x12). All generated TIFF streams contain SOF0(Baseline)=1, SOF2(Progressive)=0, SOS(Scan)=1. TIFFReadScanline successfully triggers JPEGPreDecode with TIFFjpeg_has_multiple_scans == 0."
+  }
+}

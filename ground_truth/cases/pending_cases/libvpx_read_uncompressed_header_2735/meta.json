@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_read_uncompressed_header_2735",
+  "project_name": "libvpx",
+  "function_name": "read_uncompressed_header",
+  "branch_line_number": 2735,
+  "blocked_side_line_number": 2736,
+  "target_name": "llm_fuzzgen_dedicated_generation_0727001606_033744",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_dedicated_generation_0727001606_033744.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/read_uncompressed_header_2735/symbolic_run/libvpx_read_uncompressed_header_20260728_064851",
+  "historical_reason": "The blocker is Input Dependent because reaching the blocked code requires a specific sequence of fuzzer-controlled inputs. First, the fuzzer must provide a malformed frame to trigger a decoding error, which sets the persistent state variable `pbi->need_resync` to true. Second, in a subsequent call within the fuzz target's loop, the fuzzer must provide a valid frame whose header identifies it as a `KEY_FRAME`. Both the error condition and the frame type are determined by the input data, making the block reachable without any changes to the fuzz target's code.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (pbi->need_resync)` at line 2735 of `vp9/decoder/vp9_decodeframe.c`. The branch hit count is 115, indicating this condition is evaluated, but the `true` path is never taken. The key variable is the boolean flag `pbi->need_resync`.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 2736, `memset(&cm->ref_frame_map, -1, sizeof(cm->ref_frame_map));`, is executed if the condition `pbi->need_resync` evaluates to `true`. Therefore, the required state to reach the blocked side is `pbi->need_resync == true`.",
+    "[2. Fuzz Target Call Site]: The fuzz target invokes the decoding process, which leads to the blocker, via the `vpx_codec_decode` API call inside a loop: `vpx_codec_decode(codec.get(), frame_data.data(), frame_data.size(), nullptr, 0);` at line 68.",
+    "[2.5. Materialization Check]: The fuzz target consumes bytes from the fuzzer input using `fdp.ConsumeBytes<uint8_t>(frame_size)` and passes this data directly to `vpx_codec_decode`. This data is treated as a compressed video frame. The properties of this frame data, such as its validity and type, are determined by the fuzzer input and are directly consumed by the library to update its internal state, including the variable `pbi->need_resync`.",
+    "[3A. Setter / Transition Evidence]: The state `pbi->need_resync` is set to `1` (true) on the observed runtime path in the `decode_one` function. If `vp9_receive_compressed_data` returns a non-zero value (indicating an error), `pbi->need_resync` is set: `if (vp9_receive_compressed_data(ctx->pbi, data_sz, data)) { ... ctx->pbi->need_resync = 1; ... }`. The return value of `vp9_receive_compressed_data` depends on whether decoding errors occur, which is directly tied to the content of the input `data` buffer. For example, a malformed frame provided by the fuzzer would cause a decoding error, setting `need_resync` to true. This state persists in the `pbi` object across multiple calls to `vpx_codec_decode` within the fuzz target's `while` loop.",
+    "[3B. Survival / Feasibility Check]: For the blocked code to be reached, two conditions must be met in the same call to `read_uncompressed_header`: 1. `pbi->need_resync` must be `true`. 2. The current frame must be a `KEY_FRAME`, as the check is at line 2735, inside `if (cm->frame_type == KEY_FRAME)`. The `cm->frame_type` is read from the current input bitstream via `cm->frame_type = (FRAME_TYPE)vpx_rb_read_bit(rb);`. The fuzz target's loop structure makes this feasible. The fuzzer can provide a sequence of inputs across loop iterations: first, a corrupted frame that causes a decoding error and sets `pbi->need_resync = true`. Then, in a subsequent iteration, a valid frame whose header bits identify it as a `KEY_FRAME`. When this second frame is processed, the pre-existing `pbi->need_resync == true` state will be present, and the `cm->frame_type == KEY_FRAME` check will pass, allowing execution to reach the blocked side. The input data fully controls both the setting of the `need_resync` flag and the subsequent frame type check.",
+    "[4. Rule Application]: Rule 2 applies. The reachability of the blocked side depends on semantic properties derived from the input stream. Specifically, it requires a sequence of inputs: one that is structurally invalid to set the `pbi->need_resync` state, followed by another that is structurally valid and identifies itself as a `KEY_FRAME`. Both of these conditions are entirely controlled by the fuzzer-provided data."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

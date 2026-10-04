@@ -1,0 +1,37 @@
+{
+  "case_id": "libvpx_setup_frame_size_with_refs_1578",
+  "project_name": "libvpx",
+  "function_name": "setup_frame_size_with_refs",
+  "branch_line_number": 1578,
+  "blocked_side_line_number": 1579,
+  "target_name": "llm_fuzzgen_reference_guided_0727135655_876912",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727135655_876912.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02",
+    "libfuzzer_focused_pass_replan_02",
+    "symcc_generated_harness_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/setup_frame_size_with_refs_1578/symbolic_run/libvpx_setup_frame_size_with_refs_20260727_164121",
+  "historical_reason": "The blocker is a check `if (width <= 0 || height <= 0)` on frame dimensions. The analysis of the function `setup_frame_size_with_refs` shows that the `width` and `height` variables are populated directly from the fuzzer-provided bitstream, either by reading them from a reference frame (whose dimensions are also derived from input) or by calling `vp9_read_frame_size` to parse them from the current frame's header. The runtime stack confirms this data flow from `vpx_codec_decode` down to the blocker. Since the values are read from the input and immediately checked, a crafted input can set `width` or `height` to a non-positive value and trigger the blocked path.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (width <= 0 || height <= 0)` at line 1578 in the function `setup_frame_size_with_refs`. The target variables are `width` and `height`. The branch hit count of `31.2k` indicates this condition is evaluated frequently, but the fuzzer has not yet produced an input that satisfies it.",
+    "[1.5. Blocked Side Direction]: The blocked side at line 1579, which calls `vpx_internal_error`, is reached when the `if` condition evaluates to TRUE. This requires either `width` or `height` to be less than or equal to zero.",
+    "[2. Fuzz Target Call Site]: The runtime path to the blocker originates from the `vpx_codec_decode` call within the main fuzzing loop in `LLVMFuzzerTestOneInput`. The specific line is: `err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);`",
+    "[2.5. Materialization Check]: The fuzz target feeds raw byte data, representing video frames, into the `vpx_codec_decode` API. The library then parses this data to determine frame properties, including width and height. The values of `width` and `height` are therefore directly materialized from the fuzzer's input data.",
+    "[3A. Setter / Transition Evidence]: The values for `width` and `height` are determined within `setup_frame_size_with_refs`. There are two paths, both dependent on the bitstream `rb` which is derived from the fuzzer input:\n1. If `vpx_rb_read_bit(rb)` returns true for a given reference frame, `width` and `height` are copied from that reference frame's buffer (`buf->y_crop_width`, `buf->y_crop_height`). The properties of reference frames are themselves determined by previously decoded frames from the fuzzer input.\n2. If no reference frame is used (`found` remains 0), `vp9_read_frame_size(rb, &width, &height)` is called. This function reads the dimensions directly from the bitstream `rb`.\nIn both cases, the values are sourced from the fuzzer input `data` passed to `vpx_codec_decode`.",
+    "[3B. Survival / Feasibility Check]: The code reads the `width` and `height` values and then immediately checks them in the subsequent `if` statement. There are no intervening operations that would sanitize, overwrite, or otherwise prevent a non-positive value from reaching the predicate. The very purpose of this check is to validate the frame size parsed from the bitstream. Therefore, an input that encodes a width or height <= 0 can directly trigger the condition.",
+    "[4. Rule Application]: Rule 1 applies. The predicate variables `width` and `height` are the direct result of parsing the fuzzer's input data buffer. The path from input parsing to the conditional check is clear and unobstructed."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

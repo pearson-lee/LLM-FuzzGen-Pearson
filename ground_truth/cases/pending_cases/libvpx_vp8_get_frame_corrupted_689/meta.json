@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vp8_get_frame_corrupted_689",
+  "project_name": "libvpx",
+  "function_name": "vp8_get_frame_corrupted",
+  "branch_line_number": 689,
+  "blocked_side_line_number": 690,
+  "target_name": "llm_fuzzgen0720180525",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen0720180525.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp8_get_frame_corrupted_689/symbolic_run/libvpx_vp8_get_frame_corrupted_20260728_054458",
+  "historical_reason": "The blocker is Input Dependent. The predicate `if (frame == NULL)` at line 689 can be satisfied to reach the blocked code at line 690. The `frame` variable is derived from an internal state `pbi->common.frame_to_show`, which is set by the `vpx_codec_decode` function. The fuzz target calls this function with data directly from the fuzzer (`decode_data`). If the fuzzer provides a valid VP8 frame, `vpx_codec_decode` will successfully decode it and set `frame_to_show` to a non-NULL value. This state persists until the subsequent call to `vpx_codec_control_`, allowing the `frame == NULL` check to be bypassed and the blocked line to be reached. Therefore, the ability to unblock this path is entirely dependent on the semantic content of the fuzzer's input data.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The branch hit count is 870, indicating the predicate at line 689, `if (frame == NULL)`, is frequently evaluated. The target variable is `frame`, which is a pointer to a `YV12_BUFFER_CONFIG` struct.",
+    "[1.5. Blocked Side Direction]: The blocked side is line 690, `*corrupted = frame->corrupted;`. To reach this line, the condition `frame == NULL` at line 689 must evaluate to FALSE. Therefore, the required state is `frame != NULL`.",
+    "[2. Fuzz Target Call Site]: The runtime path is initiated by the `vpx_codec_control_` call in the fuzz target at line 93: `vpx_codec_control_(&codec, VP8D_GET_FRAME_CORRUPTED, &corrupted);`",
+    "[2.5. Materialization Check]: Yes, the fuzz target materializes the state required to affect the predicate. It calls `vpx_codec_decode` with fuzzer-provided data (`decode_data`) before the `vpx_codec_control_` call. The `vpx_codec_decode` function is responsible for processing the input stream and, upon successfully decoding a frame, updating the internal state of the `codec` object, which includes the `frame_to_show` member that the `frame` variable is assigned from.",
+    "[3A. Setter / Transition Evidence]: The predicate variable `frame` is assigned the value of `pbi->common.frame_to_show` at line 688. The `pbi` object is part of the decoder's internal state. This `frame_to_show` pointer is set by the libvpx library's internal decoding logic, which is executed within the `vpx_codec_decode` call at line 87 of the fuzz target. The input to this decoding process is `decode_data`, which is populated by `fdp.ConsumeRemainingBytes()`. Therefore, the content of the fuzzer input directly determines whether a frame is successfully decoded and, consequently, whether `frame_to_show` is set to a non-NULL value. No data starvation is detected as `ConsumeRemainingBytes` is used to provide the main data payload to the decode function.",
+    "[3B. Survival / Feasibility Check]: If the fuzzer provides a valid VP8 frame as input to `vpx_codec_decode`, the decoder will set its internal `frame_to_show` pointer to a valid, non-NULL frame buffer. The fuzz target's code does not perform any actions between the `vpx_codec_decode` call and the `vpx_codec_control_` call that would reset or nullify this internal state. The state is preserved within the `codec` context object. Thus, a non-NULL `frame` value can be produced by the input and will survive to the predicate check at line 689, allowing execution to reach the blocked side.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The predicate `frame == NULL` depends on a semantic property of the fuzzer input: whether the `decode_data` constitutes a valid, decodable video frame. If the input is a valid frame, `vpx_codec_decode` will succeed and set an internal pointer (`frame_to_show`), causing `frame` to be non-NULL. This is a direct, albeit implicit, data flow from the fuzzer input to the blocked condition."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

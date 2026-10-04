@@ -1,0 +1,35 @@
+{
+  "case_id": "libtiff_TIFFAdvanceDirectory_1878",
+  "project_name": "libtiff",
+  "function_name": "TIFFAdvanceDirectory",
+  "branch_line_number": 1878,
+  "blocked_side_line_number": 1881,
+  "target_name": "llm_fuzzgen_dedicated_generation_0718155855_154854",
+  "target_source_path": "external/oss-fuzz/projects/libtiff/llm_fuzzgen_dedicated_generation_0718155855_154854.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260717_180129_run_all_fuzzer/blockers/TIFFAdvanceDirectory_1878/symbolic_run/libtiff_TIFFAdvanceDirectory_20260718_181346",
+  "historical_reason": "The blocker is a series of sanity checks on the integrity of a TIFF file's directory structure, located at line 1878 in `TIFFAdvanceDirectory`. The predicate evaluates variables such as `dircount` (directory entry count) and various file offsets (`poffb`, `poffc`, `poffd`), comparing them against each other and the total file size (`tif->tif_size`) to detect inconsistencies like out-of-bounds pointers.\n\nThe fuzz target operates in two stages: first, it constructs and writes a TIFF file to disk using `libtiff` APIs, with field values supplied by a `FuzzedDataProvider`. Second, it re-opens this file and calls `TIFFNumberOfDirectories`, which triggers the read path leading to the blocker. The variables in the predicate are populated by reading the directory structure from this fuzzer-generated file.\n\nTherefore, the outcome of the predicate is directly dependent on the semantic properties of the file created from the fuzzer's input. An input that leads to the creation of a structurally invalid TIFF file (e.g., one with a `dircount` or directory offset that implies an out-of-bounds read) will cause the predicate to evaluate to true and hit the blocked code. This is a clear case of input-dependency as defined by Rule 2.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is at line 1878 in `TIFFAdvanceDirectory`: `if ((poffc < poffb) || (poffc < dircount * 12) || (poffd < poffc) || (poffd < (tmsize_t)sizeof(uint32_t)) || (poffd > tif->tif_size))`. The branch hit count of `14.9k` confirms this condition is actively being evaluated. The predicate's variables (`poffc`, `poffb`, `dircount`, `poffd`, `tif->tif_size`) are involved in sanity-checking the TIFF directory structure. Specifically, `dircount` is the number of directory entries, and `poffb`, `poffc`, `poffd` are calculated file offsets. These values are read from the memory-mapped TIFF file. For example, `dircount` is populated via `_TIFFmemcpy(&dircount, tif->tif_base + poffa, sizeof(uint16_t));`, where `tif->tif_base` points to the file's content.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 1881 is executed if the condition at line 1878 evaluates to `true`. This occurs if any of the checks for integer overflow or out-of-bounds memory access are met. For instance, the condition `poffd > tif->tif_size` will be true if the calculated offset of the next directory link (`poffd`) points beyond the end of the file (`tif->tif_size`).",
+    "[2. Fuzz Target Call Site]: The dynamic evidence shows the execution path starts from `LLVMFuzzerTestOneInput`. The call that initiates the sequence leading to the blocker is `TIFFNumberOfDirectories(tif_r);` at line 85 of the fuzz target source code.",
+    "[2.5. Materialization Check]: The fuzz target fully materializes the necessary state. It first creates a TIFF file on disk by calling `TIFFOpen` in write mode, populating it with directory information derived from fuzzer input via `TIFFSetField`, and writing it with `TIFFWriteDirectory`. It then re-opens this file in read mode and calls `TIFFNumberOfDirectories`, which processes the previously written file content. The predicate in `TIFFAdvanceDirectory` is therefore checking the structural integrity of the file that was materialized from fuzzer input.",
+    "[3A. Setter / Transition Evidence]: The key variables in the predicate, `dircount` and `*nextdiroff` (which determines `poffb`), are read from the TIFF file during the execution of `TIFFAdvanceDirectory`. The contents of this file are generated in the first part of the fuzz target. The fuzzer uses `FuzzedDataProvider` to supply arguments to `TIFFSetField`. The `libtiff` library then writes a directory structure to the file based on these fields. This process determines the `dircount` and directory offsets that are written to the file. Consequently, the values checked by the predicate are derived from the fuzzer's input data, which dictates the structure of the generated TIFF file.",
+    "[3B. Survival / Feasibility Check]: The path from input to predicate is direct. The fuzzer generates a file, and the library then reads and validates it. The predicate is part of this validation. An input that causes `libtiff` to write an inconsistent directory structure (e.g., one where offsets point beyond the file's actual size) would directly trigger the predicate. The check `poffd > tif->tif_size` is specifically designed to catch such malformed data. Since the fuzzer's goal is to create such data, and the values are read directly from the file it creates, it is feasible for an input to create a file that fails this sanity check. There are no logical blocks preventing this flow.",
+    "[4. Rule Application]: Rule 2: Implicit Flow & Semantic Properties. The predicate checks for the structural validity of a TIFF file (e.g., directory offsets and counts). These are semantic properties of the file, not raw input bytes. However, since the TIFF file itself is constructed using data from the `FuzzedDataProvider`, these properties are implicitly dependent on the fuzzer's input. The blocker's state is determined by how the library interprets the file structure that the fuzzer's input defined."
+  ],
+  "source_experiment": "20260717_180129_libtiff",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

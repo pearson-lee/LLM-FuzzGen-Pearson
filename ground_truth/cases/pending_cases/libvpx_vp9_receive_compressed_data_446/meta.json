@@ -1,0 +1,37 @@
+{
+  "case_id": "libvpx_vp9_receive_compressed_data_446",
+  "project_name": "libvpx",
+  "function_name": "vp9_receive_compressed_data",
+  "branch_line_number": 446,
+  "blocked_side_line_number": 447,
+  "target_name": "llm_fuzzgen_reference_guided_0727004829_707547",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727004829_707547.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness_replan_02",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "symcc_harness_fidelity_replan",
+    "symcc_harness_fidelity_preflight_replan_02",
+    "libfuzzer_focused_pass_replan_02",
+    "symcc_generated_harness_replan_02"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vp9_receive_compressed_data_446/symbolic_run/libvpx_vp9_receive_compressed_data_20260727_075932",
+  "historical_reason": "The blocker is classified as Input Dependent. The predicate `if (cm->new_fb_idx == INVALID_IDX)` is reached when the function `get_free_fb(cm)` fails to allocate a new frame buffer and returns `INVALID_IDX`. The availability of free frame buffers is determined by the reference counting and lifecycle of buffers from previously decoded frames. This entire process is driven by the semantic content of the input video stream provided by the fuzzer. A crafted input stream that causes all frame buffers to be allocated and held as references would exhaust the pool, trigger the allocation failure, and thus reach the blocked code.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (cm->new_fb_idx == INVALID_IDX)` at line 446 in the function `vp9_receive_compressed_data`. The target variable is `cm->new_fb_idx`, which is a field within the `VP9_COMMON` struct `cm`. The branch hit count of `48.6k` indicates that this condition is evaluated frequently during fuzzing, but the required value is never achieved.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 447, `pbi->ready_for_new_data = 1;`, is executed when the `if` condition at line 446 evaluates to TRUE. Therefore, to reach the blocked side, `cm->new_fb_idx` must be equal to `INVALID_IDX`.",
+    "[2. Fuzz Target Call Site]: The runtime trace shows the execution path starts from `LLVMFuzzerTestOneInput`. The specific API call in the fuzz target that initiates this path is at line 178: `err = vpx_codec_decode(&codec, fuzzer_data_ptr, frame_size, nullptr, 0);`.",
+    "[2.5. Materialization Check]: The fuzz target passes a pointer to the fuzzer input data (`fuzzer_data_ptr`) and a size derived from it (`frame_size`) directly to the `vpx_codec_decode` API. The runtime stack trace confirms that this input is consumed by the decoder, driving its internal state machine through `decoder_decode` and `decode_one`. The state variable `cm->new_fb_idx` is part of this decoder state, which is materialized and modified based on the provided input data.",
+    "[3A. Setter / Transition Evidence]: The value of `cm->new_fb_idx` is assigned immediately before the predicate check, at line 445 of `vp9_receive_compressed_data`: `cm->new_fb_idx = get_free_fb(cm);`. To satisfy the predicate, the function `get_free_fb(cm)` must return `INVALID_IDX`. The function name `get_free_fb` implies it allocates a frame buffer from a pool. Returning `INVALID_IDX` signifies a failure to allocate, which would happen if the buffer pool is exhausted. The state of the buffer pool, including the reference counts of individual buffers, is determined by the properties of the video frames being decoded, which are in turn dictated by the fuzzer input data.",
+    "[3B. Survival / Feasibility Check]: The value returned by `get_free_fb(cm)` is assigned to `cm->new_fb_idx` and is checked in the very next line. There are no intervening control flow or data modifications that could alter this value. Therefore, if an input can be crafted to exhaust the frame buffer pool, `get_free_fb` will return `INVALID_IDX`, and this value will directly trigger the blocked condition. The feasibility of this depends entirely on whether the fuzzer can generate a sequence of video frames that allocates and holds references to all available buffers.",
+    "[4. Rule Application]: Rule 2 applies. The predicate `cm->new_fb_idx == INVALID_IDX` depends on the availability of a resource (a free frame buffer). This availability is an internal, semantic property of the decoder's state that is directly influenced by the structure and content of the input video stream provided by the fuzzer. Exhausting the buffer pool is a state derived from the input data."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

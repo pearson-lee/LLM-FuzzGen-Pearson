@@ -1,0 +1,35 @@
+{
+  "case_id": "libvpx_vpx_highbd_lpf_horizontal_8_sse2_521",
+  "project_name": "libvpx",
+  "function_name": "vpx_highbd_lpf_horizontal_8_sse2",
+  "branch_line_number": 521,
+  "blocked_side_line_number": 522,
+  "target_name": "llm_fuzzgen_reference_guided_0727011112_353286",
+  "target_source_path": "external/oss-fuzz/projects/libvpx/llm_fuzzgen_reference_guided_0727011112_353286.cc",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_generated_harness",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight",
+    "libfuzzer_focused_pass",
+    "symcc_generated_harness"
+  ],
+  "pipeline_output_dir": "experiments/20260726_231453_run_all_fuzzer/blockers/vpx_highbd_lpf_horizontal_8_sse2_521/symbolic_run/libvpx_vpx_highbd_lpf_horizontal_8_sse2_20260727_114144",
+  "historical_reason": "The blocker is Input Dependent. The predicate `if (bd == 8)` checks the bit depth of the decoded video stream. The dynamic trace shows that the value of `bd` is passed down from `cm->bit_depth` within the `VP9_COMMON` structure. This structure is populated by parsing the video stream header, which is read from the raw `data` buffer provided by the fuzzer. Although the fuzzer currently only produces inputs that result in a bit depth of 12, a different fuzzer input could specify a bit depth of 8, which would satisfy the condition and unblock the code.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (bd == 8)` at line 521 of `vpx_dsp/x86/highbd_loopfilter_sse2.c`. The branch was executed 4.23M times, indicating the predicate is reachable, but the condition was never satisfied. The target variable is `bd`.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 522 is executed when the `if` condition is true. Therefore, to reach the blocked side, the required state is `bd == 8`. The runtime evidence shows that at the blocker, `bd` is always `12`.",
+    "[2. Fuzz Target Call Site]: The dynamic runtime trace shows that the execution path leading to the blocker originates from the main decoding loop in the fuzz target, specifically the call to `err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);` at line 161. The separate, later call to `vpx_highbd_idct8x8_64_add` in the fuzz target is not on the observed path to the blocker.",
+    "[2.5. Materialization Check]: The fuzz target passes the raw input `data` to the `vpx_codec_decode` API. The libvpx library fully parses and decodes this data as a VP9 video stream. The bit depth (`bd`) is a fundamental property of the video stream that is read from the stream's header, which is derived from the fuzzer input. Thus, the state is fully materialized and consumed by the library.",
+    "[3A. Setter / Transition Evidence]: The value of the `bd` parameter is propagated through a deep call stack. Tracing it backwards from the blocker: `vpx_highbd_lpf_horizontal_8_sse2` receives `bd` from `vpx_highbd_lpf_vertical_8_sse2`, which receives it from `highbd_filter_selectively_vert_row2`. The caller of that, `vp9_filter_block_plane_ss00`, passes `(int)cm->bit_depth` as the `bd` parameter. The `cm->bit_depth` field in the `VP9_COMMON` struct is populated by parsing the video stream's header, which is part of the fuzzer input `data`. Therefore, the value of `bd` is determined by the content of the input buffer.",
+    "[3B. Survival / Feasibility Check]: The source code for `vpx_highbd_lpf_horizontal_8_sse2` contains distinct logic paths for `bd == 8`, `bd == 10`, and `bd == 12`. There is no evidence of any intervening logic that would prevent a `bd` value of 8 from reaching this predicate if it were correctly decoded from the input stream. The issue is that the fuzzer has not yet generated a valid VP9 stream with an 8-bit depth, not that the value cannot survive the journey through the call stack.",
+    "[4. Rule Application]: The predicate variable `bd` represents the bit depth of the video, a semantic property derived directly from parsing the fuzzer's input data. Although the fuzzer is not currently producing inputs that result in `bd=8`, the value is fundamentally controlled by the input. This falls under Rule 2 (Implicit Flow & Semantic Properties)."
+  ],
+  "source_experiment": "20260726_231453_libvpx",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}

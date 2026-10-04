@@ -1,0 +1,33 @@
+{
+  "case_id": "zlib_gz_avail_50",
+  "project_name": "zlib",
+  "function_name": "gz_avail",
+  "branch_line_number": 50,
+  "blocked_side_line_number": 51,
+  "target_name": "llm_fuzzgen_reference_guided_0714175217_691551",
+  "target_source_path": "external/oss-fuzz/projects/zlib/llm_fuzzgen_reference_guided_0714175217_691551.c",
+  "historical_prediction": "Input Dependent",
+  "historical_success": false,
+  "pipeline_failure_stage": "symcc_harness_fidelity_preflight",
+  "pipeline_methods": [
+    "llm_seed_generator",
+    "symcc_probe_original_target",
+    "symcc_harness_fidelity_preflight"
+  ],
+  "pipeline_output_dir": "experiments/20260714_035206_run_all_fuzzer/blockers/gz_avail_50/symbolic_run/zlib_gz_avail_20260714_212658",
+  "historical_reason": "The blocker is Input Dependent. The predicate `if (strm->avail_in)` in `gz_avail` checks the number of bytes remaining in an internal buffer. This value is determined by the interplay between reading data from the input file (controlled by the fuzzer) and the zlib decompression engine (`inflate`) consuming that data. The amount of data consumed by `inflate` depends on the structure of the compressed stream itself. A fuzzer can provide input that, after being partially processed, leaves a specific number of bytes (e.g., 1) in the buffer. When the library logic re-inspects the buffer, this leftover byte count will trigger the blocked branch. Therefore, reaching the blocked side is a matter of providing the correct input byte sequence.",
+  "historical_analysis_trace": [
+    "[1. Target Variable]: The blocked predicate is `if (strm->avail_in)` at line 50 of `gzread.c`. The variable is `strm->avail_in`, which is a field within the `z_stream` structure, representing the number of bytes available in the input buffer.",
+    "[1.5. Blocked Side Direction]: The blocked code at line 51 is inside the `if` block. To reach it, the condition `strm->avail_in` must evaluate to true, meaning `strm->avail_in` must be non-zero. The fact that this branch is never taken implies that on all 13.4k executions of this line, `strm->avail_in` was 0 upon entry to `gz_avail`.",
+    "[2. Fuzz Target Call Site]: The runtime blocker segment shows the execution path starts from `LLVMFuzzerTestOneInput` and calls `gzread`. The specific call in the fuzz target is `gzread(file, buffer, sizeof(buffer));` at line 117.",
+    "[2.5. Materialization Check]: The fuzz target materializes the state needed to influence the predicate. It writes fuzzer data to a temporary file using `gzwrite`, then opens that file for reading with `gzopen`, and passes the resulting `gzFile` handle to `gzread`. The internal state of this handle, including the `z_stream` and its `avail_in` field, is therefore directly influenced by the data written to the file, which comes from the fuzzer input.",
+    "[3A. Setter / Transition Evidence]: The value of `strm->avail_in` is managed by the zlib library's internal logic. It is increased by functions like `gz_load` which read from the file descriptor into the `state->in` buffer. It is decreased by the decompression function (`inflate`, called via `gz_decomp`) as it consumes the compressed data from the buffer. The key insight is that `inflate` consumes data based on the compressed stream's format. It may not consume the entire buffer if it reaches the end of a compressed block or stream. Any remaining bytes would leave `strm->avail_in > 0`. The runtime path shows `gz_avail` is called from `gz_look` when `strm->avail_in < 2`. To hit the blocker, `strm->avail_in` must be exactly 1 when `gz_look` is called.",
+    "[3B. Survival / Feasibility Check]: A state where `strm->avail_in == 1` is feasible and can survive to the predicate. This can be achieved by providing fuzzer input that represents a compressed data stream that, when processed by `inflate`, leaves exactly one byte unconsumed in the input buffer. For example, an input file containing a valid gzip stream followed immediately by a single extra byte. The `gzread` logic is designed to handle concatenated streams; after processing the first stream, it would re-evaluate the state (`state->how` would be reset to `LOOK`), leading to a call to `gz_look`. At this point, the one trailing byte from the previous read would still be in the buffer (`strm->avail_in == 1`). This would cause `gz_look` to call `gz_avail`, and inside `gz_avail`, the condition `if (strm->avail_in)` would be true, reaching the blocked code. This is entirely dependent on the byte-level content of the input file.",
+    "[4. Rule Application]: Rule 2 applies. The predicate `strm->avail_in` depends on a semantic property of the input data\u2014specifically, the structure of the compressed stream which dictates how many bytes are consumed by the decompressor in each step. The state of the input buffer is an implicit result of parsing the fuzzer-provided data."
+  ],
+  "source_experiment": "20260714_035206_zlib",
+  "verification_status": "pending_review",
+  "ground_truth_label": "TBD",
+  "ground_truth_rule": "TBD",
+  "ground_truth_reason": "Pending human triage and verification."
+}
