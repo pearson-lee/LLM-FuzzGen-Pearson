@@ -1104,6 +1104,47 @@ def write_harness(output_dir: Path, harness_code: str, suggested_name: str) -> P
     return target
 
 
+MAX_HARNESS_NATIVE_SEEDS = 3
+MAX_HARNESS_NATIVE_SEED_BYTES = 4096
+
+
+def write_harness_native_seeds(output_dir: Path, raw_seeds: object) -> tuple[list[str], list[str]]:
+    """Materialize the LLM's `fidelity_seeds`, which use the generated harness's input format.
+
+    A generated harness may consume bytes differently from the original fuzz target, so
+    original corpus seeds can never pass its fidelity preflight. These seeds give the
+    preflight (and SymCC) inputs that fit the new harness. Malformed entries are skipped
+    and reported rather than failing generation.
+    """
+    if not isinstance(raw_seeds, list):
+        return [], ([] if raw_seeds in (None, "") else ["fidelity_seeds is not a list"])
+    seed_dir = output_dir / "harness_native_seeds"
+    paths: list[str] = []
+    problems: list[str] = []
+    for index, entry in enumerate(raw_seeds[:MAX_HARNESS_NATIVE_SEEDS], start=1):
+        if not isinstance(entry, dict):
+            problems.append(f"seed {index}: not an object")
+            continue
+        encoding = str(entry.get("encoding") or "text").strip().lower()
+        content = entry.get("content")
+        if not isinstance(content, str) or not content:
+            problems.append(f"seed {index}: empty content")
+            continue
+        try:
+            data = bytes.fromhex(re.sub(r"\s+", "", content)) if encoding == "hex" else content.encode("utf-8")
+        except ValueError:
+            problems.append(f"seed {index}: invalid hex")
+            continue
+        if len(data) > MAX_HARNESS_NATIVE_SEED_BYTES:
+            problems.append(f"seed {index}: {len(data)} bytes exceeds {MAX_HARNESS_NATIVE_SEED_BYTES}")
+            continue
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        seed_path = seed_dir / f"native_seed_{index:02d}.bin"
+        seed_path.write_bytes(data)
+        paths.append(str(seed_path))
+    return paths, problems
+
+
 def build_output_dir(args: argparse.Namespace) -> Path:
     prefix = blocker_stage_artifact_name(
         args.project_name,
@@ -1259,6 +1300,9 @@ def run_generation(args: argparse.Namespace) -> dict:
         current_prompt = repair_prompt
 
     harness_path = write_harness(output_dir, harness_code, harness_filename)
+    native_seed_paths, native_seed_problems = write_harness_native_seeds(
+        output_dir, parsed.get("fidelity_seeds")
+    )
 
     result = {
         "success": True,
@@ -1276,6 +1320,8 @@ def run_generation(args: argparse.Namespace) -> dict:
         "native_build_target_path": native_build_metadata.get("native_target_path"),
         "native_build_address_binary": native_build_metadata.get("native_address_binary"),
         "runtime_sanity": native_build_metadata.get("runtime_sanity"),
+        "harness_native_seed_paths": native_seed_paths,
+        "harness_native_seed_problems": native_seed_problems,
     }
     return result
 

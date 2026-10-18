@@ -31,6 +31,7 @@ from typing import Callable, Iterable, TypeVar
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SYMCC = REPO_ROOT / "symcc" / "build" / "symcc"
 DEFAULT_SYMPP = REPO_ROOT / "symcc" / "build" / "sym++"
+DEFAULT_LIBCXX_INSTALL = REPO_ROOT / "libcxx_symcc_install"
 DEFAULT_LLVM18_ROOT = Path.home() / "tools" / "llvm-18.1.8" / "bin"
 DEFAULT_LLVM_PROFDATA = str(DEFAULT_LLVM18_ROOT / "llvm-profdata")
 DEFAULT_LLVM_COV = str(DEFAULT_LLVM18_ROOT / "llvm-cov")
@@ -260,6 +261,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clang", default="clang", help="Path to clang for the coverage build.")
     parser.add_argument("--clangxx", default="clang++", help="Path to clang++ for the coverage build.")
     parser.add_argument(
+        "--libcxx-path",
+        default=str(DEFAULT_LIBCXX_INSTALL),
+        help="Instrumented libc++ install used for C++ SymCC builds (see select_cxx_stdlib_mode).",
+    )
+    parser.add_argument(
         "--llvm-profdata",
         default=os.environ.get("LLVM_PROFDATA", DEFAULT_LLVM_PROFDATA),
         help="Path to llvm-profdata used to merge coverage profiles.",
@@ -307,6 +313,34 @@ def ensure_tool(path_or_name: str) -> str:
         return str(candidate.resolve())
 
     raise FileNotFoundError(f"Required tool not found: {path_or_name}")
+
+
+def select_cxx_stdlib_mode(
+    use_cxx: bool,
+    prebuilt_archives: list[Path],
+    libcxx_install: Path,
+) -> tuple[str, str]:
+    """Pick the C++ standard library the SymCC build links against.
+
+    docs/integration_blocker_system.md places this decision before compiling the
+    target. Regular mode (system libstdc++) is not just less precise here: the QSYM
+    runtime's own libstdc++ inline symbols (e.g. shared_ptr release) get interposed
+    by the target's instrumented copies, so the runtime re-enters itself until the
+    stack overflows (SIGSEGV after a few queries). The instrumented libc++ lives in
+    std::__1 and cannot collide, so every C++ target uses it when it can.
+    """
+    if not use_cxx:
+        return "none", "C target"
+    if prebuilt_archives:
+        # Archives come from the OSS-Fuzz container built against libstdc++; linking
+        # them with libc++ objects would mix two standard libraries.
+        return "regular", "prebuilt SymCC archives were built against libstdc++"
+    if not (
+        (libcxx_install / "include" / "c++" / "v1" / "__config").is_file()
+        and (libcxx_install / "lib" / "libc++.a").is_file()
+    ):
+        return "regular", f"instrumented libc++ not installed at {libcxx_install}"
+    return "stl", f"instrumented libc++ at {libcxx_install}"
 
 
 def normalize_count(raw: str) -> int:
@@ -962,11 +996,16 @@ def build_binaries(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path
     symcc_runtime_dir = symcc_dir / "SymCCRuntime-prefix" / "src" / "SymCCRuntime-build"
     if symcc_runtime_dir.is_dir():
         symcc_env["SYMCC_RUNTIME_DIR"] = str(symcc_runtime_dir)
-    if use_cxx:
-        # The checked-in libcxx_symcc_install may come from a different LLVM
-        # release and an existing directory is not proof that its headers are
-        # usable.  OSS-Fuzz SymCC library builds use the system C++ runtime too,
-        # so keep the host replay on the same ABI/toolchain path.
+    stdlib_mode, stdlib_reason = select_cxx_stdlib_mode(
+        use_cxx, prebuilt_archives, Path(args.libcxx_path).resolve()
+    )
+    if stdlib_mode != "none":
+        log(f"[info] SymCC C++ stdlib mode: {stdlib_mode} ({stdlib_reason})")
+    if stdlib_mode == "stl":
+        symcc_env.pop("SYMCC_REGULAR_LIBCXX", None)
+        symcc_env["SYMCC_LIBCXX_PATH"] = str(Path(args.libcxx_path).resolve())
+    elif stdlib_mode == "regular":
+        symcc_env.pop("SYMCC_LIBCXX_PATH", None)
         symcc_env["SYMCC_REGULAR_LIBCXX"] = "yes"
 
     symcc_obj_dir = work_dir / "build" / "symcc" / "obj"

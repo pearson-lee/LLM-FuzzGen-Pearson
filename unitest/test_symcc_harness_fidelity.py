@@ -660,3 +660,34 @@ def test_oss_fuzz_build_defaults_do_not_override_an_explicit_target_name() -> No
     apply_oss_fuzz_build_defaults(args)
 
     assert args.define == ['_FUZZ_TARGET_NAME="chosen_by_caller"']
+
+
+def test_compilation_sources_skip_headers(tmp_path: Path) -> None:
+    target = tmp_path / "target.cc"
+    header = tmp_path / "date_time.hpp"
+    target.write_text("int x;", encoding="utf-8")
+    header.write_text("#pragma once", encoding="utf-8")
+    context = BuildContext.from_dict(
+        {
+            "project_name": "demo",
+            "mode": "original_target",
+            "branch_source": str(header),
+            "required_sources": [str(target), str(header)],
+            "optional_sources": [str(tmp_path / "other.h")],
+        }
+    )
+
+    assert context.compilation_sources == [target.resolve()]
+
+
+def test_cxx_stdlib_mode_prefers_instrumented_libcxx(tmp_path: Path) -> None:
+    libcxx = tmp_path / "libcxx"
+    (libcxx / "include" / "c++" / "v1").mkdir(parents=True)
+    (libcxx / "include" / "c++" / "v1" / "__config").write_text("", encoding="utf-8")
+    (libcxx / "lib").mkdir()
+    (libcxx / "lib" / "libc++.a").write_bytes(b"")
+
+    assert symcc_solver.select_cxx_stdlib_mode(False, [], libcxx)[0] == "none"
+    assert symcc_solver.select_cxx_stdlib_mode(True, [], libcxx)[0] == "stl"
+    assert symcc_solver.select_cxx_stdlib_mode(True, [tmp_path / "lib.a"], libcxx)[0] == "regular"
+    assert symcc_solver.select_cxx_stdlib_mode(True, [], tmp_path / "missing")[0] == "regular"

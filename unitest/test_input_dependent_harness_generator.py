@@ -255,3 +255,22 @@ def test_runtime_source_ownership_keeps_ambiguous_basename_unknown(tmp_path: Pat
 
     assert evidence[1]["owner"] == "unknown"
     assert evidence[1]["resolved_file"] is None
+
+
+def test_write_harness_native_seeds_materializes_text_and_hex(tmp_path: Path) -> None:
+    paths, problems = harness_generator.write_harness_native_seeds(
+        tmp_path,
+        [
+            {"description": "same date", "encoding": "text", "content": "dt1 = 2024-01-01T10:00:00\n"},
+            {"description": "binary", "encoding": "hex", "content": "00 ff"},
+            {"description": "bad", "encoding": "hex", "content": "zz"},
+            {"description": "empty", "encoding": "text", "content": ""},
+        ],
+    )
+
+    assert [Path(path).read_bytes() for path in paths] == [b"dt1 = 2024-01-01T10:00:00\n", b"\x00\xff"]
+    assert problems == ["seed 3: invalid hex"]
+
+
+def test_write_harness_native_seeds_tolerates_missing_field(tmp_path: Path) -> None:
+    assert harness_generator.write_harness_native_seeds(tmp_path, None) == ([], [])

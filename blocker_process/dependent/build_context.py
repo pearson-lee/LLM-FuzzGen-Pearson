@@ -340,7 +340,9 @@ class BuildContext:
         ordered: list[Path] = []
         for raw in [*self.required_sources, *self.optional_sources]:
             resolved = _safe_resolve(Path(raw))
-            if resolved in seen:
+            # Headers reach the build through #include; compiling one directly yields a
+            # precompiled header (CPCH), not an object, and the SymCC link then fails.
+            if resolved in seen or resolved.suffix.lower() in HEADER_EXTENSIONS:
                 continue
             seen.add(resolved)
             ordered.append(resolved)

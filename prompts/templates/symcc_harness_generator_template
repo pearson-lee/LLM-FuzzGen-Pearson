@@ -169,3 +169,17 @@ The JSON object must have exactly these keys:
 - `harness_design_rationale`: string
 - `harness_filename`: string
 - `harness_code`: string
+- `fidelity_seeds`: array of 1 to 3 objects, each with keys `description` (string), `encoding` (`"text"` or `"hex"`), and `content` (string)
+
+`fidelity_seeds` are example inputs written in **your new harness's own input format**, not in the
+original fuzz target's format. The fidelity preflight replays them through your harness, and SymCC
+starts from them. If your harness consumes the bytes differently from the original target (for
+example it parses the whole input as text instead of reading FuzzedDataProvider fields), the original
+corpus seeds cannot reach the branch through it, so these seeds are what prove the harness still
+reaches the blocker branch.
+
+- Every seed must drive your harness to execute the branch line. Prefer at least one seed that also
+  takes the blocked side.
+- Use `"text"` for printable inputs (escape newlines as `\n` in the JSON string) and `"hex"` for
+  binary inputs (a plain hex string such as `"0a1b2c"`, no `0x` prefix or spaces).
+- Keep each seed under 4096 bytes and derive it from the harness code you wrote, not from guesses.

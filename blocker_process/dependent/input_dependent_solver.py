@@ -1044,17 +1044,27 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             return result
 
         simplified_target_name = parsed_symcc_harness.get("native_build_target_name")
+        # Seeds written in the generated harness's own input format. Original corpus seeds
+        # stay first, but a harness that re-encodes the input can only be proven faithful by
+        # these, and SymCC on the new harness needs them as starting points too.
+        native_seeds = [
+            str(Path(path).resolve())
+            for path in (parsed_symcc_harness.get("harness_native_seed_paths") or [])
+            if Path(path).is_file()
+        ]
+        attempt_fidelity_seeds = fidelity_seeds + [seed for seed in native_seeds if seed not in fidelity_seeds]
+        harness_seeds = native_seeds + [seed for seed in symcc_seeds if seed not in native_seeds]
 
         fidelity_json = output_dir / f"symcc_harness_fidelity_preflight{suffix}.json"
         fidelity_cmd = build_symcc_cmd(
             args=args,
             blocker_json_path=payload_path,
             work_dir=output_dir / f"symcc_harness_fidelity_preflight{suffix}",
-            seeds=symcc_seeds,
+            seeds=harness_seeds,
             fuzz_target=parsed_symcc_harness["harness_path"],
             target_name=simplified_target_name,
             json_output_path=fidelity_json,
-            fidelity_seeds=fidelity_seeds,
+            fidelity_seeds=attempt_fidelity_seeds,
             fidelity_only=True,
         )
         fidelity_run = run_program(fidelity_cmd, json_output_file=fidelity_json)
@@ -1092,19 +1102,19 @@ def run_input_dependent_solver(args: argparse.Namespace) -> dict:
             return result
 
         libfuzzer_pass_seconds = int(getattr(args, "libfuzzer_pass_seconds", 0) or 0)
-        stage3b_seeds = list(symcc_seeds)
+        stage3b_seeds = list(harness_seeds)
         if libfuzzer_pass_seconds > 0 and simplified_target_name:
             stage3b_result = run_libfuzzer_focused_pass(
                 project_name=args.project_name,
                 target_name=simplified_target_name,
-                initial_seeds=symcc_seeds,
+                initial_seeds=harness_seeds,
                 fuzz_seconds=libfuzzer_pass_seconds,
             )
             result["stages"][libfuzzer_stage] = stage3b_result
             result["pipeline_methods"].append(libfuzzer_stage)
             corpus_dir = Path(stage3b_result["corpus_dir"])
             stage3b_seeds, handoff_limits = select_bounded_symcc_handoff_seeds(
-                priority_seeds=symcc_seeds,
+                priority_seeds=harness_seeds,
                 corpus_dir=corpus_dir,
                 max_total_seeds=initial_seed_limit,
             )
