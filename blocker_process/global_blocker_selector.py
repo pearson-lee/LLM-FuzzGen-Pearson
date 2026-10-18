@@ -352,6 +352,79 @@ def _analyze_snippet_solvability(
     }
 
 
+# ── Phase 2b: blocked-side branch kind (ordering tie-break only) ──────────────
+# coverage_benefit is function-granular, so short inline blocked sides score 0
+# and the multiplicative score cannot separate them. branch_kind ranks those ties:
+# a plain result/exit statement (e.g. `return false;` in an equality check) is a
+# normal semantic outcome, while error/abort paths rarely pay off.
+_BRANCH_KIND_PRIORITY = {
+    "semantic_result": 2,
+    "other": 1,
+    "error_path": 0,
+}
+_BLOCKED_SIDE_MAX_LINES = 6
+_PAT_ERROR_PATH = re.compile(
+    r"\bthrow\b"
+    r"|\b\w*(?:_err|err_|error|Error|ERROR|fail|Fail|FAIL|panic)\w*\s*\("
+    r"|\berr\w*\s*\("
+    r"|\b(?:abort|exit|_exit|assert|TOML_UNREACHABLE|TOML_ASSERT\w*|UNREACHABLE|NOTREACHED)\b"
+    r"|\bgoto\s+\w*(?:err|fail|cleanup|bail)\w*"
+    r"|\breturn\s+-\d+\s*;"
+)
+_PAT_SEMANTIC_RESULT = re.compile(
+    r"(?:return\s*(?:true|false|nullptr|NULL|\{\s*\}|\d+u?|[A-Za-z_][\w:.]*|\"[^\"]*\"(?:sv)?)?|break|continue)\s*;"
+)
+
+
+def _extract_blocked_side_body(code_lines: List[str], blocked_side_line: int) -> str:
+    """Return the statements of the blocked side only (braced block or single statement)."""
+    start = blocked_side_line - 1
+    if start < 0 or start >= len(code_lines):
+        return ""
+    previous = next(
+        (code_lines[i].strip() for i in range(start - 1, -1, -1) if code_lines[i].strip()),
+        "",
+    )
+    braced = previous.endswith("{") or code_lines[start].lstrip().startswith("{")
+    body: List[str] = []
+    brace_depth = 0
+    paren_depth = 0
+    for line in code_lines[start : start + _BLOCKED_SIDE_MAX_LINES]:
+        kept = []
+        done = False
+        for char in line:
+            if char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+                if brace_depth < 0:
+                    done = True
+                    break
+            elif char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth -= 1
+            kept.append(char)
+            if char == ";" and not braced and paren_depth == 0 and brace_depth == 0:
+                done = True
+                break
+        body.append("".join(kept))
+        if done:
+            break
+    return "\n".join(part for part in body if part.strip() and part.strip() not in {"{", "}"})
+
+
+def _classify_branch_kind(blocked_side_body: str) -> str:
+    text = " ".join(blocked_side_body.split())
+    if not text:
+        return "other"
+    if _PAT_ERROR_PATH.search(text) or _PAT_RESOURCE_FAILURE.search(text):
+        return "error_path"
+    if _PAT_SEMANTIC_RESULT.fullmatch(text.strip("{} ")):
+        return "semantic_result"
+    return "other"
+
+
 def _apply_snippet_solvability(
     branch_line_text: str,
     branch_snippet: str,
@@ -433,6 +506,12 @@ def _enrich_with_snippet_solvability(
                 blocked_side_snippet,
                 assignment_snippet=assignment_snippet,
             )
+            blocked_side_body = _extract_blocked_side_body(code_lines, blocked_side_line)
+            branch_kind = _classify_branch_kind(blocked_side_body)
+            blocker["branch_kind"] = branch_kind
+            blocker["branch_kind_priority"] = _BRANCH_KIND_PRIORITY[branch_kind]
+            blocker["blocked_side_body"] = blocked_side_body[:200]
+            blocker["score_components"]["branch_kind"] = branch_kind
             blocker["solvability_evidence"] = evidence
             blocker["source_evidence_locations"] = {
                 "source_file": source_file,
@@ -451,6 +530,40 @@ def _enrich_with_snippet_solvability(
             if hints:
                 blocker["solvability_hints"] = hints
 
+        scored.sort(key=_selector_state_sort_key, reverse=True)
+
+    # branch_kind is a cheap regex over already-cached files, so classify every
+    # candidate; otherwise blockers outside the evidence pool could never move up.
+    classified_late = False
+    for blocker in scored:
+        if "branch_kind" in blocker:
+            continue
+        source_file = blocker.get("source_file", "")
+        blocked_side_line = _safe_int(
+            blocker.get("blocked_side_line_number", blocker.get("blocked_side_line_numder", 0)),
+            0,
+        )
+        if not source_file or blocked_side_line <= 0:
+            continue
+        if source_file not in file_cache:
+            file_cache[source_file] = _fetch_file_lines(
+                project_name,
+                source_file,
+                source_root=source_root,
+            )
+        if not file_cache[source_file]:
+            continue
+        if source_file not in code_cache:
+            stripped = _strip_comments_preserve_strings("\n".join(file_cache[source_file]))
+            code_cache[source_file] = stripped.splitlines()
+        blocked_side_body = _extract_blocked_side_body(code_cache[source_file], blocked_side_line)
+        branch_kind = _classify_branch_kind(blocked_side_body)
+        blocker["branch_kind"] = branch_kind
+        blocker["branch_kind_priority"] = _BRANCH_KIND_PRIORITY[branch_kind]
+        blocker["blocked_side_body"] = blocked_side_body[:200]
+        blocker.setdefault("score_components", {})["branch_kind"] = branch_kind
+        classified_late = True
+    if classified_late:
         scored.sort(key=_selector_state_sort_key, reverse=True)
 
     return scored
@@ -827,6 +940,8 @@ def _selector_sort_key(blocker: Dict[str, Any]) -> tuple:
     return (
         blocker.get("score", 0.0),
         blocker.get("coverage_benefit", blocker.get("impact_score", 0.0)),
+        # Tie-break before reach so zero-benefit ties are not ordered by hit count alone.
+        blocker.get("branch_kind_priority", _BRANCH_KIND_PRIORITY["other"]),
         blocker.get("reach_confidence", blocker.get("actionability_score", 0.0)),
         blocker.get("globally_unhit_function_count", 0),
         blocker.get("blocked_unique_not_covered_complexity", 0),
