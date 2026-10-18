@@ -40,6 +40,11 @@ introspector = Introspector()
 llm_client: LLMClient | None = None
 experiment_logger: ExperimentLogger | None = None
 experiment_dir: Path | None = None
+# Monotonic id for each selector run, so blocker_score_history.jsonl rows can be grouped per selection.
+_blocker_selection_count = 0
+# Cap on per-blocker score entries embedded in a blocker_selection_completed event; the full
+# ranking always goes to blocker_score_history.jsonl.
+_SELECTION_EVENT_SCORE_LIMIT = 50
 
 
 @dataclass
@@ -603,6 +608,7 @@ def _snapshot_existing_project_blockers(
         coverage_context,
         include_resolved=include_resolved,
         return_aggregated_count=True,
+        selection_context=f"snapshot:{selection_stage}",
     )
     snapshot_path = _write_project_blocker_snapshot(
         project_name,
@@ -1019,6 +1025,67 @@ def _blocker_identity(blocker: dict) -> tuple[str, str, str, str]:
     return canonical_blocker_key(blocker)
 
 
+def _blocker_score_summary(blocker: dict) -> dict:
+    """Selector score fields kept for auditing why a blocker was ranked where it was."""
+    evidence = blocker.get("solvability_evidence") or {}
+    return {
+        "function_name": blocker.get("function_name"),
+        "source_file": blocker.get("source_file"),
+        "branch_line_number": blocker.get("branch_line_number"),
+        "blocked_side": blocker.get("blocked_side"),
+        "blocked_side_line_number": blocker.get("blocked_side_line_number"),
+        "best_target": blocker.get("best_target"),
+        "project_blocker_state": blocker.get("project_blocker_state"),
+        "project_branch_hit_count": blocker.get("project_branch_hit_count"),
+        "score": blocker.get("score"),
+        "score_model": blocker.get("score_model"),
+        "score_components": blocker.get("score_components"),
+        "solvability_reason": blocker.get("solvability_reason"),
+        "solvability_evidence_grade": evidence.get("grade"),
+        "solvability_evidence_pattern": evidence.get("pattern"),
+        "solvability_hints": blocker.get("solvability_hints"),
+        "blocked_unique_not_covered_complexity": blocker.get("blocked_unique_not_covered_complexity"),
+        "blocked_unique_reachable_complexity": blocker.get("blocked_unique_reachable_complexity"),
+        "blocked_unique_function_count": len(blocker.get("blocked_unique_functions") or []),
+    }
+
+
+def _append_blocker_score_history(
+    project_name: str,
+    ranked_blockers: list[dict],
+    *,
+    selection_index: int,
+    selection_context: str,
+    session_number: int | None,
+    blocker_top_k: int,
+) -> Path | None:
+    """Append one JSONL row per ranked blocker so score changes can be traced across selections."""
+    if experiment_dir is None:
+        return None
+    output_path = experiment_dir / "blocker_score_history.jsonl"
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    run_id = experiment_logger.run_id if experiment_logger is not None else None
+    try:
+        with output_path.open("a", encoding="utf-8") as f:
+            for rank, blocker in enumerate(ranked_blockers, start=1):
+                record = {
+                    "timestamp": timestamp,
+                    "run_id": run_id,
+                    "project": project_name,
+                    "selection_index": selection_index,
+                    "selection_context": selection_context,
+                    "session_number": session_number,
+                    "rank": rank,
+                    "within_top_k": blocker_top_k <= 0 or rank <= blocker_top_k,
+                    **_blocker_score_summary(blocker),
+                }
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        logger.warning("Failed to append blocker score history to %s: %s", output_path, exc)
+        return None
+    return output_path
+
+
 def _should_persist_blocker_attempt(pipeline_result: dict) -> bool:
     return pipeline_result.get("attempt_result") in {
         "success",
@@ -1037,7 +1104,10 @@ def _select_project_blockers(
     include_resolved: bool = False,
     attempted_blocker_keys: set[tuple[str, str, str, str]] | None = None,
     return_aggregated_count: bool = False,
+    selection_context: str = "unspecified",
+    session_number: int | None = None,
 ) -> list[dict] | tuple[list[dict], int]:
+    global _blocker_selection_count
     selection_started_at = time.perf_counter()
     blockers = aggregate_score_and_revalidate_blockers(
         json_path=str(blocker_json_path),
@@ -1057,6 +1127,16 @@ def _select_project_blockers(
             if _blocker_identity(blocker) not in attempted_blocker_keys
         ]
         attempted_filtered_count = before_attempted_filter - len(filtered)
+    _blocker_selection_count += 1
+    selection_index = _blocker_selection_count
+    score_history_path = _append_blocker_score_history(
+        project_name,
+        filtered,
+        selection_index=selection_index,
+        selection_context=selection_context,
+        session_number=session_number,
+        blocker_top_k=blocker_top_k,
+    )
     if blocker_top_k > 0:
         filtered = filtered[:blocker_top_k]
     selection_elapsed = time.perf_counter() - selection_started_at
@@ -1078,6 +1158,14 @@ def _select_project_blockers(
         attempted_filtered_count=attempted_filtered_count,
         filtered_count=len(filtered),
         selection_elapsed_seconds=selection_elapsed,
+        selection_index=selection_index,
+        selection_context=selection_context,
+        session_number=session_number,
+        score_history_path=str(score_history_path) if score_history_path else None,
+        selected_blocker_scores=[
+            {"rank": rank, **_blocker_score_summary(blocker)}
+            for rank, blocker in enumerate(filtered[:_SELECTION_EVENT_SCORE_LIMIT], start=1)
+        ],
     )
     if return_aggregated_count:
         return filtered, aggregated_count
@@ -1133,6 +1221,7 @@ def run_blocker_pipeline(
             blocker_top_k,
             coverage_context,
             include_resolved=True,
+            selection_context="single_pipeline",
         )
         if not blockers:
             logger.warning("No blockers available in %s.", resolved_json_path)
@@ -1404,6 +1493,7 @@ def run_blocker_pipeline(
         )
         _append_blocker_attempt_record(
             event="blocker_pipeline_result",
+            selection_score=_blocker_score_summary(blocker),
             success=False,
             attempt_result="llm_error",
             dependency_result="Classification Failed",
@@ -1501,6 +1591,7 @@ def run_blocker_pipeline(
     )
     _append_blocker_attempt_record(
         event="blocker_pipeline_result",
+        selection_score=_blocker_score_summary(blocker),
         success=success,
         attempt_result=attempt_result,
         dependency_result=result.get("dependency_result"),
@@ -1816,6 +1907,8 @@ def run_blocker_session(
         blocker_top_k,
         coverage_context,
         attempted_blocker_keys=state.attempted_blocker_keys,
+        selection_context="session_start",
+        session_number=state.sessions_run,
     )
     if not blockers:
         state.blocker_pool_exhausted = True
@@ -1882,6 +1975,9 @@ def run_blocker_session(
                 "project_blocker_state": blocker.get("project_blocker_state"),
                 "project_branch_hit_count": blocker.get("project_branch_hit_count"),
                 "project_blocked_hit_count": blocker.get("project_blocked_hit_count"),
+                "score": blocker.get("score"),
+                "score_components": blocker.get("score_components"),
+                "solvability_reason": blocker.get("solvability_reason"),
             }
             for blocker in selected_blockers
         ],
@@ -2109,6 +2205,8 @@ def run_blocker_session(
                     blocker_top_k,
                     coverage_context,
                     attempted_blocker_keys=state.attempted_blocker_keys | session_seen_blocker_keys,
+                    selection_context="session_rerank",
+                    session_number=state.sessions_run,
                 )
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 logger.warning(
