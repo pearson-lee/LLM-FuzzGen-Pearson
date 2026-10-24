@@ -1,4 +1,4 @@
-# Input Dependent pipeline：SymCC 從未執行與 fidelity preflight 修復（2026-10-18）
+# Input Dependent pipeline：SymCC 從未執行與 fidelity preflight 修復（2026-10-18，10/19 追加）
 
 ## 1. 問題概述
 
@@ -55,14 +55,56 @@ tomlplusplus 三次實驗中，被分類為 Input Dependent 的 blocker 合計�
 
 這次成功來自 LLM 撰寫的新格式 seed，SymCC 沒有參與；但 `success_stage` 記為 `symcc_generated_harness`，統計 SymCC 解題率時需要另外區分。
 
-## 4. 測試
+## 4. 10/19 追加：`.inl` 也被當成編譯單元
 
-新增 4 個 unit test（header 略過、stdlib 模式、native seed 的 text/hex/錯誤/缺漏）。`python -m pytest -q unitest`：225 passed、1 skipped。
+### 發現經過
 
-## 5. 後續
+套用上述修正後的第一次完整實驗 `20261018_205808` 中，唯一被分類為 Dependent 的 `at_path`（`path.inl:494` → 505）第一次通過 fidelity preflight（新格式 seed `a.c`），但 SymCC probe 與新 harness 上的 SymCC 都在建置時失敗：
 
-- README：主機工具加入 `clang`，驗證步驟加入 `command -v clang`，常見問題補上 `Required tool not found: clang`；第 7 步關於 regular 模式的描述需更新。
-- summary 新增「實際由哪個 seed 解出」的欄位（`harness_native_seed` / `libfuzzer` / `symcc`）。
-- 失敗類型：SymCC 崩潰（`-11`）目前仍記為 `coverage_no_blocked_side`，應獨立標示。
-- GT 66 個 pending 案例中，停在 SymCC 階段的失敗需要先確認是否為上述環境問題，不能直接當成分類器 FP 的證據。
-- 有 SymCC library archive 的 C++ 專案仍走 regular 模式，可能有相同的崩潰問題，需另外驗證。
+```
+ValueError: Unsupported source extension for .../normalized_sources/02dd5c6ac2_path.inl
+```
+
+與問題二同源：toml++ 的實作放在 `*.inl`，透過 `#include` 引入，但 `HEADER_EXTENSIONS` 只有 `.h/.hpp/.hh/.hxx/.h++`，`path.inl` 仍被列為編譯來源，`path_language()` 不認得 `.inl` 而丟出例外。這次建置崩潰同樣被記成 `symcc_no_new_outputs`。
+
+### 修正
+
+- `build_context.py`：`HEADER_EXTENSIONS` 加入 `.inl`、`.ipp`、`.tpp`、`.tcc`、`.inc`（只會被 `#include` 的實作片段）。
+- `unitest/test_symcc_harness_fidelity.py`：`test_compilation_sources_skip_headers` 加入 `path.inl`。
+
+### 494 離線重跑
+
+| 重跑 | 結果 |
+|---|---|
+| `manual_replay_494_20261019_130312` | SymCC probe 正常建置執行（4 次 SymCC、1023 個 input、200 次評估、42 個走到 494、0 個走到 505）；harness 產生 `llm_timeout`（300 秒），未走到後續階段 |
+| `manual_replay_494_20261019_133047` | **整條 pipeline 第一次完整走完**：harness 產生成功 → preflight 通過 → libFuzzer → 新 harness 上的 SymCC 正常執行（99 次 SymCC、2737 個 input、200 次評估、9 個走到 494、0 個走到 505） |
+
+505 沒有被走到是正確結果：GT 案例 `tomlplusplus_toml_v3_at_path_toml_v3_node_toml_v3_path_const_494` 已判定為 Input Independent / Internal Invariant Guard（`path_component_type` 是只有 `key`、`array_index` 的封閉 enum，parser 不會產生第三種類型）。494 在 1006、1010、1012、1018 四次實驗都被分類器判為 Dependent，是分類器 FP（見 `backlog/TBD.md` H2）。
+
+## 5. 10/19 追加觀察
+
+### Vertex AI 單次請求上限 90 秒
+
+- `llm_interface/llm_client.py:126` 設定 `{"timeout": 90.0}`。seed generator log 連續出現 `DeadlineExceeded: 504 Deadline expired before operation could complete.`，重試直到 stage 上限（seed generator 900 秒、harness 產生 300 秒）後記為 `llm_timeout`。
+- 1010、1012、1018 三次實驗分別有 36、39、56 次 504，各有 4、4、2 個 stage 以 `llm_timeout` 結束。
+- 與 `.inl` 修正無關：494 的 harness prompt 修正前後皆為 51,906 bytes（內容只差截斷提示的字數），同一份 prompt 在 1018 實驗約 2 分鐘完成，10/19 第一次重跑 300 秒無回應、第二次成功。
+
+### SymCC 評估額度成為瓶頸
+
+SymCC 能正常執行後，產生的 input 遠多於評估上限 `--symcc-max-candidate-evaluations 200`（416：418 個，494 新 harness：2737 個）。只有 1 個起始 seed 時，第 1 代就分到全部 200 個額度，剩下的 input 未被評估，也不會進入第 2 代（`candidate_eval_budget_exhausted`）。
+
+## 6. 測試
+
+新增 4 個 unit test（header 與 `.inl` 略過、stdlib 模式、native seed 的 text/hex/錯誤/缺漏）。`python -m pytest -q unitest`：225 passed、1 skipped。
+
+## 7. 後續
+
+已整理進 `backlog/TBD.md`：
+
+- H4：調高 Vertex AI 單次請求上限，並放寬 harness 產生的 stage 上限。
+- H5：SymCC 建置失敗與崩潰獨立標示；summary 新增實際解題來源（`harness_native_seed` / `libfuzzer` / `symcc`）。
+- H2、H3：分類器 FP 離線評估；以修正後的 pipeline 批次重跑歷史 Dependent blocker。
+- M1：有 SymCC library archive 的 C++ 專案仍走 regular 模式，可能有相同的崩潰問題。
+- M3：評估額度上限。
+- M7：GT 66 個 pending 案例中，停在 SymCC 階段的失敗需先確認是否為上述環境問題。
+- L1：README 補上 `clang` 安裝、驗證與 regular 模式說明。

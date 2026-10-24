@@ -21,7 +21,9 @@ CXX_EXTENSIONS = {
     ".hxx",
     ".h++",
 }
-HEADER_EXTENSIONS = {".h", ".hpp", ".hh", ".hxx", ".h++"}
+# Include-only files: headers plus template/inline implementation fragments (e.g. toml++
+# keeps its implementations in *.inl). None of them is a standalone compilation unit.
+HEADER_EXTENSIONS = {".h", ".hpp", ".hh", ".hxx", ".h++", ".inl", ".ipp", ".tpp", ".tcc", ".inc"}
 NOISE_PATH_MARKERS = (
     "/test/",
     "/tests/",

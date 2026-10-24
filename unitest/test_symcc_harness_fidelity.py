@@ -673,7 +673,7 @@ def test_compilation_sources_skip_headers(tmp_path: Path) -> None:
             "mode": "original_target",
             "branch_source": str(header),
             "required_sources": [str(target), str(header)],
-            "optional_sources": [str(tmp_path / "other.h")],
+            "optional_sources": [str(tmp_path / "other.h"), str(tmp_path / "path.inl")],
         }
     )
 
