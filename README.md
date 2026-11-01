@@ -26,7 +26,8 @@ sudo apt install -y \
   software-properties-common ca-certificates curl gnupg lsb-release \
   git build-essential cmake ninja-build xz-utils \
   clang-14 llvm-14 llvm-14-dev llvm-14-tools \
-  libz3-dev zlib1g-dev gdb
+  libz3-dev zlib1g-dev gdb \
+  libncurses5 libtinfo5
 
 sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt update
