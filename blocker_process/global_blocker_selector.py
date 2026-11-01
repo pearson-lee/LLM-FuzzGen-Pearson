@@ -1,13 +1,15 @@
 import argparse
 import copy
+import hashlib
 import json
 import math
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from glob import glob
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 from blocker_process.coverage_utils import get_line_execution_count
 
 
@@ -569,6 +571,269 @@ def _enrich_with_snippet_solvability(
     return scored
 
 
+# ── Phase 3: LLM branch priority (ordering tie-break only, opt-in) ─────────────
+# The regex branch_kind cannot tell a semantic result branch from a defensive
+# early exit, nor recognise solvable comparisons. When enabled, an LLM classifies
+# each top candidate into the ground-truth taxonomy; the tier is derived here from
+# the category (never chosen by the LLM) and only reorders zero-score ties.
+_LLM_PRIORITY_PROMPT_VERSION = "branch_priority_v1"
+_LLM_PRIORITY_TEMPLATE = (
+    Path(__file__).resolve().parent.parent / "prompts" / "templates" / "blocker_branch_priority_template"
+)
+_LLM_SOLVABLE_CATEGORIES = frozenset({"Actionable Target Gap", "Bounded Extreme Value"})
+_LLM_UNSOLVABLE_CATEGORIES = frozenset({
+    "Internal Invariant Guard",
+    "Structurally Unreachable API Path",
+    "Resource-Exhaustion Guard",
+    "Environmental Failure",
+    "Generated Parser State",
+    "Infeasible Counter Overflow",
+    "Crash-Revealing Path",
+})
+_LLM_CATEGORIES = _LLM_SOLVABLE_CATEGORIES | _LLM_UNSOLVABLE_CATEGORIES | {"Uncertain"}
+_LLM_DEFAULT_TIER = 1
+_LLM_DEFAULT_SCORE = 0.5
+_LLM_FUNCTION_WINDOW_RADIUS = 40
+_LLM_HARNESS_MAX_CHARS = 4096
+_LLM_MAX_UNIQUE_FUNCTIONS = 10
+_HARNESS_EXTENSIONS = (".cc", ".cpp", ".cxx", ".c")
+
+
+def _derive_llm_tier(category: str, confidence: str) -> int:
+    if category in _LLM_SOLVABLE_CATEGORIES:
+        return 2
+    # A low-confidence "unsolvable" verdict must not bury a blocker at the bottom.
+    if category in _LLM_UNSOLVABLE_CATEGORIES and confidence != "low":
+        return 0
+    return _LLM_DEFAULT_TIER
+
+
+def _parse_llm_priority_response(text: str) -> Dict[str, Any]:
+    payload: Any = None
+    for candidate in (
+        text,
+        *(m.group(1) for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text or "", re.DOTALL)),
+        *(m.group(0) for m in re.finditer(r"\{.*\}", text or "", re.DOTALL)),
+    ):
+        try:
+            payload = json.loads(candidate)
+            break
+        except (TypeError, ValueError):
+            continue
+    if not isinstance(payload, dict):
+        raise ValueError("LLM priority response is not a JSON object")
+
+    category = str(payload.get("category") or "").strip().strip("`")
+    if category not in _LLM_CATEGORIES:
+        category = "Uncertain"
+    confidence = str(payload.get("confidence") or "").strip().lower()
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "low"
+    solvability = min(1.0, max(0.0, _safe_float(payload.get("solvability"), _LLM_DEFAULT_SCORE)))
+    return {
+        "category": category,
+        "confidence": confidence,
+        "solvability": round(solvability, 4),
+        "required_condition": str(payload.get("required_condition") or "")[:300],
+        "evidence": str(payload.get("evidence") or "")[:500],
+        "tier": _derive_llm_tier(category, confidence),
+    }
+
+
+def _numbered_window(code_lines: List[str], branch_line: int, blocked_line: int, radius: int) -> str:
+    lo = max(1, branch_line - radius)
+    hi = min(len(code_lines), branch_line + radius)
+    rendered = []
+    for number in range(lo, hi + 1):
+        marker = ">>B" if number == branch_line else (">>X" if number == blocked_line else "   ")
+        rendered.append(f"{marker} {number:>6}| {code_lines[number - 1]}")
+    return "\n".join(rendered)
+
+
+def _find_harness_source(project_name: str, target_name: Optional[str]) -> str:
+    if not target_name:
+        return ""
+    project_dir = Path("external/oss-fuzz/projects") / project_name
+    for extension in _HARNESS_EXTENSIONS:
+        path = project_dir / f"{target_name}{extension}"
+        if path.is_file():
+            try:
+                return path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return ""
+    return ""
+
+
+def _llm_priority_context(
+    blocker: Dict[str, Any],
+    code_lines: List[str],
+    harness_code: str,
+) -> Dict[str, str]:
+    branch_line = _safe_int(blocker.get("branch_line_number", 0), 0)
+    blocked_line = _safe_int(_blocked_side_line_number(blocker), 0)
+    unique_functions = list(blocker.get("blocked_unique_functions") or [])[:_LLM_MAX_UNIQUE_FUNCTIONS]
+    if len(harness_code) > _LLM_HARNESS_MAX_CHARS:
+        harness_code = harness_code[:_LLM_HARNESS_MAX_CHARS] + "\n... [truncated]"
+    return {
+        "function_name": str(blocker.get("function_name") or ""),
+        "source_file": str(blocker.get("source_file") or ""),
+        "branch_line": str(branch_line),
+        "blocked_side_line": str(blocked_line),
+        "branch_hit_count": str(blocker.get("project_branch_hit_count", "unknown")),
+        "branch_condition": _extract_if_statement(code_lines, branch_line),
+        "blocked_side_body": _extract_blocked_side_body(code_lines, blocked_line),
+        "function_window": _numbered_window(code_lines, branch_line, blocked_line, _LLM_FUNCTION_WINDOW_RADIUS),
+        "blocked_unique_functions": "\n".join(f"- {name}" for name in unique_functions) or "(none)",
+        "harness_code": harness_code or "(not available)",
+    }
+
+
+def _llm_priority_cache_key(blocker: Dict[str, Any], context: Dict[str, str]) -> str:
+    # Hit counts and the chosen harness drift between selections; the branch's value
+    # depends only on its code, so they stay out of the key.
+    digest = hashlib.sha1()
+    for part in (
+        _LLM_PRIORITY_PROMPT_VERSION,
+        "|".join(canonical_blocker_key(blocker)),
+        context["branch_condition"],
+        context["blocked_side_body"],
+        context["function_window"],
+    ):
+        digest.update(part.encode("utf-8", errors="replace"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _load_llm_priority_cache(cache_path: Optional[str]) -> Dict[str, Dict[str, Any]]:
+    cache: Dict[str, Dict[str, Any]] = {}
+    if not cache_path or not os.path.isfile(cache_path):
+        return cache
+    with open(cache_path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict) and entry.get("cache_key") and isinstance(entry.get("result"), dict):
+                cache[entry["cache_key"]] = entry["result"]
+    return cache
+
+
+def _apply_llm_priority(blocker: Dict[str, Any], result: Dict[str, Any], *, cached: bool) -> None:
+    blocker["llm_category"] = result["category"]
+    blocker["llm_tier"] = result["tier"]
+    blocker["llm_score"] = result["solvability"]
+    blocker["llm_confidence"] = result["confidence"]
+    blocker["llm_required_condition"] = result["required_condition"]
+    blocker["llm_evidence"] = result["evidence"]
+    blocker["llm_cached"] = cached
+    components = blocker.setdefault("score_components", {})
+    components["llm_category"] = result["category"]
+    components["llm_tier"] = result["tier"]
+    components["llm_score"] = result["solvability"]
+
+
+def _default_llm_priority_generate(backend: str, model: str) -> Callable[[str], Optional[str]]:
+    from llm_interface.llm_client import LLMClient
+
+    return LLMClient(backend=backend, model_name=model, temperature=0.0).generate_text
+
+
+def _enrich_with_llm_priority(
+    scored: List[Dict[str, Any]],
+    project_name: str,
+    settings: Dict[str, Any],
+    source_root: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Classify the top candidates with an LLM and attach llm_tier / llm_score.
+
+    `settings` keys: top_n, workers, cache_path, prompt_dir, include_harness,
+    backend, model, and optionally `generate` (prompt -> text) for tests.
+    """
+    top_n = max(0, int(settings.get("top_n", 30) or 0))
+    cache_path = settings.get("cache_path")
+    prompt_dir = settings.get("prompt_dir")
+    cache = _load_llm_priority_cache(cache_path)
+    template = _LLM_PRIORITY_TEMPLATE.read_text(encoding="utf-8")
+    file_cache: Dict[str, List[str]] = {}
+    harness_cache: Dict[str, str] = {}
+
+    pending: List[tuple[Dict[str, Any], str, str]] = []
+    for rank, blocker in enumerate(scored):
+        source_file = blocker.get("source_file", "")
+        if not source_file:
+            continue
+        if source_file not in file_cache:
+            raw_lines = _fetch_file_lines(project_name, source_file, source_root=source_root)
+            file_cache[source_file] = (
+                _strip_comments_preserve_strings("\n".join(raw_lines)).splitlines() if raw_lines else []
+            )
+        code_lines = file_cache[source_file]
+        if not code_lines or _safe_int(blocker.get("branch_line_number", 0), 0) <= 0:
+            continue
+
+        target = str(blocker.get("best_target") or "")
+        if settings.get("include_harness", True) and target not in harness_cache:
+            harness_cache[target] = _find_harness_source(project_name, target)
+        context = _llm_priority_context(blocker, code_lines, harness_cache.get(target, ""))
+        key = _llm_priority_cache_key(blocker, context)
+        if key in cache:
+            _apply_llm_priority(blocker, cache[key], cached=True)
+        elif rank < top_n:
+            prompt = template
+            for name, value in {"project": project_name, **context}.items():
+                prompt = prompt.replace(f"<<{name}>>", value)
+            pending.append((blocker, key, prompt))
+
+    if pending:
+        generate = settings.get("generate") or _default_llm_priority_generate(
+            str(settings.get("backend") or "vertexai"),
+            str(settings.get("model") or "gemini-2.5-flash"),
+        )
+
+        def classify(item: tuple[Dict[str, Any], str, str]) -> tuple[Dict[str, Any], str, str, Optional[str], Optional[str]]:
+            blocker, key, prompt = item
+            try:
+                return blocker, key, prompt, generate(prompt), None
+            except Exception as exc:  # one failed candidate must not fail the selection
+                return blocker, key, prompt, None, f"{type(exc).__name__}: {exc}"
+
+        workers = max(1, int(settings.get("workers", 4) or 1))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            outcomes = list(pool.map(classify, pending))
+
+        new_entries = []
+        for blocker, key, prompt, response, error in outcomes:
+            if prompt_dir:
+                record_dir = Path(prompt_dir) / key[:16]
+                record_dir.mkdir(parents=True, exist_ok=True)
+                (record_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+                (record_dir / "response.txt").write_text(response or error or "", encoding="utf-8")
+            if response and not error:
+                try:
+                    result = _parse_llm_priority_response(response)
+                except ValueError as exc:
+                    error = str(exc)
+                else:
+                    _apply_llm_priority(blocker, result, cached=False)
+                    cache[key] = result
+                    new_entries.append({"cache_key": key, "blocker": list(canonical_blocker_key(blocker)), "result": result})
+                    continue
+            blocker["llm_error"] = error or "empty LLM response"
+
+        if cache_path and new_entries:
+            os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+            with open(cache_path, "a", encoding="utf-8") as handle:
+                for entry in new_entries:
+                    handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        print(
+            "[Info] llm branch priority: "
+            f"evaluated={len(pending)} succeeded={len(new_entries)} cache_size={len(cache)}"
+        )
+
+    return scored
+
+
 def canonical_blocker_key(blocker: Dict[str, Any]) -> tuple[str, str, str, str]:
     return (
         _normalize_source_path(blocker.get("source_file", "")),
@@ -940,7 +1205,10 @@ def _selector_sort_key(blocker: Dict[str, Any]) -> tuple:
     return (
         blocker.get("score", 0.0),
         blocker.get("coverage_benefit", blocker.get("impact_score", 0.0)),
-        # Tie-break before reach so zero-benefit ties are not ordered by hit count alone.
+        # Tie-breaks before reach so zero-benefit ties are not ordered by hit count alone:
+        # the opt-in LLM verdict first, then the regex branch kind.
+        blocker.get("llm_tier", _LLM_DEFAULT_TIER),
+        blocker.get("llm_score", _LLM_DEFAULT_SCORE),
         blocker.get("branch_kind_priority", _BRANCH_KIND_PRIORITY["other"]),
         blocker.get("reach_confidence", blocker.get("actionability_score", 0.0)),
         blocker.get("globally_unhit_function_count", 0),
@@ -961,6 +1229,7 @@ def rescore_existing_blockers(
     source_root: Optional[str] = None,
     hit_saturation_threshold: int = _HIT_SATURATION_THRESHOLD,
     top_k: Optional[int] = None,
+    llm_priority: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Re-score an archived selector snapshot without rerunning coverage."""
     rescored = []
@@ -968,6 +1237,9 @@ def rescore_existing_blockers(
         blocker = copy.deepcopy(original)
         blocker.pop("solvability_evidence", None)
         blocker.pop("source_evidence_locations", None)
+        for stale in ("llm_category", "llm_tier", "llm_score", "llm_confidence",
+                      "llm_required_condition", "llm_evidence", "llm_cached", "llm_error"):
+            blocker.pop(stale, None)
         _apply_expected_utility_score(
             blocker,
             hit_saturation_threshold=hit_saturation_threshold,
@@ -982,6 +1254,9 @@ def rescore_existing_blockers(
         source_root=source_root,
     )
     rescored.sort(key=_selector_state_sort_key, reverse=True)
+    if llm_priority:
+        rescored = _enrich_with_llm_priority(rescored, project_name, llm_priority, source_root=source_root)
+        rescored.sort(key=_selector_state_sort_key, reverse=True)
     if top_k is not None and top_k > 0:
         return rescored[:top_k]
     return rescored
@@ -1331,6 +1606,7 @@ def aggregate_score_and_revalidate_blockers(
     summary_json_path: Optional[str] = None,
     include_resolved: bool = False,
     project_name: Optional[str] = None,
+    llm_priority: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     started_at = time.perf_counter()
     if all_functions_js_path is None or summary_json_path is None:
@@ -1387,6 +1663,9 @@ def aggregate_score_and_revalidate_blockers(
     if project_name is not None:
         scored = _enrich_with_snippet_solvability(scored, project_name, top_k)
         scored.sort(key=_selector_state_sort_key, reverse=True)
+        if llm_priority:
+            scored = _enrich_with_llm_priority(scored, project_name, llm_priority)
+            scored.sort(key=_selector_state_sort_key, reverse=True)
     snippet_elapsed = time.perf_counter() - snippet_started_at
     sort_elapsed = snippet_started_at - sort_started_at
     total_elapsed = time.perf_counter() - started_at

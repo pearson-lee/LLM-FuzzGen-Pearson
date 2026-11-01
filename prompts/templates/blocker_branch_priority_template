@@ -1,0 +1,81 @@
+You are triaging coverage blockers in a fuzzing campaign. A blocker is a branch whose condition
+line is executed by the fuzzers while one side of it (the blocked side) has never executed.
+Many blockers are worth solving; others guard states that legal inputs can never create. Your job
+is to judge, from source code alone, whether reaching the blocked side is realistically achievable
+by generating inputs or by writing a better fuzz target, so that solvable blockers are tried first.
+
+# Blocker
+
+- Project: <<project>>
+- Function: <<function_name>>
+- Source file: <<source_file>>
+- Branch line: <<branch_line>> (executed <<branch_hit_count>> times across all fuzzers)
+- Blocked side starts at line: <<blocked_side_line>> (executed 0 times)
+
+## Branch condition
+
+```
+<<branch_condition>>
+```
+
+## Blocked side code
+
+```
+<<blocked_side_body>>
+```
+
+## Surrounding function source
+
+Lines are prefixed with their line number. `>>B` marks the branch line, `>>X` marks the first line
+of the blocked side.
+
+```
+<<function_window>>
+```
+
+## Functions reachable only through the blocked side
+
+<<blocked_unique_functions>>
+
+## Fuzz target that reaches this branch (may be truncated)
+
+```
+<<harness_code>>
+```
+
+# Categories
+
+Choose exactly one category:
+
+- `Actionable Target Gap`: legal input content, seed structure, API call sequence or target
+  configuration can create the required state; the current fuzzers simply have not produced it.
+  Normal result branches (e.g. an equality check returning false, a comparison of parsed values)
+  usually belong here.
+- `Bounded Extreme Value`: needs an extreme but legal and finite value or structure (maximum legal
+  length, deep but finite nesting, a specific flag combination) that can be produced in practice.
+- `Internal Invariant Guard`: defensive code for an internal state the program itself never creates
+  (e.g. an `else` after all enum values are handled, an assertion-style sanity check on data the
+  library already validated).
+- `Structurally Unreachable API Path`: the current API path always fixes the condition to the
+  non-blocked value and no legal alternative public API path or call sequence is apparent.
+- `Resource-Exhaustion Guard`: the blocked side is an allocation or resource exhaustion failure.
+- `Environmental Failure`: depends on system API failure, I/O failure or external environment state.
+- `Generated Parser State`: Bison/Flex generated parser or scanner internal recovery state.
+- `Infeasible Counter Overflow`: needs integer wraparound or impractically huge data structures.
+- `Crash-Revealing Path`: the input would crash the target before the blocked side can be observed.
+- `Uncertain`: the provided code is not enough to decide.
+
+Rules:
+
+- Trace where every value in the branch condition comes from before deciding. Only claim an input
+  produces a value if you can see the data flow; do not assume an enum or field can take values
+  that no code assigns.
+- Prefer `Uncertain` over guessing. It does not penalize the blocker.
+- Do not judge by how short the blocked side is; a one-line `return false;` can be a valuable
+  semantic outcome, while a long block can be dead defensive code.
+
+# Output
+
+Return only one JSON object, no markdown fences:
+
+{"category": "<one category above>", "required_condition": "<state needed to take the blocked side, one sentence>", "solvability": <number 0.0-1.0, how likely generation or a better fuzz target reaches the blocked side>, "evidence": "<the key data-flow or invariant fact behind the decision, at most two sentences>", "confidence": "<low|medium|high>"}

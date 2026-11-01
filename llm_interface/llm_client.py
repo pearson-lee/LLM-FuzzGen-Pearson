@@ -281,6 +281,21 @@ class LLMClient:
             logger.error(f"Seed generation failed after all retries: {e}", exc_info=True)
             return None
 
+    def generate_text(self, prompt: str) -> str | None:
+        """Single tool-free completion returning the raw text (no LangGraph loop or memory)."""
+        if not prompt:
+            logger.warning("Generate_text called with empty prompt.")
+            return None
+        try:
+            response = self._llm_without_tools.invoke([HumanMessage(content=prompt)])
+            content = getattr(response, "content", "")
+            if isinstance(content, list):
+                content = " ".join(str(item) for item in content)
+            return str(content).strip() or None
+        except Exception as e:
+            logger.error(f"Text generation failed after all retries: {e}", exc_info=True)
+            return None
+
     def generate_dict(self, prompt: str) -> str | None:
         if not prompt:
             logger.warning("Generate_dict called with empty prompt.")

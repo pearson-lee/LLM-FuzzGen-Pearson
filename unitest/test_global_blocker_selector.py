@@ -248,3 +248,108 @@ def test_revalidated_selector_infers_function_and_file_coverage_artifacts(
     assert selected[0]["globally_unhit_function_count"] == 1
     assert selected[0]["score_components"]["globally_unhit_function_bonus"] == 0.25
     assert selected[0]["project_file_lines_percent"] == 10.0
+
+
+LLM_PRIORITY_SOURCE = """int classify(int kind, int a, int b) {
+    if (kind == 1) {
+        return a < b;
+    } else if (kind == 2) {
+        return a == b;
+    } else {
+        return -1;
+    }
+}
+"""
+
+
+def _llm_priority_blockers(source_path: str) -> list[dict]:
+    blockers = []
+    for branch_line, blocked_line in ((4, 5), (2, 3)):
+        blocker = {
+            "function_name": "classify",
+            "source_file": source_path,
+            "branch_line_number": str(branch_line),
+            "blocked_side": "1",
+            "blocked_side_line_number": str(blocked_line),
+            "project_blocker_state": "stalled_at_branch",
+            "project_branch_hit_count": 100,
+            "blocked_unique_functions": [],
+            "best_target": "",
+        }
+        selector._apply_expected_utility_score(blocker)
+        blockers.append(blocker)
+    return blockers
+
+
+def test_llm_tier_is_derived_from_category_and_low_confidence_never_buries() -> None:
+    assert selector._derive_llm_tier("Bounded Extreme Value", "low") == 2
+    assert selector._derive_llm_tier("Internal Invariant Guard", "high") == 0
+    assert selector._derive_llm_tier("Internal Invariant Guard", "low") == 1
+    assert selector._derive_llm_tier("Uncertain", "high") == 1
+
+
+def test_llm_priority_response_parsing_normalizes_unknown_values() -> None:
+    parsed = selector._parse_llm_priority_response(
+        'noise ```json\n{"category": "Made Up", "solvability": 7, "confidence": "sure"}\n``` tail'
+    )
+    assert parsed["category"] == "Uncertain"
+    assert parsed["solvability"] == 1.0
+    assert parsed["confidence"] == "low"
+    assert parsed["tier"] == 1
+
+
+def test_llm_priority_reorders_ties_and_reuses_cache(tmp_path) -> None:
+    source = tmp_path / "classify.c"
+    source.write_text(LLM_PRIORITY_SOURCE, encoding="utf-8")
+    calls: list[str] = []
+
+    def fake_generate(prompt: str) -> str:
+        calls.append(prompt)
+        branch_line = next(line for line in prompt.splitlines() if line.startswith(">>B "))
+        category = "Internal Invariant Guard" if "kind == 2" in branch_line else "Actionable Target Gap"
+        return json.dumps({"category": category, "solvability": 0.9, "confidence": "high"})
+
+    settings = {
+        "top_n": 30,
+        "workers": 2,
+        "cache_path": str(tmp_path / "cache.jsonl"),
+        "prompt_dir": str(tmp_path / "prompts"),
+        "generate": fake_generate,
+    }
+    ranked = selector._enrich_with_llm_priority(_llm_priority_blockers(str(source)), "demo", settings)
+    ranked.sort(key=selector._selector_state_sort_key, reverse=True)
+
+    assert [b["branch_line_number"] for b in ranked] == ["2", "4"]
+    assert ranked[1]["llm_category"] == "Internal Invariant Guard" and ranked[1]["llm_tier"] == 0
+    assert len(calls) == 2
+
+    again = selector._enrich_with_llm_priority(_llm_priority_blockers(str(source)), "demo", settings)
+    assert len(calls) == 2
+    assert all(b["llm_cached"] for b in again)
+
+
+def test_llm_priority_failure_falls_back_to_middle_tier(tmp_path) -> None:
+    source = tmp_path / "classify.c"
+    source.write_text(LLM_PRIORITY_SOURCE, encoding="utf-8")
+
+    def failing_generate(prompt: str) -> str:
+        raise TimeoutError("504 Deadline")
+
+    blockers = selector._enrich_with_llm_priority(
+        _llm_priority_blockers(str(source)), "demo", {"top_n": 30, "generate": failing_generate}
+    )
+    assert all("llm_tier" not in b and "TimeoutError" in b["llm_error"] for b in blockers)
+    assert selector._selector_sort_key(blockers[0])[2:4] == (selector._LLM_DEFAULT_TIER, selector._LLM_DEFAULT_SCORE)
+
+
+def test_llm_priority_respects_top_n(tmp_path) -> None:
+    source = tmp_path / "classify.c"
+    source.write_text(LLM_PRIORITY_SOURCE, encoding="utf-8")
+    calls: list[str] = []
+
+    def fake_generate(prompt: str) -> str:
+        calls.append(prompt)
+        return '{"category": "Actionable Target Gap", "solvability": 0.5, "confidence": "medium"}'
+
+    selector._enrich_with_llm_priority(_llm_priority_blockers(str(source)), "demo", {"top_n": 1, "generate": fake_generate})
+    assert len(calls) == 1

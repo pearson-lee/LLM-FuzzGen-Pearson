@@ -10,6 +10,8 @@
 
 ### H1. Blocker 排序改用 LLM 評估分支價值
 
+- **狀態（10/24）**：已實作（`--blocker-llm-priority`，預設關閉），設計見 `backlog/selector/1024/design.md`，驗證 A/B/C 見 `backlog/selector/1024/validation.md`。保留兩項待改：`Structurally Unreachable API Path` 改為 tier 1；提高 LLM 分數的區分度。
+
 - **背景**：`coverage_benefit` 以函式為單位，飽和專案的候選幾乎全為 0 分（tomlplusplus 1010：96%）。`branch_kind` 只是 regex 分類，無法分辨「正常結果分支」與「防禦性提早離開」（例如 `at_path` 的 `return {}`，四次實驗都失敗），也把 `return lhs.time < rhs.time;`（GT 已證實可解的 416）歸為 `other`。
 - **做法**：在 selector 步驟③（`_enrich_with_snippet_solvability` 之後）對同分候選呼叫 LLM，輸入 branch 條件、blocked side 程式碼與周邊 context，輸出「語意分支 / 防禦性 / 內部不變量」與可解性分數，作為 `branch_kind_priority` 之後、`reach_confidence` 之前的排序依據。只降低順序、不排除候選。
 - **注意**：每次選擇都會呼叫 LLM，需要快取（以 `canonical_blocker_key` + 原始碼 hash 為 key），並限制只評估前 N 個同分候選。

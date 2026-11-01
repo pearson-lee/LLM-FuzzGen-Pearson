@@ -45,6 +45,8 @@ _blocker_selection_count = 0
 # Cap on per-blocker score entries embedded in a blocker_selection_completed event; the full
 # ranking always goes to blocker_score_history.jsonl.
 _SELECTION_EVENT_SCORE_LIMIT = 50
+# Opt-in LLM branch-priority settings for the blocker selector (None = disabled); set in main().
+_blocker_llm_priority: dict | None = None
 
 
 @dataclass
@@ -1047,6 +1049,14 @@ def _blocker_score_summary(blocker: dict) -> dict:
         "branch_kind": blocker.get("branch_kind"),
         "branch_kind_priority": blocker.get("branch_kind_priority"),
         "blocked_side_body": (blocker.get("blocked_side_body") or "")[:120],
+        "llm_category": blocker.get("llm_category"),
+        "llm_tier": blocker.get("llm_tier"),
+        "llm_score": blocker.get("llm_score"),
+        "llm_confidence": blocker.get("llm_confidence"),
+        "llm_required_condition": blocker.get("llm_required_condition"),
+        "llm_evidence": (blocker.get("llm_evidence") or "")[:300],
+        "llm_cached": blocker.get("llm_cached"),
+        "llm_error": blocker.get("llm_error"),
         "blocked_unique_not_covered_complexity": blocker.get("blocked_unique_not_covered_complexity"),
         "blocked_unique_reachable_complexity": blocker.get("blocked_unique_reachable_complexity"),
         "blocked_unique_function_count": len(blocker.get("blocked_unique_functions") or []),
@@ -1118,6 +1128,7 @@ def _select_project_blockers(
         top_k=None,
         include_resolved=include_resolved,
         project_name=project_name,
+        llm_priority=_blocker_llm_priority,
     )
     aggregated_count = len(blockers)
     filtered = _filter_and_refine_project_blockers(blockers, coverage_context)
@@ -3129,6 +3140,39 @@ compilation_attempts = 0
 compilation_successes = 0
 
 
+def _add_blocker_llm_priority_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--blocker-llm-priority",
+        action="store_true",
+        default=False,
+        help="Let an LLM classify top blocker candidates to reorder zero-score ties (see backlog/selector/1024).",
+    )
+    parser.add_argument("--blocker-llm-priority-top-n", type=int, default=30,
+                        help="Max uncached candidates classified per selection. Default 30.")
+    parser.add_argument("--blocker-llm-priority-model", default="gemini-2.5-flash",
+                        help="Model for blocker priority classification. Default gemini-2.5-flash.")
+    parser.add_argument("--blocker-llm-priority-workers", type=int, default=4,
+                        help="Parallel LLM requests for blocker priority classification. Default 4.")
+    parser.add_argument("--blocker-llm-priority-cache", default=None,
+                        help="Cache file to share classifications across runs. Default: inside the experiment dir.")
+    parser.add_argument("--blocker-llm-priority-no-harness", action="store_true", default=False,
+                        help="Do not include the fuzz target source in the classification prompt.")
+
+
+def _blocker_llm_priority_settings(args: argparse.Namespace, run_dir: Path) -> dict | None:
+    if not getattr(args, "blocker_llm_priority", False):
+        return None
+    return {
+        "backend": getattr(args, "llm", None) or "vertexai",
+        "model": args.blocker_llm_priority_model,
+        "top_n": args.blocker_llm_priority_top_n,
+        "workers": args.blocker_llm_priority_workers,
+        "cache_path": args.blocker_llm_priority_cache or str(run_dir / "llm_branch_priority_cache.jsonl"),
+        "prompt_dir": str(run_dir / "llm_branch_priority"),
+        "include_harness": not args.blocker_llm_priority_no_harness,
+    }
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fuzz target generator for OSS-Fuzz projects.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -3356,6 +3400,7 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Classify input-independent blockers but skip the input-independent solver pipeline.",
     )
+    _add_blocker_llm_priority_args(parser_run)
     parser_run.add_argument(
         "--enable-blocker-triage",
         action="store_true",
@@ -3533,6 +3578,7 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Classify input-independent blockers but skip the input-independent solver pipeline.",
     )
+    _add_blocker_llm_priority_args(parser_blocker)
     parser_blocker.add_argument(
         "--enable-blocker-triage",
         action="store_true",
@@ -4053,6 +4099,8 @@ def main() -> None:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         experiment_dir = Path("experiments") / f"{run_id}_{log_name}"
         experiment_dir.mkdir(parents=True, exist_ok=True)
+        global _blocker_llm_priority
+        _blocker_llm_priority = _blocker_llm_priority_settings(args, experiment_dir)
 
         model_name = getattr(args, "model", None)
         llm_backend = getattr(args, "llm", "")
